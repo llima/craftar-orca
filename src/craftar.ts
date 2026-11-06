@@ -51,6 +51,8 @@ export interface UnsetParam {
 }
 
 export interface StatusDoc {
+  /** craftar's exit code: 1 with a document is how a refused sync or a failed check is said (§7.1). */
+  exitCode?: number | null
   forge: ForgeInfo
   statuses: { path: string; state: FileState; target: string; ingredient: string }[]
   warnings: string[]
@@ -100,8 +102,11 @@ export interface WorkspacesDoc {
   warnings: string[]
 }
 
-async function readJson<T>(c: Craftar, read: string, args: string[]): Promise<T> {
-  const r = await run(c.bin, args, c.env)
+// A read that may fetch a remote Forge gets longer than an offline one.
+const FETCH_TIMEOUT_MS = 120_000
+
+async function readJsonCode<T>(c: Craftar, read: string, args: string[], timeoutMs?: number): Promise<{ doc: T; code: number | null }> {
+  const r = await run(c.bin, args, c.env, timeoutMs)
   let doc: unknown
   try {
     doc = JSON.parse(r.stdout)
@@ -109,7 +114,11 @@ async function readJson<T>(c: Craftar, read: string, args: string[]): Promise<T>
     throw new ReadFailure(read, r.code)
   }
   if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) throw new ReadFailure(read, r.code)
-  return doc as T
+  return { doc: doc as T, code: r.code }
+}
+
+async function readJson<T>(c: Craftar, read: string, args: string[]): Promise<T> {
+  return (await readJsonCode<T>(c, read, args)).doc
 }
 
 function workspaceArg(ws: string): string[] {
@@ -119,7 +128,8 @@ function workspaceArg(ws: string): string[] {
 
 export async function status(c: Craftar, ws: string, opts: { fetch: boolean }): Promise<StatusDoc> {
   const args = ['status', '--json', ...(opts.fetch ? [] : ['--offline']), ...workspaceArg(ws)]
-  return readJson(c, 'status', args)
+  const { doc, code } = await readJsonCode<StatusDoc>(c, 'status', args, opts.fetch ? FETCH_TIMEOUT_MS : undefined)
+  return { ...doc, exitCode: code }
 }
 
 export async function driftShow(c: Craftar, ws: string): Promise<DriftDoc> {
@@ -133,11 +143,6 @@ export async function repos(c: Craftar, ws: string): Promise<ReposDoc> {
 // doctor reads offline unless --fetch, which the plugin never passes.
 export async function doctor(c: Craftar, ws: string): Promise<DoctorDoc> {
   return readJson(c, 'doctor', ['doctor', '--json', ...workspaceArg(ws)])
-}
-
-// doctor with no workspace runs the machine checks only; the self-check reads craftar's version from it.
-export async function doctorMachine(c: Craftar): Promise<DoctorDoc> {
-  return readJson(c, 'doctor', ['doctor', '--json'])
 }
 
 // workspaces is about every workspace and takes no --workspace; without --fetch it reads no network.

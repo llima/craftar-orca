@@ -14,7 +14,7 @@ export interface Actions {
   showDiff(path: string): void
 }
 
-export type DiffShown = { path: string; text: string } | { path: string; refused: string } | null
+export type DiffShown = { path: string; text: string; warnings?: string[] } | { path: string; refused: string } | null
 
 type Doc = Pick<Document, 'createElement' | 'createElementNS'>
 
@@ -74,7 +74,11 @@ export function render(doc: Doc, root: HTMLElement, v: View, a: Actions, diff: D
     const box = root.appendChild(h('section', undefined, { class: 'diff' }))
     box.appendChild(h('h2', diff.path))
     if ('refused' in diff) box.appendChild(h('p', diff.refused, { class: 'error' }))
-    else box.appendChild(h('pre', diff.text))
+    else {
+      box.appendChild(h('pre', diff.text))
+      const ul = box.appendChild(h('ul'))
+      for (const w of diff.warnings ?? []) ul.appendChild(h('li', w, { 'data-role': 'warning' }))
+    }
   }
 
   if (v.remote.length > 0) {
@@ -104,9 +108,18 @@ export function render(doc: Doc, root: HTMLElement, v: View, a: Actions, diff: D
     svg.appendChild(s('text', { x: '150', y: '54', class: 'count' }, `${m.pending.length} pending`))
     svg.appendChild(s('line', { x1: '218', y1: '100', x2: '140', y2: '100', class: m.edited.length > 0 ? 'arrow back on' : 'arrow back' }))
     svg.appendChild(s('text', { x: '150', y: '94', class: 'count' }, `${m.edited.length} edited`))
-    const fresh = f?.freshness === 'fetched' ? 'fetched now' : f?.freshness === 'cached' ? `cached copy${f.fetchedAt ? ` (fetched ${new Date(f.fetchedAt).toLocaleString()})` : ''}` : 'Forge on this machine'
+    const when = f?.fetchedAt ? new Date(f.fetchedAt).toLocaleString() : null
+    const fresh =
+      f?.freshness === 'fetched'
+        ? `fetched ${when ?? ''}`.trim()
+        : f?.freshness === 'cached'
+          ? `cached copy${when ? ` (last fetched ${when})` : ''}`
+          : 'Forge on this machine'
     fig.appendChild(h('figcaption', fresh))
 
+    if (m.checkFailed) {
+      root.appendChild(h('p', "craftar status exits 1 — a check fails; craftar's lines below say why.", { class: 'refused' }))
+    }
     if (m.refused) {
       const box = root.appendChild(h('section', undefined, { class: 'refused' }))
       for (const line of refusalLines(m.unset)) box.appendChild(h('pre', line))

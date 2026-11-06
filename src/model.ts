@@ -27,6 +27,8 @@ export interface PanelModel {
   warnings: string[]
   unset: UnsetParam[]
   refused: boolean
+  /** status exited non-zero with no unset parameter: an escape, an override conflict, or a check-only failure. */
+  checkFailed: boolean
   errors: string[]
   readAt: number
 }
@@ -65,7 +67,7 @@ export function buildModel(i: ModelInput): PanelModel {
   const key = mine?.forge?.key ?? null
 
   const warnings: string[] = []
-  for (const w of [...i.status.warnings, ...(i.drift?.warnings ?? []), ...(i.repos?.warnings ?? [])]) {
+  for (const w of [...i.status.warnings, ...(i.drift?.warnings ?? []), ...(i.repos?.warnings ?? []), ...(i.registry?.warnings ?? [])]) {
     if (!warnings.includes(w)) warnings.push(w)
   }
 
@@ -100,6 +102,7 @@ export function buildModel(i: ModelInput): PanelModel {
     warnings,
     unset: i.status.unsetParams ?? [],
     refused: (i.status.unsetParams ?? []).length > 0,
+    checkFailed: (i.status.unsetParams ?? []).length === 0 && typeof i.status.exitCode === 'number' && i.status.exitCode !== 0,
     errors: i.errors ?? [],
     readAt: i.readAt,
   }
@@ -111,6 +114,7 @@ export function barFor(m: PanelModel | 'error' | null): { text: string; tone: To
   if (m === null) return { text: 'craftar', tone: 'neutral' }
   if (m === 'error') return { text: 'craftar: error', tone: 'danger' }
   if (m.refused) return { text: 'craftar: sync refused', tone: 'danger' }
+  if (m.checkFailed) return { text: 'craftar: check failed', tone: 'danger' }
   const pending = m.pending.length
   const edited = m.edited.length + m.apart.length
   if (pending > 0 && edited > 0) return { text: `Forge moved · ${pending} · edited · ${edited}`, tone: 'warning' }

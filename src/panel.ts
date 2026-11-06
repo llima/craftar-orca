@@ -71,11 +71,11 @@ const actions = {
   },
   showDiff(path: string): void {
     void orca.plugin.request('diff.get', { path }, { timeoutMs: 60_000 }).then((r) => {
-      const res = r as { refused?: string; files?: { path: string; diff: string | null; note: string | null }[] }
+      const res = r as { refused?: string; files?: { path: string; diff: string | null; note: string | null }[]; warnings?: string[] }
       if (typeof res.refused === 'string') diff = { path, refused: res.refused }
       else {
         const file = res.files?.find((f) => f.path === path)
-        diff = { path, text: file?.diff ?? file?.note ?? 'no differences' }
+        diff = { path, text: file?.diff ?? file?.note ?? 'no differences', warnings: Array.isArray(res.warnings) ? res.warnings : [] }
       }
       draw()
     })
