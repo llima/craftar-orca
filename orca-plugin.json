@@ -28,7 +28,7 @@
       { "id": "craftar.probe", "title": "craftar: run the probe (measures what the plugin needs from Orca)" }
     ],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — not reading yet", "command": "craftar.probe" }
+      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — not reading yet" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",

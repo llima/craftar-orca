@@ -20,6 +20,7 @@ interface Heartbeat {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null
+let firstBeat: Promise<void> = Promise.resolve()
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -29,7 +30,7 @@ async function beat(orca: OrcaWorkerApi, startedAt: number): Promise<void> {
   const prev = (await orca.storage.get(HEARTBEAT)) as Heartbeat | null
   const same = prev && prev.startedAt === startedAt
   const next: Heartbeat = { startedAt, ticks: same ? prev.ticks + 1 : 0, last: Date.now() }
-  await orca.storage.set(HEARTBEAT, next as unknown as never)
+  await orca.storage.set(HEARTBEAT, { startedAt: next.startedAt, ticks: next.ticks, last: next.last })
 }
 
 async function focusedWorkspaceId(orca: OrcaWorkerApi): Promise<string | null> {
@@ -42,7 +43,13 @@ async function focusedWorkspaceId(orca: OrcaWorkerApi): Promise<string | null> {
     const match = local.filter((w) => w.name === ctx.displayName && w.branch === ctx.branch)
     if (match.length === 1) return match[0].id
   }
+  // Probe only: with no exact match, the one local workspace. S1 deduces the focus as O9 rules.
   return local.length === 1 ? local[0].id : null
+}
+
+function failed(what: string, e: unknown): string {
+  const code = e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : 'error'
+  return `${what}: failed (${code})`
 }
 
 async function terminalProbe(orca: OrcaWorkerApi): Promise<string[]> {
@@ -85,22 +92,32 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   const orcaCli = findOnPath('orca', process.env.PATH ?? '')
   out.push(`orca CLI: ${orcaCli ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}`)
 
-  const hb = (await orca.storage.get(HEARTBEAT)) as Heartbeat | null
+  await firstBeat
+  const hb = (await orca.storage.get(HEARTBEAT).catch(() => null)) as Heartbeat | null
   const upMin = Math.round((Date.now() - startedAt) / 60_000)
   out.push(`worker alive: ${upMin} min since this start${hb && hb.startedAt === startedAt ? `, ${hb.ticks} heartbeats` : ''}`)
 
-  out.push(...(await terminalProbe(orca)))
+  let terminal: string[]
+  try {
+    terminal = await terminalProbe(orca)
+  } catch (e) {
+    terminal = [failed('terminal', e)]
+  }
   out.push('notifications.show: no action (host-api 1.3) — the panel holds the one click')
-  const report = out.join('\n')
-  orca.log(report)
-  return report
+  // The terminal's lines are shown to the person who ran the probe and never logged: a prompt can carry a
+  // host name, a user name or a directory (spec 60 O11).
+  orca.log(out.join('\n'))
+  return [...out, ...terminal].join('\n')
 }
 
 export default function activate(orca: OrcaWorkerApi): void {
   const startedAt = Date.now()
-  void orca.host.call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: 'craftar — not reading yet (S0)', icon: 'layers' })
-  void beat(orca, startedAt)
-  timer = setInterval(() => void beat(orca, startedAt), HEARTBEAT_MS)
+  const tick = (): Promise<void> => beat(orca, startedAt).catch((e) => orca.log(failed('heartbeat', e)))
+  orca.host
+    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: 'craftar — not reading yet', icon: 'layers' })
+    .catch((e) => orca.log(failed('status bar', e)))
+  firstBeat = tick()
+  timer = setInterval(() => void tick(), HEARTBEAT_MS)
   if (typeof timer === 'object' && timer && 'unref' in timer) timer.unref()
   orca.commands.register('craftar.probe', () => probe(orca, startedAt))
 }
