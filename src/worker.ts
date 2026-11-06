@@ -135,6 +135,8 @@ interface State {
   work: Set<Promise<unknown>>
   /** The craftarPath and craftarHome the current craftar and diff child were built from (O1). */
   usedKey: string | null
+  /** The workspace the last self-check asked doctor about; null when there was none to ask. */
+  checkedWs: string | null
   periodicTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -276,10 +278,11 @@ function settingsKey(st: Settings): string {
   return `${st.craftarPath}\0${st.craftarHome}`
 }
 
+// Stopped in its workspace's queue, so a diff call in flight finishes first.
 async function stopDiff(s: State): Promise<void> {
   const old = s.diff
   s.diff = null
-  if (old) await old.child.stop()
+  if (old) await s.queue.run(old.ws, () => old.child.stop())
 }
 
 /**
@@ -290,7 +293,8 @@ async function stopDiff(s: State): Promise<void> {
 async function ensureCheck(s: State, settings: Settings, local: Row[], force: boolean): Promise<void> {
   const key = settingsKey(settings)
   const changed = s.usedKey !== null && s.usedKey !== key
-  if (!force && !changed && s.selfCheck.length > 0) return
+  const appeared = s.checkedWs === null && local.length > 0
+  if (!force && !changed && !appeared && s.selfCheck.length > 0) return
   if (changed) await stopDiff(s)
   const focusedWs = focusedPath(s)
   const ws = focusedWs ?? local[0]?.path ?? null
@@ -302,6 +306,7 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   s.selfCheck = r.lines
   s.craftar = r.craftar
   s.usedKey = key
+  s.checkedWs = ws
 }
 
 /** The periodic check: every local craftar workspace, the only read that may fetch (spec 60 §7.1). */
@@ -310,7 +315,8 @@ export async function periodic(): Promise<void> {
   if (!s) return
   const settings = await readSettings(s.orca)
   const { local } = await listRows(s.orca)
-  await ensureCheck(s, settings, local, false)
+  // In the focus queue: never two self-checks at once, whichever path starts them.
+  await s.queue.run(FOCUS_QUEUE, () => ensureCheck(s, settings, local, false))
   if (!s.craftar) return publish(s)
   // One workspace after another: a periodic check never starts several craftar processes at once.
   const all = (async () => {
@@ -355,6 +361,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     diff: null,
     work: new Set(),
     usedKey: null,
+    checkedWs: null,
     periodicTimer: null,
   }
   st = s
@@ -390,10 +397,13 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (!ws || !s.craftar || typeof path !== 'string' || !listed(m, path)) {
       return { refused: 'not a file this workspace lists — refresh the panel' } as never
     }
-    if (!s.diff || s.diff.ws !== ws) s.diff = { ws, child: new DiffChild(s.craftar, ws) }
-    const child = s.diff.child
     try {
-      return (await s.queue.run(ws, () => child.diff(path))) as never
+      // The child is built inside the queue, after any self-check of this workspace, from the craftar it left.
+      return (await s.queue.run(ws, () => {
+        if (!s.craftar) throw new Error('no craftar')
+        if (!s.diff || s.diff.ws !== ws) s.diff = { ws, child: new DiffChild(s.craftar, ws) }
+        return s.diff.child.diff(path)
+      })) as never
     } catch (e) {
       return { refused: e instanceof DiffRefused ? e.message : 'craftar mcp did not answer' } as never
     }
