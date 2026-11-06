@@ -135,6 +135,11 @@ export async function doctor(c: Craftar, ws: string): Promise<DoctorDoc> {
   return readJson(c, 'doctor', ['doctor', '--json', ...workspaceArg(ws)])
 }
 
+// doctor with no workspace runs the machine checks only; the self-check reads craftar's version from it.
+export async function doctorMachine(c: Craftar): Promise<DoctorDoc> {
+  return readJson(c, 'doctor', ['doctor', '--json'])
+}
+
 // workspaces is about every workspace and takes no --workspace; without --fetch it reads no network.
 export async function workspaces(c: Craftar): Promise<WorkspacesDoc> {
   return readJson(c, 'workspaces', ['workspaces', '--json'])
