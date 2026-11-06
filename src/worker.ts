@@ -116,9 +116,9 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
     terminal = [failed('terminal', e)]
   }
   out.push('notifications.show: no action (host-api 1.3) — the panel holds the one click')
-  // The terminal's lines are shown to the person who ran the probe and never logged: a prompt can carry a
-  // host name, a user name or a directory (spec 60 O11).
-  orca.log(out.join('\n'))
+  // Nothing of the report is logged: craftar's path and output, and the terminal's lines — a prompt can
+  // carry a host name, a user name or a directory (spec 60 O11) — are shown to the person who ran it.
+  orca.log('probe ran (its report is shown to the person who ran it, not logged)')
   return [...out, ...terminal].join('\n')
 }
 
@@ -133,6 +133,8 @@ interface State {
   queue: Serial
   diff: { ws: string; child: DiffChild } | null
   work: Set<Promise<unknown>>
+  /** The craftarPath and craftarHome the current craftar and diff child were built from (O1). */
+  usedKey: string | null
   periodicTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -264,26 +266,52 @@ async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Pr
   const before = focusedPath(s)
   s.focus = focused(context, local, typeof stored === 'string' ? stored : null)
   const ws = focusedPath(s)
-  if (s.diff && s.diff.ws !== ws) {
-    const old = s.diff
-    s.diff = null
-    await old.child.stop()
-  }
-  if (recheck || s.selfCheck.length === 0 || before !== ws) {
-    const r = await selfCheck({ craftarPath: settings.craftarPath, craftarHome: settings.craftarHome, path: process.env.PATH ?? '', baseEnv: process.env }, ws)
-    s.selfCheck = r.lines
-    s.craftar = r.craftar
-  }
+  if (s.diff && s.diff.ws !== ws) await stopDiff(s)
+  await ensureCheck(s, settings, local, recheck || before !== ws)
   if (s.focus.kind === 'one') await readWorkspace(s, s.focus.row, 'focus', settings)
   await publish(s)
+}
+
+function settingsKey(st: Settings): string {
+  return `${st.craftarPath}\0${st.craftarHome}`
+}
+
+async function stopDiff(s: State): Promise<void> {
+  const old = s.diff
+  s.diff = null
+  if (old) await old.child.stop()
+}
+
+/**
+ * Runs the self-check when asked, when none ran yet, or when craftarPath or craftarHome changed — then the
+ * diff child built from the old settings is stopped too (O1). doctor is asked about the focused workspace,
+ * else any local one, and runs in that workspace's queue so it never overlaps a read of it.
+ */
+async function ensureCheck(s: State, settings: Settings, local: Row[], force: boolean): Promise<void> {
+  const key = settingsKey(settings)
+  const changed = s.usedKey !== null && s.usedKey !== key
+  if (!force && !changed && s.selfCheck.length > 0) return
+  if (changed) await stopDiff(s)
+  const focusedWs = focusedPath(s)
+  const ws = focusedWs ?? local[0]?.path ?? null
+  const check = () =>
+    selfCheck({ craftarPath: settings.craftarPath, craftarHome: settings.craftarHome, path: process.env.PATH ?? '', baseEnv: process.env }, ws, {
+      listErrors: ws !== null && ws === focusedWs,
+    })
+  const r = ws === null ? await check() : await s.queue.run(ws, check)
+  s.selfCheck = r.lines
+  s.craftar = r.craftar
+  s.usedKey = key
 }
 
 /** The periodic check: every local craftar workspace, the only read that may fetch (spec 60 §7.1). */
 export async function periodic(): Promise<void> {
   const s = st
-  if (!s || !s.craftar) return
+  if (!s) return
   const settings = await readSettings(s.orca)
   const { local } = await listRows(s.orca)
+  await ensureCheck(s, settings, local, false)
+  if (!s.craftar) return publish(s)
   // One workspace after another: a periodic check never starts several craftar processes at once.
   const all = (async () => {
     for (const row of local) await readWorkspace(s, row, 'periodic', settings)
@@ -326,6 +354,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     queue: new Serial(),
     diff: null,
     work: new Set(),
+    usedKey: null,
     periodicTimer: null,
   }
   st = s

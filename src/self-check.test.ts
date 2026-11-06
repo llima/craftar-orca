@@ -83,16 +83,23 @@ test('the registry off is said, since writes need it', async () => {
   assert.equal(s.calls().some((c) => c.argv[0] === 'workspaces'), false)
 })
 
-test('a craftar that is not found is an error line naming why; with no workspace doctor runs its machine checks only', async () => {
-  const r = await selfCheck({ craftarPath: 'bin/craftar', craftarHome: '', path: '', baseEnv: process.env }, null)
+test('a craftar that is not found is an error line naming why', async () => {
+  const r = await selfCheck({ craftarPath: 'bin/craftar', craftarHome: '', path: '', baseEnv: process.env }, WS)
   assert.equal(r.craftar, null)
   assert.match(r.lines[0].message, /absolute/)
+})
+
+test('with no craftar workspace nothing is started; asked about an unfocused one, its errors are not listed', async () => {
   const s = stubCraftar({
-    'doctor --json': { stdout: fixture('doctor.json'), code: 0 },
+    'doctor --json': { stdout: DOCTOR_ERROR, code: 1 },
     'workspaces --json': { stdout: fixture('workspaces.json'), code: 0 },
   })
-  await selfCheck(opts(s.bin, s.env), null)
-  assert.deepEqual(s.calls()[0].argv, ['doctor', '--json'])
+  const none = await selfCheck(opts(s.bin, s.env), null)
+  assert.equal(none.craftar, null)
+  assert.equal(s.calls().length, 0)
+  const other = await selfCheck(opts(s.bin, s.env), WS, { listErrors: false })
+  assert.equal(other.lines.some((l) => l.level === 'error'), false)
+  assert.deepEqual(s.calls()[0].argv, ['doctor', '--json', '--workspace', WS])
 })
 
 test('CRAFTAR_HOME from the setting reaches every child of the self-check', async () => {

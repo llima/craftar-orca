@@ -2,7 +2,7 @@
 // absolute (a shim directory warned about, O1), its version at least the floor, doctor's error lines for
 // the focused workspace (listed, never a fix applied), and whether the registry is on (writes need it,
 // O2). Lines go to the panel only, never to the log: a doctor line can carry a path.
-import { type Craftar, doctor, doctorMachine, type DoctorDoc, ReadFailure, workspaces } from './craftar'
+import { type Craftar, doctor, type DoctorDoc, ReadFailure, workspaces } from './craftar'
 import { findCraftar } from './resolve'
 import { childEnv } from './run'
 
@@ -44,7 +44,17 @@ function readError(what: string, e: unknown): Line {
   return { level: 'warn', message: `${what} could not be read (${code})` }
 }
 
-export async function selfCheck(o: SelfCheckOptions, ws: string | null): Promise<{ lines: Line[]; craftar: Craftar | null }> {
+/**
+ * `ws` is the craftar workspace doctor is asked about — the focused one, else any local one — never Orca's
+ * own working directory, which doctor would read when it holds a craftar.yaml. With none there is nothing
+ * to read and nothing is started. `listErrors` is false when `ws` is not the focused workspace.
+ */
+export async function selfCheck(
+  o: SelfCheckOptions,
+  ws: string | null,
+  opts: { listErrors: boolean } = { listErrors: true },
+): Promise<{ lines: Line[]; craftar: Craftar | null }> {
+  if (ws === null) return { lines: [{ level: 'ok', message: 'no craftar workspace in Orca on this machine — nothing to read' }], craftar: null }
   const lines: Line[] = []
   const found = findCraftar({ craftarPath: o.craftarPath, path: o.path, platform: o.platform })
   if (found.found === null) return { lines: [{ level: 'error', message: `craftar: ${found.reason}` }], craftar: null }
@@ -55,10 +65,10 @@ export async function selfCheck(o: SelfCheckOptions, ws: string | null): Promise
 
   const craftar: Craftar = { bin: found.found, env: childEnv(o.baseEnv, o.craftarHome) }
   // The version comes from doctor --json's `version` (a contract since 0.15.0), read once with the
-  // workspace's checks; without a focused workspace doctor runs the machine checks only.
+  // workspace's checks.
   let d: DoctorDoc
   try {
-    d = ws !== null ? await doctor(craftar, ws) : await doctorMachine(craftar)
+    d = await doctor(craftar, ws)
   } catch (e) {
     const code = e instanceof ReadFailure ? `exit ${e.code ?? 'none'}` : 'did not run'
     lines.push({ level: 'error', message: `craftar doctor --json gave no document (${code}): craftar older than 0.15.0, or broken` })
@@ -71,7 +81,7 @@ export async function selfCheck(o: SelfCheckOptions, ws: string | null): Promise
     return { lines, craftar: null }
   }
   lines.push({ level: 'ok', message: `version ${version}` })
-  for (const c of d.checks.filter((x) => x.level === 'error')) {
+  for (const c of opts.listErrors ? d.checks.filter((x) => x.level === 'error') : []) {
     lines.push({ level: 'error', message: `doctor ${c.id}: ${c.message}${c.fix ? ` — ${c.fix}` : ''}` })
   }
 
