@@ -237,3 +237,11 @@ test('with no craftar workspace in Orca nothing is started and the self-check sa
   const view = (await worker.request('state.get')) as View
   assert.match(view.selfCheck.map((l) => l.message).join('\n'), /no craftar workspace/)
 })
+
+test('a craftar workspace that appears after a check with none is read by the next periodic check', async () => {
+  const { s, h } = await setup({ rows: [] })
+  const later = craftarDir()
+  h.respond('workspace.list', { workspaces: [{ id: 'w9', kind: 'folder', name: 'web', path: later, branch: 'main', hostId: null }], truncated: false })
+  await main.periodic()
+  assert.ok(s.calls().some((c) => c.argv.join(' ') === `status --json --workspace ${later}`))
+})
