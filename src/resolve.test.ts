@@ -1,14 +1,16 @@
 // findCraftar: which `craftar` the worker starts (spec 60 O1).
-import { assert, test } from 'orca/testing'
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { afterEach, assert, test } from 'orca/testing'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { findCraftar } from './resolve'
+
+afterEach(removeTempDirs)
 
 const posix = process.platform !== 'win32'
 
 function binDir(...parts: string[]): string {
-  const dir = join(mkdtempSync(join(tmpdir(), 'craftar-orca-')), ...parts)
+  const dir = join(tempDir(), ...parts)
   mkdirSync(dir, { recursive: true })
   return dir
 }
@@ -51,4 +53,10 @@ test('a binary under a version manager shim directory is found and named as such
   const r = findCraftar({ craftarPath: file, path: '' })
   assert.equal(r.found, file)
   assert.equal(r.shim, 'asdf')
+})
+
+test('on Windows a .cmd shim named by craftarPath is refused in words, not started', () => {
+  const r = findCraftar({ craftarPath: '/opt/npm/craftar.cmd', path: '', platform: 'win32' })
+  assert.equal(r.found, null)
+  assert.match(r.reason ?? '', /\.cmd or \.bat/)
 })
