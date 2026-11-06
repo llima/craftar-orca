@@ -14,12 +14,15 @@ export interface Answer {
   stdout: string
   code: number
   stderr?: string
+  delayMs?: number
 }
 
 export interface Call {
   argv: string[]
   home: string | null
   pid: number
+  start?: number
+  end?: number
   request?: { method: string; params?: unknown; id?: number }
 }
 
@@ -28,6 +31,7 @@ export interface StubCraftar {
   env: NodeJS.ProcessEnv
   calls: () => Call[]
   requests: () => Call[]
+  spans: () => { argv: string[]; start: number; end: number }[]
 }
 
 const HOOK = `"use strict";
@@ -39,7 +43,7 @@ if (path.basename(process.execPath).toLowerCase().replace(/\\.exe$/, "") === "cr
   const log = process.env.CRAFTAR_STUB_LOG;
   const record = (extra) => fs.appendFileSync(log, JSON.stringify({ argv, home: process.env.CRAFTAR_HOME ?? null, pid: process.pid, ...extra }) + "\\n");
   const table = JSON.parse(fs.readFileSync(process.env.CRAFTAR_STUB_TABLE, "utf8"));
-  record({});
+  record({ start: Date.now() });
   if (argv[0] === "mcp") {
     // Node goes on to load argv[1] as its main script, which does not exist: keep the process serving.
     process.on("uncaughtException", (e) => {
@@ -70,6 +74,8 @@ if (path.basename(process.execPath).toLowerCase().replace(/\\.exe$/, "") === "cr
   let answer = null;
   for (let n = argv.length; n > 0 && !answer; n--) answer = table[argv.slice(0, n).join(" ")] ?? null;
   answer = answer ?? { stdout: "", code: 2, stderr: "stub: no answer" };
+  if (answer.delayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, answer.delayMs);
+  record({ end: Date.now() });
   if (answer.stderr) fs.writeSync(2, answer.stderr);
   fs.writeSync(1, answer.stdout);
   process.exit(answer.code);
@@ -102,7 +108,7 @@ export function stubCraftar(table: Record<string, Answer | unknown>): StubCrafta
           .split('\n')
           .filter((l) => l !== '')
           .map((l) => JSON.parse(l) as Call)
-          .filter((c) => c.request === undefined)
+          .filter((c) => c.request === undefined && c.end === undefined)
       : []
   const requests = (): Call[] =>
     existsSync(log)
@@ -112,5 +118,15 @@ export function stubCraftar(table: Record<string, Answer | unknown>): StubCrafta
           .map((l) => JSON.parse(l) as Call)
           .filter((c) => c.request !== undefined)
       : []
-  return { bin, env, calls, requests }
+  // Each one-shot child's [start, end] (an mcp child has no end): for tests of what may not overlap.
+  const spans = (): { argv: string[]; start: number; end: number }[] => {
+    const lines = existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((l) => l !== '').map((l) => JSON.parse(l) as Call) : []
+    return lines
+      .filter((c) => c.start !== undefined)
+      .flatMap((c) => {
+        const end = lines.find((e) => e.pid === c.pid && e.end !== undefined)?.end
+        return end === undefined ? [] : [{ argv: c.argv, start: c.start as number, end }]
+      })
+  }
+  return { bin, env, calls, requests, spans }
 }

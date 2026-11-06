@@ -109,3 +109,18 @@ test('no source of the panel inserts markup', () => {
     assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/)
   }
 })
+
+test("the diff's own warnings are shown with it, in craftar words", () => {
+  const { root } = draw(modelView(), { path: '.claude/rules/workflow.md', text: '+ x', warnings: ['forge: cached copy (fetch failed)'] })
+  assert.match(root.textContent, /forge: cached copy \(fetch failed\)/)
+})
+
+test('a failed check is boxed with what craftar said; a fetched Forge reads its fetch time, not "now"', () => {
+  const v = modelView({}, ['a path leaves the workspace through a link'])
+  v.model!.checkFailed = true
+  v.model!.forge = { ...v.model!.forge!, freshness: 'fetched', fetchedAt: Date.UTC(2026, 10, 6, 14, 0) }
+  const { root } = draw(v)
+  assert.match(root.textContent, /craftar status exits 1/)
+  assert.doesNotMatch(root.textContent, /fetched now/)
+  assert.match(root.textContent, /fetched /)
+})

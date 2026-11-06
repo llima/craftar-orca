@@ -201,3 +201,39 @@ test('storage holds paths, timestamps and an id only — no document from crafta
   const stored = JSON.stringify(h.data().storage)
   assert.doesNotMatch(stored, /commit-conventions|d2309dc2|warnings/)
 })
+
+test("the self-check's doctor never overlaps a read of the same workspace", async () => {
+  const { s, worker, web } = await setup({ extra: { 'status --json': { stdout: fixture('status.json'), code: 0, delayMs: 400 } } })
+  const p = main.periodic()
+  await new Promise((r) => setTimeout(r, 100))
+  await worker.request('state.refresh')
+  await p
+  await main.settled()
+  const onWeb = s.spans().filter((x) => x.argv.includes(web)).sort((a, b) => a.start - b.start)
+  for (let i = 1; i < onWeb.length; i++) assert.ok(onWeb[i].start >= onWeb[i - 1].end, `${onWeb[i].argv[0]} overlapped ${onWeb[i - 1].argv[0]}`)
+})
+
+test('a changed craftarHome reaches the next read and a fresh diff child, with no focus change', async () => {
+  const { s, h, worker } = await setup()
+  await worker.request('diff.get', { path: '.claude/rules/workflow.md' })
+  h.respond('settings.get', { settings: { craftarPath: s.bin, craftarHome: '/home/acme/other-home', intervalMinutes: 15, fetch: true } })
+  await main.periodic()
+  assert.equal(s.calls().filter((c) => c.argv[0] === 'status').at(-1)?.home, '/home/acme/other-home')
+  await worker.request('diff.get', { path: '.claude/rules/workflow.md' })
+  const mcp = s.calls().filter((c) => c.argv[0] === 'mcp')
+  assert.deepEqual(mcp.map((c) => c.home), [null, '/home/acme/other-home'])
+})
+
+test('with no focused craftar workspace the self-check asks doctor about a local one, never about Orca\'s directory', async () => {
+  const { s, web } = await setup({ ctx: null })
+  const doctors = s.calls().filter((c) => c.argv[0] === 'doctor')
+  assert.ok(doctors.length >= 1)
+  assert.ok(doctors.every((c) => c.argv.join(' ') === `doctor --json --workspace ${web}`))
+})
+
+test('with no craftar workspace in Orca nothing is started and the self-check says why', async () => {
+  const { s, worker } = await setup({ rows: [] })
+  assert.equal(s.calls().length, 0)
+  const view = (await worker.request('state.get')) as View
+  assert.match(view.selfCheck.map((l) => l.message).join('\n'), /no craftar workspace/)
+})

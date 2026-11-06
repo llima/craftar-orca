@@ -99,3 +99,16 @@ test('the status bar: in sync, Forge moved, edited, both, refused, error and not
   assert.deepEqual(barFor('error'), { text: 'craftar: error', tone: 'danger' })
   assert.deepEqual(barFor(null), { text: 'craftar', tone: 'neutral' })
 })
+
+test('status exiting 1 with no unset parameter is a failed check, said as such, over any pending count', () => {
+  const m = model({ status: { ...status(), exitCode: 1, warnings: ['a path leaves the workspace through a link'] } })
+  assert.equal(m.refused, false)
+  assert.equal(m.checkFailed, true)
+  assert.deepEqual(barFor(m), { text: 'craftar: check failed', tone: 'danger' })
+  assert.equal(model({ status: { ...status(), exitCode: 0 } }).checkFailed, false)
+})
+
+test("the registry's warnings join craftar's lines too", () => {
+  const r = { ...registry(), warnings: ['registry: one entry is missing'] }
+  assert.ok(model({ registry: r }).warnings.includes('registry: one entry is missing'))
+})

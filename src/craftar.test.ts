@@ -90,3 +90,10 @@ test('CRAFTAR_HOME in the environment it is handed reaches the child', async () 
   await workspaces({ bin: s.bin, env: { ...s.env, CRAFTAR_HOME: '/home/acme/home' } })
   assert.equal(s.calls()[0].home, '/home/acme/home')
 })
+
+test("status keeps craftar's exit code beside the document, since exit 1 is how a failed check is said", async () => {
+  const s = stubCraftar({ 'status --json': { stdout: fixture('status.json'), code: 1 } })
+  assert.equal((await status(s, WS, { fetch: false })).exitCode, 1)
+  const ok = stubCraftar({ 'status --json': { stdout: fixture('status.json'), code: 0 } })
+  assert.equal((await status(ok, WS, { fetch: false })).exitCode, 0)
+})
