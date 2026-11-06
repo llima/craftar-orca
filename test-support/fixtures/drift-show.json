@@ -1,0 +1,17 @@
+{
+  "workspace": "/home/acme/web",
+  "profile": "acme-web",
+  "files": [
+    {
+      "path": ".claude/rules/commit-conventions.md",
+      "state": "drift",
+      "target": "claude-code",
+      "ingredient": "rule/commit-conventions",
+      "forge": "same",
+      "promotable": true,
+      "reason": null
+    }
+  ],
+  "warnings": [],
+  "unsetParams": []
+}

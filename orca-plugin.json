@@ -22,13 +22,14 @@
   ],
   "contributes": {
     "panels": [
-      { "id": "craftar", "title": "craftar", "icon": "layers", "entry": "src/panel.html", "ui": "html" }
+      { "id": "craftar", "title": "craftar", "icon": "layers", "entry": "src/panel.ts", "ui": "html" }
     ],
     "commands": [
       { "id": "craftar.probe", "title": "craftar: run the probe (measures what the plugin needs from Orca)" }
     ],
+    "events": [{ "on": "workspace.changed" }],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — not reading yet" }
+      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — reading" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",

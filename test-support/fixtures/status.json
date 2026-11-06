@@ -1,0 +1,75 @@
+{
+  "forge": {
+    "kind": "path",
+    "source": "../forge2",
+    "ref": null,
+    "defaultBranch": null,
+    "commit": "d2309dc201c9a5127285a83092fb3853b8926101",
+    "lockCommit": "4d764d62940512758ad50ef50362bbc72ef0a491",
+    "fetched": false
+  },
+  "statuses": [
+    {
+      "path": ".claude/agents/docs-author.md",
+      "state": "unchanged",
+      "target": "claude-code",
+      "ingredient": "agent/docs-author",
+      "lock": {
+        "path": ".claude/agents/docs-author.md",
+        "hash": "sha256:305f4987860f6e9457b15b52eaefd77182979423a4e12a68f01e3c0f10e63966",
+        "target": "claude-code",
+        "ingredient": "agent/docs-author"
+      }
+    },
+    {
+      "path": ".claude/commands/commit-push.md",
+      "state": "unchanged",
+      "target": "claude-code",
+      "ingredient": "command/commit-push",
+      "lock": {
+        "path": ".claude/commands/commit-push.md",
+        "hash": "sha256:55a036dfba31fd07a1a78a7d51776fdf5cbe241bd4e7f763b33d24c8eeaf3a91",
+        "target": "claude-code",
+        "ingredient": "command/commit-push"
+      }
+    },
+    {
+      "path": ".claude/rules/commit-conventions.md",
+      "state": "drift",
+      "target": "claude-code",
+      "ingredient": "rule/commit-conventions",
+      "lock": {
+        "path": ".claude/rules/commit-conventions.md",
+        "hash": "sha256:cfbb83ccf806e43b16cb2c14cac5bb5f3f2021d51d2ec3efe3719f6c7a36a4ec",
+        "target": "claude-code",
+        "ingredient": "rule/commit-conventions"
+      }
+    },
+    {
+      "path": ".claude/rules/frontend-react.md",
+      "state": "unchanged",
+      "target": "claude-code",
+      "ingredient": "rule/frontend-react",
+      "lock": {
+        "path": ".claude/rules/frontend-react.md",
+        "hash": "sha256:50ae0a2b88f288bb6b37a6c07c278bbab281c2ed160a427c1628ef9dde388e0f",
+        "target": "claude-code",
+        "ingredient": "rule/frontend-react"
+      }
+    },
+    {
+      "path": ".claude/rules/workflow.md",
+      "state": "update",
+      "target": "claude-code",
+      "ingredient": "rule/workflow",
+      "lock": {
+        "path": ".claude/rules/workflow.md",
+        "hash": "sha256:225f1822e72d1f06f40d8d25e46f7e9dd7b3b786ffc79476e604aafba20aa332",
+        "target": "claude-code",
+        "ingredient": "rule/workflow"
+      }
+    }
+  ],
+  "warnings": [],
+  "unsetParams": []
+}
