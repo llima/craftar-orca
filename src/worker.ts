@@ -284,7 +284,11 @@ export async function periodic(): Promise<void> {
   if (!s || !s.craftar) return
   const settings = await readSettings(s.orca)
   const { local } = await listRows(s.orca)
-  await track(s, Promise.all(local.map((row) => readWorkspace(s, row, 'periodic', settings))))
+  // One workspace after another: a periodic check never starts several craftar processes at once.
+  const all = (async () => {
+    for (const row of local) await readWorkspace(s, row, 'periodic', settings)
+  })()
+  await track(s, all)
   await publish(s)
 }
 
