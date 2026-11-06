@@ -45,7 +45,7 @@ function host(settings: Record<string, string | number | boolean>, workspaces: W
 }
 
 test('activating shows the status bar item and records a heartbeat of timestamps and a counter only', async () => {
-  const h = host({ craftarPath: '' })
+  const h = host({ craftarPath: 'not/absolute' })
   const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
   assert.equal(h.callsOf('statusBar.update').length >= 1, true)
   await worker.command('craftar.probe') // the probe waits for the first heartbeat
