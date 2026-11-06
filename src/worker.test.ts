@@ -80,6 +80,7 @@ test('the probe names where CRAFTAR_HOME comes from, never its value', async () 
   const report = String(await worker.command('craftar.probe'))
   assert.match(report, /CRAFTAR_HOME: set from the setting/)
   assert.equal(report.includes(home), false)
+  assert.equal(worker.logs.some((l) => l.includes(home)), false)
   await worker.deactivate()
 })
 
@@ -115,7 +116,7 @@ test('a craftar under a version manager shim directory is named as such', async 
   const h = host({ craftarPath: stubCraftar('.asdf', 'shims') })
   const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
   const report = String(await worker.command('craftar.probe'))
-  assert.match(report, /under a asdf shim directory/)
+  assert.match(report, /under the asdf shim directory/)
   await worker.deactivate()
 })
 

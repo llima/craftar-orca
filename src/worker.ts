@@ -83,7 +83,7 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   if (found.found === null) {
     out.push(`craftar: not found — ${found.reason}`)
   } else {
-    out.push(`craftar: found at ${found.found}${found.shim ? ` (under a ${found.shim} shim directory: a project's files can choose what runs)` : ''}`)
+    out.push(`craftar: found at ${found.found}${found.shim ? ` (under the ${found.shim} shim directory: a project's files can choose what runs)` : ''}`)
     const r = await run(found.found, ['--version'], childEnv(process.env, craftarHome))
     out.push(r.code === 0 ? `version: ${r.stdout.trim().split(/\r?\n/)[0]}` : `version: craftar --version failed (exit ${r.code ?? 'none'})`)
   }
