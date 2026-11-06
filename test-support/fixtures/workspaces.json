@@ -1,0 +1,67 @@
+{
+  "registry": "/home/acme/home/registry.json",
+  "fetch": false,
+  "workspaces": [
+    {
+      "name": "web",
+      "path": "/home/acme/web",
+      "profile": "acme-web",
+      "recipes": [
+        "base"
+      ],
+      "stack": {},
+      "targets": [
+        "claude-code"
+      ],
+      "forge": {
+        "kind": "path",
+        "source": "../forge2",
+        "key": "/home/acme/forge2",
+        "ref": null,
+        "defaultBranch": null,
+        "commit": "d2309dc201c9a5127285a83092fb3853b8926101",
+        "lockCommit": "4d764d62940512758ad50ef50362bbc72ef0a491",
+        "fromLocalFile": false,
+        "fetched": false
+      },
+      "lastSync": "2026-11-06T14:20:46.434Z",
+      "status": "drift",
+      "forgeMoved": true,
+      "files": {
+        "unchanged": 3,
+        "drift": 1,
+        "update": 1
+      }
+    },
+    {
+      "name": "ws",
+      "path": "/home/acme/ws",
+      "profile": "acme-services",
+      "recipes": [
+        "local-stack"
+      ],
+      "stack": {},
+      "targets": [
+        "claude-code"
+      ],
+      "forge": {
+        "kind": "path",
+        "source": "../forge",
+        "key": "/home/acme/forge",
+        "ref": null,
+        "defaultBranch": null,
+        "commit": "5808468db1e572e42115cda22898a55eacdb386a",
+        "lockCommit": "5808468db1e572e42115cda22898a55eacdb386a",
+        "fromLocalFile": false,
+        "fetched": false
+      },
+      "lastSync": "2026-11-06T14:20:14.801Z",
+      "status": "up-to-date",
+      "forgeMoved": false,
+      "files": {
+        "unchanged": 5
+      }
+    }
+  ],
+  "warnings": []
+}
