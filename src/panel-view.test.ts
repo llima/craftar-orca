@@ -1,0 +1,111 @@
+// The panel's drawing (spec 60 §6): every value as text, craftar's words verbatim, no action in S1.
+import { assert, test } from 'orca/testing'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
+import { fixture } from '../test-support/stub-craftar'
+import { buildModel } from './model'
+import { render } from './panel-view'
+import type { View } from './worker'
+
+const WS = '/home/acme/web'
+
+function modelView(over: Partial<View> = {}, warnings: string[] = []): View {
+  const status = JSON.parse(fixture('status.json'))
+  status.warnings = warnings
+  const model = buildModel({
+    ws: WS,
+    name: 'web',
+    status,
+    drift: JSON.parse(fixture('drift-show.json')),
+    repos: JSON.parse(fixture('repos.json')),
+    registry: JSON.parse(fixture('workspaces.json')),
+    fetchedAt: null,
+    readAt: 0,
+  })
+  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], ...over }
+}
+
+function draw(v: View, diff: Parameters<typeof render>[4] = null) {
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  const calls: string[] = []
+  render(doc as never, root as never, v, { choose: (id) => calls.push(`choose ${id}`), refresh: () => calls.push('refresh'), showDiff: (p) => calls.push(`diff ${p}`) }, diff)
+  return { root, calls }
+}
+
+test('the drawing: the Forge box, the workspace, the arrows with their counts, as SVG', () => {
+  const { root } = draw(modelView())
+  const text = root.textContent
+  assert.match(text, /\.\.\/forge2/)
+  assert.match(text, /d2309dc/)
+  assert.match(text, /acme-web/)
+  assert.match(text, /1 pending/)
+  assert.match(text, /1 edited/)
+  assert.ok(all(root).some((e) => e.tag === 'svg' && e.ns === 'http://www.w3.org/2000/svg'))
+})
+
+test('Update and Send to Forge are drawn disabled in S1; a file opens its diff on a click', () => {
+  const { root, calls } = draw(modelView())
+  const update = byAction(root, 'update')
+  const send = byAction(root, 'send')
+  assert.equal(update.length, 1)
+  assert.equal(send.length, 1)
+  assert.equal(update[0].getAttribute('disabled'), '')
+  assert.equal(send[0].getAttribute('disabled'), '')
+  const files = byAction(root, 'diff')
+  assert.deepEqual(files.map((f) => f.attrs['data-path']), ['.claude/rules/workflow.md', '.claude/rules/commit-conventions.md'])
+  click(files[0])
+  assert.deepEqual(calls, ['diff .claude/rules/workflow.md'])
+})
+
+test('a file craftar will not promote shows its reason verbatim and no Send button', () => {
+  const v = modelView()
+  v.model!.edited = [{ path: '.kiro/steering/x.md', state: 'drift', promotable: false, reason: 'kiro file — edit its .claude/ twin' }]
+  const { root } = draw(v)
+  assert.match(root.textContent, /kiro file — edit its \.claude\/ twin/)
+  assert.equal(byAction(root, 'send').length, 0)
+})
+
+test("warnings are listed as craftar words them, and a value holding markup stays text", () => {
+  const hostile = '<img src=x onerror=alert(1)>'
+  const { root } = draw(modelView({}, ['agents-md: the rule is long', hostile]))
+  const items = all(root).filter((e) => e.attrs['data-role'] === 'warning').map((e) => e.textContent)
+  assert.deepEqual(items, ['agents-md: the rule is long', hostile])
+  assert.equal(all(root).some((e) => e.tag === 'img'), false)
+})
+
+test('a refused sync reads as craftar words it, with the keys and who declares them', () => {
+  const v = modelView()
+  v.model!.refused = true
+  v.model!.unset = [{ key: 'acme.key', declaredBy: ['rule/a'], citedBy: ['rule/a'] }]
+  const { root } = draw(v)
+  assert.match(root.textContent, /sync refused/)
+  assert.match(root.textContent, /acme\.key/)
+})
+
+test('the self-check is shown on top when anything fails; a tie lists the workspaces to pick from', () => {
+  const failing = draw(modelView({ selfCheck: [{ level: 'error', message: 'craftar 0.30.0 is older than 0.33.0' }], model: null }))
+  assert.match(failing.root.textContent, /0\.30\.0 is older than 0\.33\.0/)
+  const tie = draw(modelView({ focus: 'ask', model: null, ask: [{ id: 'a', name: 'web', path: '/home/acme/web' }, { id: 'b', name: 'web', path: '/home/acme/web-2' }] }))
+  const pick = byAction(tie.root, 'choose')
+  assert.equal(pick.length, 2)
+  click(pick[1])
+  assert.deepEqual(tie.calls, ['choose b'])
+})
+
+test('a diff is shown as text, a refused diff in craftar words; remote workspaces are listed as not read', () => {
+  const shown = draw(modelView(), { path: '.claude/rules/workflow.md', text: '+ Forge change.<b>x</b>' })
+  assert.match(shown.root.textContent, /\+ Forge change\.<b>x<\/b>/)
+  assert.equal(all(shown.root).some((e) => e.tag === 'b'), false)
+  const refused = draw(modelView({ remote: [{ name: 'web', path: '/home/acme/elsewhere' }] }), { path: 'x', refused: 'not produced by this workspace: x' })
+  assert.match(refused.root.textContent, /not produced by this workspace: x/)
+  assert.match(refused.root.textContent, /on another host — not read/)
+})
+
+test('no source of the panel inserts markup', () => {
+  for (const f of ['./panel-view.ts', './panel.ts']) {
+    const src = readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8')
+    assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/)
+  }
+})
