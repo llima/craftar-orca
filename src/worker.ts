@@ -372,6 +372,9 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     const rp: ReposDoc | null = await optional('repos', repos(craftar, row.path), errors)
     const registry: WorkspacesDoc | null = await optional('workspaces', registryRead(craftar), errors)
     const model = buildModel({ ws: row.path, name: row.name, status, drift, repos: rp, registry, fetchedAt: fetched[row.path] ?? null, readAt: Date.now(), errors })
+    // An offline read of a remote Forge reads the copy the last periodic check fetched: when that fetch
+    // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
+    if (model.forge && model.forge.freshness === 'cached' && s.fetchState.get(row.path) === 'fetched') model.forge.freshness = 'fetched'
     s.models.set(row.path, model)
     await notifyGrowth(s, model, reason)
   })

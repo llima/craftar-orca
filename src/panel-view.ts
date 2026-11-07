@@ -2,8 +2,9 @@
 // the user's approval of 2026-11-07): a header with one state pill, the Forge → workspace tree whose link
 // carries two lanes (down ember, up steel), the cards that ask, flat file lists, linked projects, craftar's
 // words verbatim and a footer. Every value is put in with textContent, never as markup.
-// S2's fields (update, sync, consent, lastSync) are read when the worker gives them; until then Update and
-// Send are drawn disabled with a note. Send to Forge is S3's.
+// S2's fields (update, sync, consent, lastSync) come from the worker, and Update and the consent terminal
+// call its update.run and consent.terminal; a panel without those actions draws Update disabled with a note.
+// Send to Forge is S3's.
 import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
@@ -20,6 +21,7 @@ export interface S2View {
     removed: { path: string; reason: string }[]
     kept: { path: string; state: string; reason: string | null }[]
     staged: string[]
+    leftOut?: string[]
     differences: string[]
     warnings: string[]
     rerun: boolean
@@ -78,7 +80,8 @@ const NOT_BUILT_SEND = 'Send to Forge is not built yet in this version of the pl
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 const short = (c: string | null): string | null => (c ? c.slice(0, 7) : null)
 
-export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null): void {
+/** `notice`: the worker's refusal of the panel's last request, drawn as text whatever the focus (nothing is dropped). */
+export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null): void {
   const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: Kid[]): HTMLElementTagNameMap[K] => {
     const e = doc.createElement(tag)
     for (const [k, val] of Object.entries(attrs)) e.setAttribute(k, val)
@@ -151,6 +154,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const refresh = header.appendChild(h('button', { class: 'icon-btn', type: 'button', title: 'Check again', 'aria-label': 'Check again', 'data-action': 'refresh' }))
   refresh.appendChild(icon('refresh'))
   refresh.addEventListener('click', () => a.refresh())
+
+  // ---- the worker's refusal of the panel's last request ----
+  if (notice) root.appendChild(t('p', notice, { class: 'note bad', 'data-role': 'notice' }))
 
   // ---- the self-check, on top when anything fails ----
   if (failing.length > 0) {
@@ -539,7 +545,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const ul = body.appendChild(h('ul', { class: 'lines plain' }))
       for (const i of items) ul.appendChild(t('li', i.text, { 'data-role': i.role, ...(i.cls ? { class: i.cls } : {}) }))
     }
+    list('Written', l.written.map((x) => ({ text: x, role: 'written' })))
     list('Staged', l.staged.map((x) => ({ text: x, role: 'staged' })))
+    list('Left out of the commit (ignored by git, or never tracked)', (l.leftOut ?? []).map((x) => ({ text: x, role: 'left-out' })))
     list('Removed', l.removed.map((x) => ({ text: `${x.path} · ${x.reason}`, role: 'removed' })))
     list('Kept', l.kept.map((x) => ({ text: `${x.path} · ${x.state}${x.reason ? ` · ${x.reason}` : ''}`, role: 'kept' })))
     list('Changed since the question', l.differences.map((x) => ({ text: x, role: 'difference', cls: 'warn' })))

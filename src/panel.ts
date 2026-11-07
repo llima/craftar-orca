@@ -210,13 +210,15 @@ document.body.appendChild(root)
 
 let view: PanelView | null = null
 let diff: DiffShown = null
+// The worker's refusal of the panel's last request, shown until the next request (nothing is dropped).
+let notice: string | null = null
 
 function draw(): void {
   if (!view) {
     root.textContent = 'Reading…'
     return
   }
-  render(document, root, view, actions, diff)
+  render(document, root, view, actions, diff, notice)
 }
 
 const actions = {
@@ -256,6 +258,28 @@ const actions = {
       draw()
     })
   },
+  updateRun(files: string[]): void {
+    // S2: the worker checks the list is still the pending set, answers at once with the update running and
+    // posts its progress on state.changed. A refusal is shown in its words, then the view is read again.
+    notice = null
+    void orca.plugin
+      .request('update.run', { files }, { timeoutMs: 60_000 })
+      .then((v) => {
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
+  },
+  consentTerminal(): void {
+    notice = null
+    void orca.plugin
+      .request('consent.terminal', {}, { timeoutMs: 60_000 })
+      .then((v) => {
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
+  },
   showDiff(path: string): void {
     void orca.plugin.request('diff.get', { path }, { timeoutMs: 60_000 }).then((r) => {
       const res = r as { refused?: string; files?: { path: string; diff: string | null; note: string | null }[]; warnings?: string[] }
@@ -267,6 +291,18 @@ const actions = {
       draw()
     })
   },
+}
+
+/** A request the worker refused: its words shown, then the worker's view read again. */
+function refused(e: unknown): void {
+  notice = e instanceof Error && e.message ? e.message : 'the plugin could not do that — check again'
+  void orca.plugin
+    .request('state.get')
+    .then((v) => {
+      view = v as PanelView
+      draw()
+    })
+    .catch(() => draw())
 }
 
 orca.plugin.on('state.changed', (payload) => {

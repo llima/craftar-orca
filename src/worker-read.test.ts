@@ -491,6 +491,7 @@ test('a periodic fetch that worked allows Update after offline focus reads', asy
   await worker.request('state.refresh')
   const v = (await worker.request('state.get')) as View
   assert.equal(v.update.allowed, true, String(v.update.reason))
+  assert.equal((v.model as unknown as { forge: { freshness: string } }).forge.freshness, 'fetched')
 })
 
 test('a periodic fetch that fell back to the cached copy keeps Update off, with the cache named', async () => {
