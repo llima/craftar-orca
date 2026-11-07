@@ -453,7 +453,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const reason = cached
       ? 'needs a fetch that works'
       : u
-        ? (u.reason ?? (running ? 'craftar is updating this workspace' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
+        ? (u.reason ??
+          (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet — check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
         : NOT_BUILT_UPDATE
     const card = root.appendChild(h('section', { class: 'cta', 'data-role': 'update-card' }))
     card.appendChild(t('h2', `Update ${plural(n, 'file', 'files')} and add ${n === 1 ? 'it' : 'them'} to your commit?`))

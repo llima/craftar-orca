@@ -91,7 +91,6 @@ h1.title { margin: 0; display: flex; align-items: baseline; gap: 6px; min-width:
 .chip { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; background: var(--orca-muted); font-family: var(--mono); font-size: 11.5px; min-width: 0; }
 .chip .dir { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .chip .count { margin-left: auto; color: var(--orca-muted-foreground); white-space: nowrap; }
-.chip .tag { font-size: 10px; color: var(--orca-muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .chip .d { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .chip.dim { opacity: .55; }
 .d.ok { background: var(--ok); }

@@ -30,9 +30,9 @@ linked projects and the files coming and going between them — using the `craft
   `craftar: error`.
 - **The panel** draws the Forge above the workspace, joined by two lanes — down (amber) lit when files are coming from the Forge,
   up (blue) lit when an edited file can go up — with a moving comet on a lit lane (none when the system asks for reduced motion);
-  each target craftar writes for, as craftar names it, with its file count; the files coming down and edited here; linked projects
+  each owner craftar counts (its targets, and services), as craftar names it, with its file count; the files coming down and edited here; linked projects
   (the profile's repositories and the other registered workspaces of the same Forge); every warning craftar gives for this
-  workspace in its words, under "craftar says" (open when the sync is refused, a check fails or the Forge could not be fetched; the
+  workspace in its words, under "craftar says" (open when the sync is refused, a check fails, the Forge could not be fetched or a read gave an error; the
   registry's lines about other workspaces stay out of its panel); a refused sync in craftar's words; and a failed check with
   craftar's lines. Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
   `--allow-writes`. "Update and stage" and "Send to Forge" are drawn disabled, with a note, until the next slices.

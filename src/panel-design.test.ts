@@ -268,7 +268,8 @@ test('an allowed update with no file to list is disabled, and the card counts wh
   const { root } = draw(view(undefined, { update: { allowed: true, reason: null, files: [] } }))
   const b = byAction(root, 'update')[0]
   assert.equal(b.getAttribute('disabled'), '')
-  assert.doesNotMatch(role(root, 'update-card')[0].textContent, /Update 1 file/)
+  assert.match(role(root, 'update-card')[0].textContent, /Update 0 files/)
+  assert.match(b.getAttribute('title') ?? '', /no file to update/)
 })
 
 test('a cached copy keeps Update disabled even when the worker says allowed', () => {
