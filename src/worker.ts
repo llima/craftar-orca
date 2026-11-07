@@ -7,7 +7,7 @@
 import type { OrcaWorkerApi } from 'orca/worker'
 import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
 import { DiffChild, DiffRefused } from './diff-child'
-import { craftarWorkspaces, focused, type Context, type Focus, type Row } from './focus'
+import { craftarWorkspaces, focused, onThisMachine, type Context, type Focus, type Row } from './focus'
 import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
 import { childEnv, run } from './run'
@@ -55,7 +55,7 @@ async function focusedWorkspaceId(orca: OrcaWorkerApi): Promise<string | null> {
   const { workspaces } = (await orca.host.call('workspace.list', {})) as {
     workspaces: { id: string; name: string; branch: string | null; hostId: string | null }[]
   }
-  const local = workspaces.filter((w) => w.hostId === null)
+  const local = workspaces.filter((w) => onThisMachine(w.hostId))
   if (ctx) {
     const match = local.filter((w) => w.name === ctx.displayName && w.branch === ctx.branch)
     if (match.length === 1) return match[0].id
