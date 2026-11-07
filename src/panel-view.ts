@@ -52,21 +52,6 @@ export function refusalLines(unset: UnsetParam[]): string[] {
   ]
 }
 
-// The top-level folder each craftar owner writes into, as craftar's targets document them; an owner not
-// listed is shown by its own name only, never with a path the panel would invent.
-const OWNER_DIR: Record<string, string> = {
-  'claude-code': '.claude/',
-  kiro: '.kiro/',
-  'agents-md': 'AGENTS.md',
-  services: '.craftar/',
-  cursor: '.cursor/',
-  copilot: '.github/',
-  'agent-skills': '.agents/skills/',
-  codex: '.codex/',
-  antigravity: '.agents/',
-  gemini: '.gemini/',
-}
-
 const ICON: Record<string, string> = {
   refresh: 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3',
   down: 'M8 2.5v10M3.5 8.5 8 13l4.5-4.5',
@@ -179,7 +164,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   // ---- the body, by state ----
   if (v.focus === 'ask') drawAsk()
   else if (broken) {
-    root.appendChild(empty(true, 'craftar cannot be used', 'The self-check above says why, in its own words. Install craftar 0.33.0 or later, or set craftar binary in the plugin\'s settings to its absolute path.'))
+    root.appendChild(empty(true, 'craftar cannot be used', 'The self-check above says why, in its own words. Install a craftar the self-check accepts, or set craftar binary in the plugin\'s settings to its absolute path.'))
   } else if (v.readFailed) {
     const box = root.appendChild(h('section', { class: 'cta bad' }))
     box.appendChild(t('p', 'craftar status gave no document for this workspace — see the self-check, or run craftar status in a terminal.', { class: 'error' }))
@@ -324,9 +309,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const dot = add + upd + del > 0 ? 'em' : edit > 0 ? 'st' : apart > 0 ? 'warn' : 'ok'
       const chip = branches.appendChild(h('li')).appendChild(h('div', { class: linkBroken ? 'chip dim' : 'chip' }))
       chip.appendChild(h('span', { class: `d ${dot}` }))
-      const dir = OWNER_DIR[o.owner]
-      chip.appendChild(t('span', dir ?? o.owner, { class: 'dir' }))
-      if (dir) chip.appendChild(t('span', o.owner, { class: 'tag' }))
+      // craftar counts files per owner, and an owner can write in several places (claude-code also writes
+      // .mcp.json): the chip names the owner as craftar does, never a folder the panel would pick.
+      chip.appendChild(t('span', o.owner, { class: 'dir' }))
       const em = [add > 0 ? `+${add}` : '', upd > 0 ? `~${upd}` : '', del > 0 ? `−${del}` : ''].filter(Boolean).join(' ')
       if (em) chip.appendChild(t('span', em, { class: 'delta em' }))
       if (edit > 0) chip.appendChild(t('span', `✎${edit}`, { class: 'delta st' }))
@@ -352,10 +337,12 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
 
     if (v.consent) drawConsent(v.consent)
-    if (v.sync?.phase === 'error' && v.sync.message) {
-      const box = root.appendChild(h('section', { class: 'cta bad', 'data-role': 'sync-error' }))
-      box.appendChild(t('h2', 'The update did not finish'))
-      box.appendChild(t('pre', v.sync.message, { class: 'words' }))
+    if (v.sync?.message) {
+      // craftar's words about the last run, whatever the phase; an error is said as one.
+      const err = v.sync.phase === 'error'
+      const box = root.appendChild(h('section', { class: err ? 'cta bad' : 'cta plain', 'data-role': err ? 'sync-error' : 'sync-note' }))
+      if (err) box.appendChild(t('h2', 'The update did not finish'))
+      box.appendChild(t('pre', v.sync.message, { class: 'words', 'data-role': 'sync-message' }))
     }
     if (down > 0 && !m.refused && !m.checkFailed) drawUpdateCard(m)
     if (m.edited.length > 0 && !m.refused && !m.checkFailed) drawSendCard(m)
@@ -458,13 +445,15 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   function drawUpdateCard(m: PanelModel): void {
     const u = v.update
     const files = u ? u.files.map((x) => x.path) : m.pending.map((x) => x.path)
-    const n = u ? u.files.length || m.pending.length : m.pending.length
+    // The card counts exactly what the confirm will list and run with.
+    const n = files.length
     const running = v.sync?.phase === 'running'
-    const allowed = u ? u.allowed && !running && typeof a.updateRun === 'function' : false
-    const reason = u
-      ? (u.reason ?? (running ? 'craftar is updating this workspace' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
-      : cached
-        ? 'needs a fetch that works'
+    // A cached copy keeps Update disabled whatever the worker says (O10): the panel enforces it too.
+    const allowed = u ? u.allowed && n > 0 && !running && !cached && typeof a.updateRun === 'function' : false
+    const reason = cached
+      ? 'needs a fetch that works'
+      : u
+        ? (u.reason ?? (running ? 'craftar is updating this workspace' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
         : NOT_BUILT_UPDATE
     const card = root.appendChild(h('section', { class: 'cta', 'data-role': 'update-card' }))
     card.appendChild(t('h2', `Update ${plural(n, 'file', 'files')} and add ${n === 1 ? 'it' : 'them'} to your commit?`))
@@ -554,6 +543,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     list('Kept', l.kept.map((x) => ({ text: `${x.path} · ${x.state}${x.reason ? ` · ${x.reason}` : ''}`, role: 'kept' })))
     list('Changed since the question', l.differences.map((x) => ({ text: x, role: 'difference', cls: 'warn' })))
     list('craftar says', l.warnings.map((x) => ({ text: x, role: 'warning', cls: 'warn' })))
+    if (l.rerun) body.appendChild(t('p', 'craftar kept a file that changed while it was writing — run Update again.', { class: 'note', 'data-role': 'rerun' }))
     root.appendChild(sec('Last update', null, body, { 'data-role': 'last-sync' }))
   }
 

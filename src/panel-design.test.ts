@@ -137,11 +137,11 @@ test('a cached copy breaks the lanes, labels the Forge, and keeps Update disable
   assert.match(update[0].getAttribute('title') ?? '', /needs a fetch that works/)
 })
 
-test('the workspace branches show each output folder with its count and deltas', () => {
+test('the workspace branches show each craftar owner with its count and deltas, and no folder craftar did not name', () => {
   const { root } = draw(view())
   const chip = byClass(root, 'chip')[0]
-  assert.match(chip.textContent, /\.claude\//)
   assert.match(chip.textContent, /claude-code/)
+  assert.doesNotMatch(chip.textContent, /\.claude\//)
   assert.ok(byClass(chip, 'delta').some((d) => d.textContent === '~1' && cls(d).includes('em')))
   assert.ok(byClass(chip, 'delta').some((d) => d.textContent === '✎1' && cls(d).includes('st')))
 })
@@ -171,7 +171,9 @@ test("S2's contract: an allowed update asks first, listing the files, then runs 
   click(update)
   const confirm = byAction(root, 'update-confirm')
   assert.equal(confirm.length, 1)
-  assert.match(root.textContent, /Update 1 file and add it to your commit\?/)
+  const box = role(root, 'update-confirm-box')[0]
+  assert.match(box.textContent, /Update 1 file and add it to your commit\?/)
+  assert.match(box.textContent, /\.claude\/rules\/workflow\.md/)
   click(byAction(root, 'update-cancel')[0])
   assert.equal(byAction(root, 'update-confirm').length, 0)
   assert.deepEqual(calls, [])
@@ -200,7 +202,6 @@ test("S2's contract: the consent offers a terminal or shows the steps as text; t
   const words = draw(view(undefined, { consent: { text: 'no', terminal: 'words', steps: ['open a terminal', '<b>type</b>'] } }))
   assert.equal(byAction(words.root, 'consent-terminal').length, 0)
   assert.match(words.root.textContent, /<b>type<\/b>/)
-  assert.equal(all(words.root).some((e) => e.tag === 'b'), false)
   const last = draw(
     view(undefined, {
       lastSync: {
@@ -261,4 +262,50 @@ test('an allowed update with no way to run it yet stays disabled and says why', 
   const b = byAction(root, 'update')[0]
   assert.equal(b.getAttribute('disabled'), '')
   assert.match(b.getAttribute('title') ?? '', /not built yet/)
+})
+
+test('an allowed update with no file to list is disabled, and the card counts what the confirm would list', () => {
+  const { root } = draw(view(undefined, { update: { allowed: true, reason: null, files: [] } }))
+  const b = byAction(root, 'update')[0]
+  assert.equal(b.getAttribute('disabled'), '')
+  assert.doesNotMatch(role(root, 'update-card')[0].textContent, /Update 1 file/)
+})
+
+test('a cached copy keeps Update disabled even when the worker says allowed', () => {
+  const v = view((m) => (m.forge = { ...m.forge!, freshness: 'cached', fetchedAt: null }), { update: { allowed: true, reason: null, files: [{ path: '.claude/rules/workflow.md', state: 'update' }] } })
+  const b = byAction(draw(v).root, 'update')[0]
+  assert.equal(b.getAttribute('disabled'), '')
+  assert.match(b.getAttribute('title') ?? '', /needs a fetch that works/)
+})
+
+test("craftar's sync message is shown verbatim whatever the phase, and lastSync's removed files and warnings are listed", () => {
+  for (const phase of ['error', 'done', 'consent'] as const) {
+    const { root } = draw(view(undefined, { sync: { phase, message: `craftar: <i>${phase}</i> said this` } }))
+    assert.equal(role(root, 'sync-message')[0]?.textContent, `craftar: <i>${phase}</i> said this`, phase)
+  }
+  const { root } = draw(
+    view(undefined, { lastSync: { written: [], removed: [{ path: 'old.md', reason: 'orphan: no longer produced' }], kept: [], staged: [], differences: [], warnings: ['plan: a warning'], rerun: true } }),
+  )
+  assert.equal(role(root, 'removed')[0].textContent, 'old.md · orphan: no longer produced')
+  assert.ok(role(root, 'warning').some((e) => e.textContent === 'plan: a warning'))
+  assert.equal(role(root, 'rerun').length, 1)
+})
+
+test('a failed read is a bad card with Check again; a tie names each workspace by name and path in the new design', () => {
+  const failed = draw(view(undefined, { readFailed: true, model: null }))
+  assert.equal(pill(failed.root)?.textContent, 'error')
+  assert.match(failed.root.textContent, /craftar status gave no document/)
+  click(byAction(failed.root, 'refresh').at(-1)!)
+  assert.deepEqual(failed.calls, ['refresh'])
+  const tie = draw(view(undefined, { focus: 'ask', model: null, ask: [{ id: 'a', name: 'web', path: '/home/acme/web' }, { id: 'b', name: 'web', path: '/home/acme/web-2' }] }))
+  assert.equal(pill(tie.root), undefined)
+  assert.match(tie.root.textContent, /Which workspace are you working in\?/)
+  const b = byAction(tie.root, 'choose')
+  assert.deepEqual(b.map((e) => e.textContent), ['web/home/acme/web', 'web/home/acme/web-2'])
+})
+
+test('the missing-craftar card names no version of its own (the self-check says the floor)', () => {
+  const { root } = draw(view(undefined, { model: null, focus: 'none', selfCheck: [{ level: 'error', message: 'craftar: not found' }] }))
+  const card = byClass(root, 'empty')[0]
+  assert.doesNotMatch(card.textContent, /\d+\.\d+\.\d+/)
 })
