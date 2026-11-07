@@ -24,8 +24,9 @@ const HEARTBEAT_MS = 60_000
 // A fixed, harmless command: no value of anyone's is put into a terminal (spec 60 §10).
 const PROBE_COMMAND = 'echo craftar-probe'
 const PROBE_MARK = 'craftar-probe'
-// The status bar item runs the probe when pressed (orca-plugin.json); its tooltip says so.
-const CLICK_HINT = ' · click: run the probe'
+// The status bar item shows or hides the right side bar, where the panel is (orca-plugin.json): Orca
+// 1.4.250 gives a plugin no way to open its own panel. Its tooltip says so. The probe is in the palette.
+const CLICK_HINT = ' · click: show or hide the craftar panel'
 const WATCHED_ENV = ['CRAFTAR_HOME', 'SSH_AUTH_SOCK', 'GIT_AUTHOR_NAME', 'GH_TOKEN'] as const
 
 interface Heartbeat {
@@ -436,6 +437,9 @@ export default function activate(orca: OrcaWorkerApi): void {
   firstBeat = tick()
   timer = setInterval(() => void tick(), HEARTBEAT_MS)
   if (typeof timer === 'object' && timer && 'unref' in timer) timer.unref()
+  orca.commands.register('craftar.open', () =>
+    orca.host.call('commands.run', { action: 'sidebar.right.toggle' }).catch((e) => orca.log(failed('open the side bar', e))),
+  )
   orca.commands.register('craftar.probe', () => {
     if (!probing) probing = probe(orca, startedAt).finally(() => (probing = null))
     return probing

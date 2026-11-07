@@ -26,11 +26,12 @@
       { "id": "craftar", "title": "craftar", "icon": "blocks", "entry": "src/panel.ts", "ui": "html" }
     ],
     "commands": [
+      { "id": "craftar.open", "title": "craftar: show or hide the craftar panel" },
       { "id": "craftar.probe", "title": "craftar: run the probe (measures what the plugin needs from Orca)" }
     ],
     "events": [{ "on": "workspace.changed" }],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "blocks", "tooltip": "craftar — reading · click: run the probe", "command": "craftar.probe" }
+      { "id": "craftar", "text": "craftar", "icon": "blocks", "tooltip": "craftar — reading · click: show or hide the craftar panel", "command": "craftar.open" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",

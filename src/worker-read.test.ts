@@ -57,7 +57,7 @@ async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: s
   // The worker's children inherit its environment: the stub's preload rides on NODE_OPTIONS.
   const saved = { NODE_OPTIONS: process.env.NODE_OPTIONS, CRAFTAR_STUB_LOG: process.env.CRAFTAR_STUB_LOG, CRAFTAR_STUB_TABLE: process.env.CRAFTAR_STUB_TABLE }
   Object.assign(process.env, { NODE_OPTIONS: s.env.NODE_OPTIONS, CRAFTAR_STUB_LOG: s.env.CRAFTAR_STUB_LOG, CRAFTAR_STUB_TABLE: s.env.CRAFTAR_STUB_TABLE })
-  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'], events: ['workspace.changed'] })
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe', 'craftar.open'], events: ['workspace.changed'] })
   workers.push({
     deactivate: async () => {
       await worker.deactivate()
