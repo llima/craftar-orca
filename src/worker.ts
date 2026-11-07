@@ -24,6 +24,8 @@ const HEARTBEAT_MS = 60_000
 // A fixed, harmless command: no value of anyone's is put into a terminal (spec 60 §10).
 const PROBE_COMMAND = 'echo craftar-probe'
 const PROBE_MARK = 'craftar-probe'
+// The status bar item runs the probe when pressed (orca-plugin.json); its tooltip says so.
+const CLICK_HINT = ' · click: run the probe'
 const WATCHED_ENV = ['CRAFTAR_HOME', 'SSH_AUTH_SOCK', 'GIT_AUTHOR_NAME', 'GH_TOKEN'] as const
 
 interface Heartbeat {
@@ -34,6 +36,8 @@ interface Heartbeat {
 
 let timer: ReturnType<typeof setInterval> | null = null
 let firstBeat: Promise<void> = Promise.resolve()
+// The probe in flight: a second click while it runs gets the same report, not a second terminal.
+let probing: Promise<string> | null = null
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -141,25 +145,30 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
     terminal = { outcome: failed('terminal', e), lines: [] }
   }
   summary.push(terminal.outcome)
-  out.push('notifications.show: no action (host-api 1.3) — the panel holds the one click')
+  // The log and the notification carry the summary only: craftar's path and output, and the terminal's
+  // lines — a prompt can carry a host name, a user name or a directory (spec 60 O11) — are shown in the
+  // panel, to the person who ran it, and never logged or notified.
+  orca.log(['probe ran', ...summary].join('\n'))
+  const shown = (await orca.host
+    .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
+    .catch((e) => {
+      orca.log(failed('notification', e))
+      return null
+    })) as { delivered?: unknown } | null
+  out.push(
+    `notifications.show: ${shown?.delivered === true ? 'delivered' : 'not delivered'} (host-api 1.3: a notification has no action — the panel holds the one click)`,
+  )
   const report = [
     ...out,
     terminal.outcome,
     ...(terminal.lines.length > 0 ? ['  (its last lines show its prompt: which shell, which directory)'] : []),
     ...terminal.lines.map((l) => `  | ${l}`),
   ]
-  // The log and the notification carry the summary only: craftar's path and output, and the terminal's
-  // lines — a prompt can carry a host name, a user name or a directory (spec 60 O11) — are shown in the
-  // panel, to the person who ran it, and never logged or notified.
-  orca.log(['probe ran', ...summary].join('\n'))
   const s = st
   if (s) {
     s.probe = { at: Date.now(), lines: report }
     await publish(s).catch((e) => orca.log(failed('probe publish', e)))
   }
-  await orca.host
-    .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
-    .catch((e) => orca.log(failed('notification', e)))
   return report.join('\n')
 }
 
@@ -299,7 +308,7 @@ async function publish(s: State): Promise<void> {
   const broken = s.craftar === null && s.selfCheck.some((l) => l.level === 'error')
   const m = ws ? (s.models.get(ws) ?? null) : null
   const bar = barFor(broken || (ws !== null && s.failed.has(ws)) ? 'error' : m)
-  const tooltip = ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'
+  const tooltip = `${ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'}${CLICK_HINT}`
   await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'layers' }).catch((e) => s.orca.log(failed('status bar', e)))
   s.orca.panels.post('state.changed', view(s) as never)
 }
@@ -412,12 +421,15 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
   st = s
   orca.host
-    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: 'craftar — reading', icon: 'layers' })
+    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'layers' })
     .catch((e) => orca.log(failed('status bar', e)))
   firstBeat = tick()
   timer = setInterval(() => void tick(), HEARTBEAT_MS)
   if (typeof timer === 'object' && timer && 'unref' in timer) timer.unref()
-  orca.commands.register('craftar.probe', () => probe(orca, startedAt))
+  orca.commands.register('craftar.probe', () => {
+    if (!probing) probing = probe(orca, startedAt).finally(() => (probing = null))
+    return probing
+  })
 
   // One refresh at a time: Orca delivers the current context to a new subscriber, on top of the first one.
   const refresh = (ctx?: Context | null, recheck = false): Promise<void> =>

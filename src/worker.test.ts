@@ -64,7 +64,7 @@ test('the probe reports the craftar it found, its version and the terminal it op
   assert.match(report, /craftar: found/)
   assert.match(report, new RegExp(`version: ${process.version.replace(/\./g, '\\.')}`))
   assert.match(report, /terminal: craftar-probe seen/)
-  assert.match(report, /notifications\.show: no action \(host-api 1\.3\)/)
+  assert.match(report, /notifications\.show: delivered \(host-api 1\.3: a notification has no action/)
   const created = h.callsOf('terminal.create')
   assert.equal(created.length, 1)
   assert.deepEqual(created[0], { workspaceId: 'w1', title: 'craftar probe', command: 'echo craftar-probe' })
@@ -227,4 +227,22 @@ test('the Orca CLI is looked for as orca-ide; an `orca` on PATH is not taken for
   } finally {
     process.env.PATH = before
   }
+})
+
+test('a second click while the probe runs opens no second terminal', async () => {
+  const h = host({ craftarPath: stubCraftar() })
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  const [a, b] = await Promise.all([worker.command('craftar.probe'), worker.command('craftar.probe')])
+  assert.equal(String(a), String(b))
+  assert.equal(h.callsOf('terminal.create').length, 1)
+  assert.equal(h.callsOf('notifications.show').length, 1)
+  await worker.deactivate()
+})
+
+test('the status bar tooltip says a click runs the probe', async () => {
+  const h = host({ craftarPath: stubCraftar() })
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  const updates = h.callsOf('statusBar.update') as { tooltip?: string }[]
+  assert.ok(updates.length > 0 && updates.every((u) => String(u.tooltip).endsWith(' · click: run the probe')))
+  await worker.deactivate()
 })
