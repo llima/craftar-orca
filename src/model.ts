@@ -66,8 +66,12 @@ export function buildModel(i: ModelInput): PanelModel {
   const mine = i.registry?.workspaces.find((w) => w.path === i.ws)
   const key = mine?.forge?.key ?? null
 
+  // `craftar workspaces --json` words each registered workspace's warnings `<its path>: …`; a line about
+  // another workspace is not this one's, and showing it here would put that workspace in this panel.
+  const others = (i.registry?.workspaces ?? []).map((w) => w.path).filter((p) => p !== i.ws)
+  const registryWarnings = (i.registry?.warnings ?? []).filter((w) => !others.some((p) => w.startsWith(`${p}: `)))
   const warnings: string[] = []
-  for (const w of [...i.status.warnings, ...(i.drift?.warnings ?? []), ...(i.repos?.warnings ?? []), ...(i.registry?.warnings ?? [])]) {
+  for (const w of [...i.status.warnings, ...(i.drift?.warnings ?? []), ...(i.repos?.warnings ?? []), ...registryWarnings]) {
     if (!warnings.includes(w)) warnings.push(w)
   }
 
