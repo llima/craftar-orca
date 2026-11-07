@@ -16,9 +16,12 @@ linked projects and the files coming and going between them — using the `craft
   is started), doctor's `error` lines for the focused workspace (listed, never fixed), and whether the registry is on. It runs again
   when `craftarPath` or `craftarHome` changes. When anything fails it is shown at the top of the panel and the status bar reads
   `craftar: error`.
-- **The focused workspace** is the Orca workspace on this machine whose folder holds `craftar.yaml` and whose name and branch match
-  the one you have open. When two match, the panel asks which; your answer is kept. A workspace on another host (SSH, WSL) is listed
-  and never read.
+- **The focused workspace** is the one Orca has active, asked of Orca's CLI (`orca-ide worktree ps --json`, run as a child from the
+  `orca-ide` found on an absolute `PATH` entry; only paths are kept, in memory — never logged or stored), when its folder on this machine holds `craftar.yaml` — an active
+  workspace without one is no focus. When Orca's CLI cannot say, the workspace holding the open workspace's terminals
+  (`orca-ide terminal list --json`) decides, and then the name and branch of the one you have open: when several match (every `main`
+  worktree is named `main`), the panel asks which, and your answer is kept. A workspace on another host (SSH, WSL) is listed and
+  never read.
 - **Reads** are `craftar status`, `drift show`, `repos` and `workspaces`, each with `--json`. A focus change reads offline; the
   periodic check (every `intervalMinutes`) reads each craftar workspace on this machine, one after another, and is the only read that
   fetches a remote Forge — and only with `fetch` on.
@@ -31,9 +34,10 @@ linked projects and the files coming and going between them — using the `craft
   Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with `--allow-writes`. "Update" and
   "Send to Forge" are drawn disabled until the next slices.
 
-The probe `craftar: run the probe` (S0) stays. It is bound to the **craftar item in the status bar**, so a click runs it (Orca's
-manifest schema runs an item's `command` when it is pressed — not yet clicked in Orca), and it is in the palette (Orca's default
-Ctrl+Shift+J on Linux, typing `craftar` — measured): it says which `craftar` it found and which environment variables the worker has (present or absent,
+**Clicking the craftar item in the status bar** shows or hides Orca's right side bar, where the craftar panel is (Orca 1.4.250 gives
+a plugin no way to open its own panel; the palette command `craftar: show or hide the craftar panel` does the same).
+
+The probe `craftar: run the probe` (S0) stays, in the palette (Orca's default Ctrl+Shift+J on Linux, typing `craftar`): it says which `craftar` it found and which environment variables the worker has (present or absent,
 never a value), and opens a terminal named "craftar probe" running `echo craftar-probe`. Its report appears in the **craftar panel**,
 the terminal's last lines included — your prompt, so possibly your host name, user name and directory, shown there only. A
 notification gives the outcome (craftar found and its version, the terminal's result) and points at the panel; the plugin's log gets
@@ -48,8 +52,9 @@ Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 - Orca's CLI is `orca-ide`; an `orca` on `PATH` can be another program (on GNOME, the screen reader), so the probe looks for
   `orca-ide` (a later slice depends on it).
 
-Not measured yet: that a click on the status bar item runs the probe in Orca, and whether the probe's terminal is a real terminal
-and its lines can be read back — the next run of the probe, from the status bar, reports both.
+Measured on 2026-11-07 too: the probe's terminal opens, backed by a pty, in the workspace in focus, and `terminal.read` gives its
+lines back. Not measured yet: that Orca's CLI answers from inside the worker (the probe's `active workspace` line says so), and that
+a click on the status bar item shows or hides the side bar.
 
 ## Settings
 
@@ -57,7 +62,7 @@ and its lines can be read back — the next run of the probe, from the status ba
   only, never through `npx`. Orca started from a dock or a menu often has a short `PATH`, so set it there. When the binary sits under a
   version manager's shim directory (asdf, volta, mise), a project's files can choose what runs; the self-check says so.
 - **CRAFTAR_HOME** (`craftarHome`) — passed to craftar, so it reads the registry and Forge cache your terminal uses.
-- **Check the Forge every** (`intervalMinutes`, default 15, minimum 5) and **Fetch a remote Forge** (`fetch`, default on) — the periodic check only.
+- **Check the Forge every** (`intervalMinutes`, default 5, minimum 5) and **Fetch a remote Forge** (`fetch`, default on) — the periodic check only.
 
 ## Development
 

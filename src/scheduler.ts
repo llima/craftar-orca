@@ -5,7 +5,7 @@
 import { type Craftar, status, type StatusDoc } from './craftar'
 
 const MIN_MINUTES = 5
-const DEFAULT_MINUTES = 15
+const DEFAULT_MINUTES = 5
 
 export class Serial {
   private tails = new Map<string, Promise<unknown>>()

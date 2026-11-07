@@ -134,3 +134,19 @@ test('the probe report is drawn as text, line by line, and absent until the prob
   assert.equal(all(root).find((e) => e.attrs['data-role'] === 'probe-text')?.textContent, `craftar probe — S0 (spec 60 §12)\n  | ${hostile}`)
   assert.equal(all(root).some((e) => e.tag === 'img'), false)
 })
+
+// The user's ruling (2026-11-07): the logo's three squares beside "craftar" at the top of the panel, as an
+// inline SVG (Orca takes only named icons for the panel tab and the status bar item).
+test('the header draws the logo as an inline SVG of three squares, decorative, beside the title', () => {
+  const { root } = draw(modelView())
+  const header = all(root).find((e) => e.tag === 'header')
+  assert.ok(header)
+  const logo = all(header).find((e) => e.tag === 'svg' && e.attrs['data-role'] === 'logo')
+  assert.ok(logo, 'an svg logo in the header')
+  assert.equal(logo.ns, 'http://www.w3.org/2000/svg')
+  assert.equal(logo.attrs['aria-hidden'], 'true')
+  const fills = all(logo).filter((e) => e.tag === 'rect').map((e) => e.attrs.fill)
+  // The dark tile first, as in the plugin icon (A2), so the light square reads on a light theme too.
+  assert.deepEqual(fills, ['#0A0E13', '#E7ECF1', '#E9915A', '#7FB4D6'])
+  assert.equal(all(header).some((e) => e.tag === 'image' || e.tag === 'img' || e.tag === 'use'), false)
+})

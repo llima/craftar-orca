@@ -43,7 +43,15 @@ export function render(doc: Doc, root: HTMLElement, v: View, a: Actions, diff: D
   root.replaceChildren()
 
   const header = root.appendChild(h('header'))
-  header.appendChild(h('h1', v.model ? `craftar — ${v.model.name}` : 'craftar'))
+  const title = header.appendChild(h('div', undefined, { class: 'title' }))
+  // The logo's three squares on its dark tile (assets/icon.svg, variant A2), drawn inline: Orca takes only
+  // named icons for the panel tab and the status bar item. Decorative: the title says "craftar".
+  const logo = title.appendChild(s('svg', { viewBox: '0 0 64 64', class: 'logo', 'data-role': 'logo', 'aria-hidden': 'true', focusable: 'false' }))
+  logo.appendChild(s('rect', { width: '64', height: '64', rx: '10', fill: '#0A0E13' }))
+  logo.appendChild(s('rect', { x: '20.696', y: '7.124', width: '22.62', height: '22.62', rx: '3.393', fill: '#E7ECF1' }))
+  logo.appendChild(s('rect', { x: '7.124', y: '34.268', width: '22.62', height: '22.62', rx: '3.393', fill: '#E9915A' }))
+  logo.appendChild(s('rect', { x: '34.268', y: '34.268', width: '22.62', height: '22.62', rx: '3.393', fill: '#7FB4D6' }))
+  title.appendChild(h('h1', v.model ? `craftar — ${v.model.name}` : 'craftar'))
   const refresh = header.appendChild(h('button', 'Refresh', { 'data-action': 'refresh', type: 'button' }))
   refresh.addEventListener('click', () => a.refresh())
 

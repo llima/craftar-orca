@@ -1,14 +1,26 @@
 // The S1 worker: the self-check on enable, the reads of the focused craftar workspace, the periodic
 // read, the panel's requests and the status bar (spec 60 §4–§7.1, O9, O10). Every craftar is a stub.
-import { afterEach, assert, mockHost, mountWorker, test } from 'orca/testing'
+import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { psDoc, stubOrcaCli } from '../test-support/stub-orca-cli'
 import * as main from './worker'
 
 const CAPS = ['workspace:read', 'workspace:write', 'terminal:send', 'terminal:read', 'notifications:show', 'storage:own', 'settings:own']
 const workers: { deactivate: () => Promise<void> | void }[] = []
+
+// No test reaches the person's own Orca: PATH is an empty directory, so no `orca-ide` is found and the focus
+// falls back to name and branch, unless a test puts a stub orca-ide (test-support/stub-orca-cli.ts) there.
+let savedPath: string | undefined
+beforeEach(() => {
+  savedPath = process.env.PATH
+  process.env.PATH = tempDir('craftar-orca-path-')
+})
+afterEach(() => {
+  process.env.PATH = savedPath
+})
 
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
@@ -41,7 +53,7 @@ function table(extra: Record<string, unknown> = {}) {
 
 type Ws = { id: string; kind: string; name: string; path: string; branch: string | null; hostId: string | null }
 
-async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: string } | null; settings?: Record<string, unknown>; extra?: Record<string, unknown>; results?: Record<string, unknown> } = {}) {
+async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: string; terminals?: { id: string }[] } | null; settings?: Record<string, unknown>; extra?: Record<string, unknown>; results?: Record<string, unknown> } = {}) {
   const s = stubCraftar(table(opts.extra))
   const web = craftarDir()
   const rows = opts.rows ?? [{ id: 'w1', kind: 'folder', name: 'web', path: web, branch: 'main', hostId: null }]
@@ -50,14 +62,14 @@ async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: s
     settings: { craftarPath: s.bin, craftarHome: '', intervalMinutes: 15, fetch: true, ...(opts.settings ?? {}) } as Record<string, string | number | boolean>,
     results: {
       'workspace.list': { workspaces: rows, truncated: false },
-      'workspace.readContext': opts.ctx === undefined ? { branch: 'main', displayName: 'web', terminals: [] } : opts.ctx === null ? null : { ...opts.ctx, terminals: [] },
+      'workspace.readContext': opts.ctx === undefined ? { branch: 'main', displayName: 'web', terminals: [] } : opts.ctx === null ? null : { terminals: [], ...opts.ctx },
       ...(opts.results ?? {}),
     },
   })
   // The worker's children inherit its environment: the stub's preload rides on NODE_OPTIONS.
   const saved = { NODE_OPTIONS: process.env.NODE_OPTIONS, CRAFTAR_STUB_LOG: process.env.CRAFTAR_STUB_LOG, CRAFTAR_STUB_TABLE: process.env.CRAFTAR_STUB_TABLE }
   Object.assign(process.env, { NODE_OPTIONS: s.env.NODE_OPTIONS, CRAFTAR_STUB_LOG: s.env.CRAFTAR_STUB_LOG, CRAFTAR_STUB_TABLE: s.env.CRAFTAR_STUB_TABLE })
-  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'], events: ['workspace.changed'] })
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe', 'craftar.open'], events: ['workspace.changed'] })
   workers.push({
     deactivate: async () => {
       await worker.deactivate()
@@ -278,4 +290,68 @@ test('with a tie not yet answered, the probe opens no terminal and says to pick 
   const report = String(await worker.command('craftar.probe'))
   assert.match(report, /terminal: not opened — several workspaces match the focused one: pick it in the craftar panel/)
   assert.equal(h.callsOf('terminal.create').length, 0)
+})
+
+// Orca's CLI as the source of the focus (the user's ruling, 2026-11-07).
+test('with Orca naming the active workspace, a name-and-branch tie is no question: that workspace is read', { skip: process.platform === 'win32' }, async () => {
+  const one = craftarDir()
+  const two = craftarDir()
+  process.env.PATH = stubOrcaCli({ ps: psDoc([{ path: one }, { path: two, active: true }]) }).dir
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'b', kind: 'worktree', name: 'main', path: two, branch: 'main', hostId: 'local' },
+  ]
+  const { s, worker } = await setup({ rows, ctx: { branch: 'main', displayName: 'main' } })
+  const view = (await worker.request('state.get')) as View
+  assert.equal(view.focus, 'one')
+  assert.equal(view.model?.ws, two)
+  assert.ok(s.calls().some((c) => c.argv[0] === 'status' && c.argv.includes(two)))
+  assert.equal(s.calls().some((c) => c.argv[0] === 'status' && c.argv.includes(one)), false)
+})
+
+test("Orca's active workspace that holds no craftar.yaml is no focus, and nothing is read", { skip: process.platform === 'win32' }, async () => {
+  const one = craftarDir()
+  const plain = tempDir('craftar-orca-plain-')
+  process.env.PATH = stubOrcaCli({ ps: psDoc([{ path: one }, { path: plain, active: true }]) }).dir
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'p', kind: 'worktree', name: 'main', path: plain, branch: 'main', hostId: 'local' },
+  ]
+  const { s, worker } = await setup({ rows, ctx: { branch: 'main', displayName: 'main' } })
+  assert.equal(((await worker.request('state.get')) as View).focus, 'none')
+  assert.equal(s.calls().some((c) => c.argv[0] === 'status'), false)
+})
+
+test('the probe says whether Orca named an active workspace, never which', { skip: process.platform === 'win32' }, async () => {
+  const one = craftarDir()
+  process.env.PATH = stubOrcaCli({ ps: psDoc([{ path: one, active: true }]) }).dir
+  const rows: Ws[] = [{ id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' }]
+  const { worker } = await setup({
+    rows,
+    ctx: { branch: 'main', displayName: 'main' },
+    results: { 'terminal.create': { terminalId: 't1' }, 'terminal.read': { lines: ['craftar-probe'], truncated: false } },
+  })
+  const report = String(await worker.command('craftar.probe'))
+  assert.match(report, /Orca CLI \(orca-ide\): on an absolute PATH entry — active workspace: found/)
+  assert.equal(worker.logs.join('\n').includes(one), false)
+})
+
+test('an Orca CLI that does not answer within 5 s is no answer: no terminal list after it, and name and branch decide', { skip: process.platform === 'win32' }, async () => {
+  // The active row names a workspace with no craftar.yaml: had the CLI answered (a limit above 7 s), the
+  // focus would be none. Within 5 s it does not, so the name-and-branch tier focuses the craftar one.
+  const one = craftarDir()
+  const plain = tempDir('craftar-orca-plain-')
+  const s = stubOrcaCli({ ps: psDoc([{ path: one }, { path: plain, active: true }]), psDelaySeconds: 7 })
+  process.env.PATH = s.dir
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'p', kind: 'worktree', name: 'other', path: plain, branch: 'main', hostId: 'local' },
+  ]
+  const { worker } = await setup({ rows, ctx: { branch: 'main', displayName: 'main', terminals: [{ id: 'term_1' }] } })
+  const view = (await worker.request('state.get')) as View
+  assert.equal(view.focus, 'one')
+  assert.equal(view.model?.ws, one)
+  // Activation refreshes twice (Orca delivers the current context to a new subscriber); one call each.
+  assert.ok(s.calls().length > 0)
+  assert.ok(s.calls().every((c) => c === 'worktree ps --json'))
 })

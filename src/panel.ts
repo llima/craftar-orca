@@ -17,6 +17,8 @@ body { margin: 0; background: var(--orca-background); color: var(--orca-foregrou
 main { padding: 12px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 h1 { font-size: 15px; margin: 0; }
+.title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+svg.logo { width: 18px; height: 18px; flex: none; }
 h2 { font-size: 12px; margin: 14px 0 6px; color: var(--orca-muted-foreground); text-transform: uppercase; letter-spacing: .04em; }
 ul { list-style: none; margin: 0; padding: 0; }
 li { padding: 2px 0; }

@@ -1,5 +1,7 @@
 // One craftar run at a time per workspace, and which reads may fetch (spec 60 §7.1).
 import { afterEach, assert, test } from 'orca/testing'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { intervalMs, readStatus, Serial } from './scheduler'
@@ -46,12 +48,20 @@ test('runs on two workspaces do not wait for each other, and a failed run does n
   assert.equal(await q.run('/home/acme/web', async () => 'next'), 'next')
 })
 
-test('the interval honours the minimum of 5 minutes and falls back to 15 on a value that is not a number', () => {
+test('the interval honours the minimum of 5 minutes and falls back to 5 on a value that is not a number', () => {
   assert.equal(intervalMs(15), 15 * 60_000)
   assert.equal(intervalMs(2), 5 * 60_000)
   assert.equal(intervalMs(7.9), 7 * 60_000)
-  assert.equal(intervalMs('often'), 15 * 60_000)
-  assert.equal(intervalMs(Number.NaN), 15 * 60_000)
+  assert.equal(intervalMs('often'), 5 * 60_000)
+  assert.equal(intervalMs(Number.NaN), 5 * 60_000)
+  assert.equal(intervalMs(undefined), 5 * 60_000)
+})
+
+test("the manifest default of the interval is 5 minutes, as the worker falls back to (the user's ruling, 2026-11-07)", () => {
+  const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../orca-plugin.json', import.meta.url)), 'utf8'))
+  const setting = manifest.contributes.settings.find((x: { key: string }) => x.key === 'intervalMinutes')
+  assert.equal(setting.default, 5)
+  assert.equal(setting.minimum, 5)
 })
 
 test('only the periodic read fetches, and only with the fetch setting on; a focus change never fetches', async () => {

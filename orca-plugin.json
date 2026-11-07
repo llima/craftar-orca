@@ -11,6 +11,7 @@
   "execution": "trusted-worker",
   "pluginApi": 1,
   "main": "src/worker.ts",
+  "icon": "assets/icon.png",
   "capabilities": [
     { "kind": "workspace:read" },
     { "kind": "workspace:write" },
@@ -22,21 +23,22 @@
   ],
   "contributes": {
     "panels": [
-      { "id": "craftar", "title": "craftar", "icon": "layers", "entry": "src/panel.ts", "ui": "html" }
+      { "id": "craftar", "title": "craftar", "icon": "package", "entry": "src/panel.ts", "ui": "html" }
     ],
     "commands": [
+      { "id": "craftar.open", "title": "craftar: show or hide the craftar panel" },
       { "id": "craftar.probe", "title": "craftar: run the probe (measures what the plugin needs from Orca)" }
     ],
     "events": [{ "on": "workspace.changed" }],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — reading · click: run the probe", "command": "craftar.probe" }
+      { "id": "craftar", "text": "craftar", "icon": "package", "tooltip": "craftar — reading · click: show or hide the craftar panel", "command": "craftar.open" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",
         "description": "Absolute path to the craftar binary. Empty: look for it on the absolute entries of PATH only — never npx." },
       { "key": "craftarHome", "title": "CRAFTAR_HOME", "type": "string", "default": "",
         "description": "Passed to craftar as CRAFTAR_HOME (its registry and Forge cache). Empty: craftar's default." },
-      { "key": "intervalMinutes", "title": "Check the Forge every (minutes)", "type": "integer", "default": 15, "minimum": 5 },
+      { "key": "intervalMinutes", "title": "Check the Forge every (minutes)", "type": "integer", "default": 5, "minimum": 5 },
       { "key": "fetch", "title": "Fetch a remote Forge on the periodic check", "type": "boolean", "default": true }
     ]
   }

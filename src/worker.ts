@@ -7,7 +7,8 @@
 import type { OrcaWorkerApi } from 'orca/worker'
 import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
 import { DiffChild, DiffRefused } from './diff-child'
-import { craftarWorkspaces, focused, onThisMachine, type Context, type Focus, type Row } from './focus'
+import { craftarWorkspaces, focusedBy, onThisMachine, type Context, type Focus, type FocusSource, type Row } from './focus'
+import { activeWorkspacePath, findOrcaCli, terminalWorkspacePaths } from './orca-cli'
 import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
 import { childEnv, run } from './run'
@@ -24,8 +25,9 @@ const HEARTBEAT_MS = 60_000
 // A fixed, harmless command: no value of anyone's is put into a terminal (spec 60 §10).
 const PROBE_COMMAND = 'echo craftar-probe'
 const PROBE_MARK = 'craftar-probe'
-// The status bar item runs the probe when pressed (orca-plugin.json); its tooltip says so.
-const CLICK_HINT = ' · click: run the probe'
+// The status bar item shows or hides the right side bar, where the panel is (orca-plugin.json): Orca
+// 1.4.250 gives a plugin no way to open its own panel. Its tooltip says so. The probe is in the palette.
+const CLICK_HINT = ' · click: show or hide the craftar panel'
 const WATCHED_ENV = ['CRAFTAR_HOME', 'SSH_AUTH_SOCK', 'GIT_AUTHOR_NAME', 'GH_TOKEN'] as const
 
 interface Heartbeat {
@@ -136,12 +138,16 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   out.push(`CRAFTAR_HOME: ${craftarHome.trim() !== '' ? 'set from the setting' : 'not set (craftar uses its default)'}`)
   out.push(`worker environment: ${WATCHED_ENV.map((k) => `${k} ${process.env[k] ? 'present' : 'absent'}`).join(', ')}`)
   // Orca's CLI is `orca-ide`; an `orca` on PATH can be another program (on GNOME, the screen reader).
-  const orcaIde = findOnPath('orca-ide', process.env.PATH ?? '')
+  const orcaIde = findOrcaCli(process.env.PATH ?? '')
   const otherOrca = findOnPath('orca', process.env.PATH ?? '')
+  // Whether Orca's CLI answers from inside the worker, where the focus is read from (never which workspace).
+  const active = orcaIde ? await activeWorkspacePath(orcaIde) : null
+  const activeLine = active === null ? '' : ` — active workspace: ${active.kind === 'one' ? 'found' : active.kind === 'none' ? 'none' : `failed (${active.reason})`}`
   out.push(
-    `Orca CLI (orca-ide): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}` +
+    `Orca CLI (orca-ide): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}${activeLine}` +
       (otherOrca ? ' — an `orca` on PATH is another program, not taken for it' : ''),
   )
+  summary.push(`Orca CLI: ${active === null ? 'not found' : active.kind === 'one' ? 'active workspace found' : active.kind === 'none' ? 'no active workspace' : `failed (${active.reason})`}`)
 
   await firstBeat
   const hb = (await orca.storage.get(HEARTBEAT).catch(() => null)) as Heartbeat | null
@@ -319,8 +325,19 @@ async function publish(s: State): Promise<void> {
   const m = ws ? (s.models.get(ws) ?? null) : null
   const bar = barFor(broken || (ws !== null && s.failed.has(ws)) ? 'error' : m)
   const tooltip = `${ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'}${CLICK_HINT}`
-  await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'layers' }).catch((e) => s.orca.log(failed('status bar', e)))
+  await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'package' }).catch((e) => s.orca.log(failed('status bar', e)))
   s.orca.panels.post('state.changed', view(s) as never)
+}
+
+/** What Orca's CLI says about the focus (orca-cli.ts); with no `orca-ide` on an absolute PATH entry, nothing. */
+async function focusSource(ctx: Context | null): Promise<FocusSource> {
+  const cli = findOrcaCli(process.env.PATH ?? '')
+  if (!cli) return { active: { kind: 'failed', reason: 'orca-ide not found' }, terminalPaths: null }
+  const active = await activeWorkspacePath(cli)
+  // A CLI that did not finish is not asked again in the same refresh: the focus would wait twice.
+  if (active.kind === 'one' || (active.kind === 'failed' && active.reason === 'did not finish')) return { active, terminalPaths: null }
+  const ids = (ctx?.terminals ?? []).map((t) => t.id).filter((id) => typeof id === 'string')
+  return { active, terminalPaths: await terminalWorkspacePaths(cli, ids) }
 }
 
 async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Promise<void> {
@@ -330,7 +347,7 @@ async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Pr
   const context = ctx !== undefined ? ctx : ((await s.orca.host.call('workspace.readContext', {})) as Context | null)
   const stored = (await s.orca.storage.get(FOCUS_CHOICE).catch(() => null)) as string | null
   const before = focusedPath(s)
-  s.focus = focused(context, local, typeof stored === 'string' ? stored : null)
+  s.focus = focusedBy(await focusSource(context), context, local, typeof stored === 'string' ? stored : null)
   const ws = focusedPath(s)
   if (s.diff && s.diff.ws !== ws) await stopDiff(s)
   await ensureCheck(s, settings, local, recheck || before !== ws)
@@ -431,11 +448,14 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
   st = s
   orca.host
-    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'layers' })
+    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'package' })
     .catch((e) => orca.log(failed('status bar', e)))
   firstBeat = tick()
   timer = setInterval(() => void tick(), HEARTBEAT_MS)
   if (typeof timer === 'object' && timer && 'unref' in timer) timer.unref()
+  orca.commands.register('craftar.open', () =>
+    orca.host.call('commands.run', { action: 'sidebar.right.toggle' }).catch((e) => orca.log(failed('open the side bar', e))),
+  )
   orca.commands.register('craftar.probe', () => {
     if (!probing) probing = probe(orca, startedAt).finally(() => (probing = null))
     return probing
