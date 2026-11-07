@@ -17,7 +17,7 @@ linked projects and the files coming and going between them — using the `craft
   when `craftarPath` or `craftarHome` changes. When anything fails it is shown at the top of the panel and the status bar reads
   `craftar: error`.
 - **The focused workspace** is the one Orca has active, asked of Orca's CLI (`orca-ide worktree ps --json`, run as a child from the
-  `orca-ide` found on an absolute `PATH` entry; only paths are kept), when its folder on this machine holds `craftar.yaml` — an active
+  `orca-ide` found on an absolute `PATH` entry; only paths are kept, in memory — never logged or stored), when its folder on this machine holds `craftar.yaml` — an active
   workspace without one is no focus. When Orca's CLI cannot say, the workspace holding the open workspace's terminals
   (`orca-ide terminal list --json`) decides, and then the name and branch of the one you have open: when several match (every `main`
   worktree is named `main`), the panel asks which, and your answer is kept. A workspace on another host (SSH, WSL) is listed and
@@ -52,8 +52,9 @@ Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 - Orca's CLI is `orca-ide`; an `orca` on `PATH` can be another program (on GNOME, the screen reader), so the probe looks for
   `orca-ide` (a later slice depends on it).
 
-Not measured yet: that a click on the status bar item runs the probe in Orca, and whether the probe's terminal is a real terminal
-and its lines can be read back — the next run of the probe, from the status bar, reports both.
+Measured on 2026-11-07 too: the probe's terminal opens, backed by a pty, in the workspace in focus, and `terminal.read` gives its
+lines back. Not measured yet: that Orca's CLI answers from inside the worker (the probe's `active workspace` line says so), and that
+a click on the status bar item shows or hides the side bar.
 
 ## Settings
 

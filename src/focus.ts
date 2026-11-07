@@ -1,8 +1,9 @@
 // Which Orca workspaces are craftar's, and which one the person is looking at (spec 60 O9). A craftar
 // workspace is a row on this host whose directory holds craftar.yaml as a regular file (lstat: a link
-// is not followed). A row on another host is listed and never read. The focus is deduced from the
-// context's name and branch; a tie is the person's to break, and their stored answer wins only while it
-// still names one of the tied rows.
+// is not followed). A row on another host is listed and never read. The focus is asked of Orca's CLI first
+// (focusedBy: the active workspace, then the context's terminals); when it cannot say, it is deduced from
+// the context's name and branch, where a tie is the person's to break and their stored answer wins only
+// while it still names one of the tied rows.
 import { lstatSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import type { Active } from './orca-cli'
@@ -68,7 +69,13 @@ export function focusedBy(src: FocusSource, ctx: Context | null, rows: Row[], st
     const row = rows.find((r) => r.path === path)
     return row ? { kind: 'one', row } : { kind: 'none' }
   }
-  if (src.active.kind === 'one') return byPath(src.active.path)
+  if (src.active.kind === 'one') {
+    // The context is what Orca just sent with workspace.changed; an active row that disagrees with it is
+    // taken as not yet updated, and the next tier decides. Only rows on this machine are matched.
+    const row = rows.find((r) => r.path === src.active.path)
+    const stale = row && ctx && (row.name !== ctx.displayName || row.branch !== ctx.branch)
+    if (!stale) return byPath(src.active.path)
+  }
   if (src.terminalPaths && src.terminalPaths.length === 1) return byPath(src.terminalPaths[0])
   return focused(ctx, rows, stored)
 }

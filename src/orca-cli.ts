@@ -8,7 +8,8 @@
 import { findOnPath } from './resolve'
 import { run } from './run'
 
-const TIMEOUT_MS = 10_000
+// Short: the focus waits for it, in the focus queue.
+const TIMEOUT_MS = 5_000
 
 export interface OrcaCli {
   bin: string

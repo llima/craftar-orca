@@ -95,3 +95,11 @@ test('with neither answer, name and branch decide, and a tie asks or takes the s
     assert.deepEqual(focusedBy({ active: { kind: 'none' }, terminalPaths }, CTX, [W, A], 'a'), { kind: 'one', row: A })
   }
 })
+
+test('an active row that disagrees with the context Orca just sent is taken as stale: the next tier decides', () => {
+  const web = row('w', '/home/acme/web', { name: 'web', branch: 'main' })
+  const api = row('a', '/home/acme/api', { name: 'api', branch: 'dev' })
+  const ctx = { displayName: 'api', branch: 'dev', terminals: [] }
+  assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/web' }, terminalPaths: [] }, ctx, [web, api], null), { kind: 'one', row: api })
+  assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/api' }, terminalPaths: null }, ctx, [web, api], null), { kind: 'one', row: api })
+})

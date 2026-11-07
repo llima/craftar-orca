@@ -12,7 +12,7 @@ export interface OrcaCliStub {
   calls: () => string[]
 }
 
-export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; terminals?: unknown } = {}): OrcaCliStub {
+export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySeconds?: number; terminals?: unknown } = {}): OrcaCliStub {
   const dir = tempDir('craftar-orca-cli-')
   writeFileSync(join(dir, 'ps.json'), JSON.stringify(opts.ps ?? { id: 'x', ok: true, result: { worktrees: [] } }))
   writeFileSync(join(dir, 'tl.json'), JSON.stringify(opts.terminals ?? { id: 'x', ok: true, result: { terminals: [] } }))
@@ -21,7 +21,7 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; terminals?: u
     '#!/bin/sh',
     `printf '%s\\n' "$*" >> ${q(join(dir, 'calls.log'))}`,
     'case "$*" in',
-    `  "worktree ps --json") /bin/cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
+    `  "worktree ps --json") ${opts.psDelaySeconds ? `/bin/sleep ${opts.psDelaySeconds}; ` : ''}/bin/cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
     `  "terminal list --json") /bin/cat ${q(join(dir, 'tl.json'))} ;;`,
     '  *) exit 2 ;;',
     'esac',

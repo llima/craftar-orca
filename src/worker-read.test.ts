@@ -53,7 +53,7 @@ function table(extra: Record<string, unknown> = {}) {
 
 type Ws = { id: string; kind: string; name: string; path: string; branch: string | null; hostId: string | null }
 
-async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: string } | null; settings?: Record<string, unknown>; extra?: Record<string, unknown>; results?: Record<string, unknown> } = {}) {
+async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: string; terminals?: { id: string }[] } | null; settings?: Record<string, unknown>; extra?: Record<string, unknown>; results?: Record<string, unknown> } = {}) {
   const s = stubCraftar(table(opts.extra))
   const web = craftarDir()
   const rows = opts.rows ?? [{ id: 'w1', kind: 'folder', name: 'web', path: web, branch: 'main', hostId: null }]
@@ -62,7 +62,7 @@ async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: s
     settings: { craftarPath: s.bin, craftarHome: '', intervalMinutes: 15, fetch: true, ...(opts.settings ?? {}) } as Record<string, string | number | boolean>,
     results: {
       'workspace.list': { workspaces: rows, truncated: false },
-      'workspace.readContext': opts.ctx === undefined ? { branch: 'main', displayName: 'web', terminals: [] } : opts.ctx === null ? null : { ...opts.ctx, terminals: [] },
+      'workspace.readContext': opts.ctx === undefined ? { branch: 'main', displayName: 'web', terminals: [] } : opts.ctx === null ? null : { terminals: [], ...opts.ctx },
       ...(opts.results ?? {}),
     },
   })
@@ -334,4 +334,15 @@ test('the probe says whether Orca named an active workspace, never which', { ski
   const report = String(await worker.command('craftar.probe'))
   assert.match(report, /Orca CLI \(orca-ide\): on an absolute PATH entry — active workspace: found/)
   assert.equal(worker.logs.join('\n').includes(one), false)
+})
+
+test('an Orca CLI that does not finish is not asked again in the same refresh (no terminal list after it)', { skip: process.platform === 'win32' }, async () => {
+  const one = craftarDir()
+  const s = stubOrcaCli({ ps: psDoc([{ path: one, active: true }]), psDelaySeconds: 7 })
+  process.env.PATH = s.dir
+  const rows: Ws[] = [{ id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' }]
+  await setup({ rows, ctx: { branch: 'main', displayName: 'main', terminals: [{ id: 'term_1' }] } })
+  // Activation refreshes twice (Orca delivers the current context to a new subscriber); one call each.
+  assert.ok(s.calls().length > 0)
+  assert.ok(s.calls().every((c) => c === 'worktree ps --json'))
 })

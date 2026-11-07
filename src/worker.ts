@@ -334,7 +334,8 @@ async function focusSource(ctx: Context | null): Promise<FocusSource> {
   const cli = findOrcaCli(process.env.PATH ?? '')
   if (!cli) return { active: { kind: 'failed', reason: 'orca-ide not found' }, terminalPaths: null }
   const active = await activeWorkspacePath(cli)
-  if (active.kind === 'one') return { active, terminalPaths: null }
+  // A CLI that did not finish is not asked again in the same refresh: the focus would wait twice.
+  if (active.kind === 'one' || (active.kind === 'failed' && active.reason === 'did not finish')) return { active, terminalPaths: null }
   const ids = (ctx?.terminals ?? []).map((t) => t.id).filter((id) => typeof id === 'string')
   return { active, terminalPaths: await terminalWorkspacePaths(cli, ids) }
 }
