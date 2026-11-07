@@ -23,7 +23,7 @@ function modelView(over: Partial<View> = {}, warnings: string[] = []): View {
     fetchedAt: null,
     readAt: 0,
   })
-  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], probe: null, update: { allowed: false, reason: 'nothing to update', files: [] }, sync: { phase: 'idle', message: null }, consent: null, lastSync: null, ...over }
+  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], probe: null, ...over }
 }
 
 function draw(v: View, diff: Parameters<typeof render>[4] = null) {
