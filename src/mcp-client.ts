@@ -104,9 +104,10 @@ export class McpSession {
     this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method }) + '\n')
   }
 
-  async stop(): Promise<void> {
+  /** Ends the child's input, so it exits once its work is done; killed only after `killAfterMs`. */
+  async stop(killAfterMs = 2_000): Promise<void> {
     this.proc.stdin.end()
-    const killer = setTimeout(() => this.proc.kill(), 2_000)
+    const killer = setTimeout(() => this.proc.kill(), killAfterMs)
     await this.exited
     clearTimeout(killer)
   }
