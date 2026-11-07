@@ -16,6 +16,7 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySecond
   const dir = tempDir('craftar-orca-cli-')
   writeFileSync(join(dir, 'ps.json'), JSON.stringify(opts.ps ?? { id: 'x', ok: true, result: { worktrees: [] } }))
   writeFileSync(join(dir, 'tl.json'), JSON.stringify(opts.terminals ?? { id: 'x', ok: true, result: { terminals: [] } }))
+  writeFileSync(join(dir, 'sw.json'), JSON.stringify({ id: 'x', ok: true, result: {} }))
   const q = (p: string) => `'${p.replace(/'/g, `'\\''`)}'`
   const script = [
     '#!/bin/sh',
@@ -23,6 +24,7 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySecond
     'case "$*" in',
     `  "worktree ps --json") ${opts.psDelaySeconds ? `/bin/sleep ${opts.psDelaySeconds}; ` : ''}/bin/cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
     `  "terminal list --json") /bin/cat ${q(join(dir, 'tl.json'))} ;;`,
+    `  "terminal switch --terminal "*) /bin/cat ${q(join(dir, 'sw.json'))} ;;`,
     '  *) exit 2 ;;',
     'esac',
     '',

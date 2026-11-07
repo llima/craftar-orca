@@ -633,3 +633,20 @@ test('a fetch that worked, then a periodic fallback: the offline focus read is t
   assert.equal(v.update.allowed, false)
   assert.match(String(v.update.reason), /cached copy/)
 })
+
+// Measured in Orca 1.4.250 on the live run: terminal.create opens the terminal "in the background" (host
+// API), so the person never saw the allow-writes question; each click opened another hidden one.
+test('the consent terminal is brought forward with orca-ide terminal switch, and a second click reuses it', { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  const cli = stubOrcaCli()
+  process.env.PATH = `${gitDirOnPath()}:${cli.dir}`
+  h.respond('terminal.create', { terminalId: 'term_allow' })
+  h.respond('terminal.read', { lines: ['craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  await worker.request('consent.terminal', {})
+  const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
+  assert.equal(created.length, 1)
+  assert.deepEqual(cli.calls().filter((c) => c.startsWith('terminal switch')), ['terminal switch --terminal term_allow --json', 'terminal switch --terminal term_allow --json'])
+})

@@ -9,7 +9,7 @@ import type { OrcaWorkerApi } from 'orca/worker'
 import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
 import { DiffChild, DiffRefused } from './diff-child'
 import { craftarWorkspaces, focusedBy, onThisMachine, type Context, type Focus, type FocusSource, type Row } from './focus'
-import { activeWorkspacePath, findOrcaCli, terminalWorkspacePaths } from './orca-cli'
+import { activeWorkspacePath, findOrcaCli, switchToTerminal, terminalWorkspacePaths } from './orca-cli'
 import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
 import { childEnv, run } from './run'
@@ -229,6 +229,8 @@ export interface SyncView {
 export interface ConsentView {
   /** craftar's refusal, verbatim. */
   text: string
+  /** The allow-writes terminal already opened for this consent, brought forward again on the next click. */
+  terminalId?: string
   /** 'offered': the panel offers a terminal running craftar mcp allow-writes; 'words': the steps are shown as text only. */
   terminal: 'offered' | 'words'
   steps: string[]
@@ -658,7 +660,19 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
   if (command === null) {
     s.consent.set(row.path, { ...consent, terminal: 'words', steps: consentSteps(row.path, craftar, settings.craftarHome, NO_TERMINAL) })
   } else {
-    await s.orca.host.call('terminal.create', { workspaceId: row.id, title: 'craftar allow writes', command })
+    // One terminal per consent: a second click brings the same one forward instead of opening another.
+    let terminalId = consent.terminalId
+    if (!terminalId) {
+      ;({ terminalId } = (await s.orca.host.call('terminal.create', { workspaceId: row.id, title: 'craftar allow writes', command })) as { terminalId: string })
+      s.consent.set(row.path, { ...consent, terminalId })
+    }
+    // terminal.create opens it in the background: Orca's CLI brings it forward, or the steps say where it is.
+    const cli = findOrcaCli(process.env.PATH ?? '')
+    const shown = cli ? await switchToTerminal(cli, terminalId) : false
+    if (!shown) {
+      const c = s.consent.get(row.path) ?? consent
+      s.consent.set(row.path, { ...c, steps: [`A terminal titled "craftar allow writes" was opened in this workspace, in the background — switch to it in Orca's terminal tabs and answer its question.`, ...consentSteps(row.path, craftar, settings.craftarHome)] })
+    }
   }
   await publish(s)
 }
