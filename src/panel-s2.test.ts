@@ -71,3 +71,11 @@ test('the consent card offers the terminal only when the worker says so, and cal
   const words = draw(view({ sync: { phase: 'consent', message: text }, consent: { text, terminal: 'words', steps: ['Open a terminal in this workspace.'] } }))
   assert.equal(byAction(words.root, 'consent-terminal').length, 0)
 })
+
+test("a consent refusal is said once, in the consent card — not again as the sync's message", () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { root } = draw(view({ sync: { phase: 'consent', message: text }, consent: { text, terminal: 'offered', steps: [] } }))
+  const said = all(root).filter((e) => e.children.length === 0 && e.textContent === text)
+  assert.equal(said.length, 1)
+  assert.equal(all(root).some((e) => e.attrs['data-role'] === 'sync-note' || e.attrs['data-role'] === 'sync-error'), false)
+})

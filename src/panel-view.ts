@@ -345,8 +345,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
 
     if (v.consent) drawConsent(v.consent)
-    if (v.sync?.message) {
-      // craftar's words about the last run, whatever the phase; an error is said as one.
+    // craftar's words about the last run; a consent refusal is said once, in the consent card above.
+    if (v.sync?.message && !(v.sync.phase === 'consent' && v.consent)) {
+      // An error is said as one.
       const err = v.sync.phase === 'error'
       const box = root.appendChild(h('section', { class: err ? 'cta bad' : 'cta plain', 'data-role': err ? 'sync-error' : 'sync-note' }))
       if (err) box.appendChild(t('h2', 'The update did not finish'))
