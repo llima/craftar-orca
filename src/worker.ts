@@ -675,8 +675,7 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
     s.consent.set(row.path, { ...consent, terminal: 'words', steps: consentSteps(row.path, craftar, settings.craftarHome, NO_TERMINAL) })
   } else {
     // One terminal per consent: a second click brings the same one forward instead of opening another.
-    // terminal.create opens it in the background, so Orca's CLI brings it forward; a reused id that cannot
-    // be brought forward (the person closed it) is dropped and a new terminal opened.
+    // terminal.create opens it in the background, so Orca's CLI brings it forward.
     const cli = findOrcaCli(process.env.PATH ?? '')
     const open = async (): Promise<string> => {
       const { terminalId } = (await s.orca.host.call('terminal.create', { workspaceId: row.id, title: 'craftar allow writes', command })) as { terminalId: string }
