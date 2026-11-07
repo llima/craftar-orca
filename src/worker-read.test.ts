@@ -336,12 +336,21 @@ test('the probe says whether Orca named an active workspace, never which', { ski
   assert.equal(worker.logs.join('\n').includes(one), false)
 })
 
-test('an Orca CLI that does not finish is not asked again in the same refresh (no terminal list after it)', { skip: process.platform === 'win32' }, async () => {
+test('an Orca CLI that does not answer within 5 s is no answer: no terminal list after it, and name and branch decide', { skip: process.platform === 'win32' }, async () => {
+  // The active row names a workspace with no craftar.yaml: had the CLI answered (a limit above 7 s), the
+  // focus would be none. Within 5 s it does not, so the name-and-branch tier focuses the craftar one.
   const one = craftarDir()
-  const s = stubOrcaCli({ ps: psDoc([{ path: one, active: true }]), psDelaySeconds: 7 })
+  const plain = tempDir('craftar-orca-plain-')
+  const s = stubOrcaCli({ ps: psDoc([{ path: one }, { path: plain, active: true }]), psDelaySeconds: 7 })
   process.env.PATH = s.dir
-  const rows: Ws[] = [{ id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' }]
-  await setup({ rows, ctx: { branch: 'main', displayName: 'main', terminals: [{ id: 'term_1' }] } })
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'p', kind: 'worktree', name: 'other', path: plain, branch: 'main', hostId: 'local' },
+  ]
+  const { worker } = await setup({ rows, ctx: { branch: 'main', displayName: 'main', terminals: [{ id: 'term_1' }] } })
+  const view = (await worker.request('state.get')) as View
+  assert.equal(view.focus, 'one')
+  assert.equal(view.model?.ws, one)
   // Activation refreshes twice (Orca delivers the current context to a new subscriber); one call each.
   assert.ok(s.calls().length > 0)
   assert.ok(s.calls().every((c) => c === 'worktree ps --json'))

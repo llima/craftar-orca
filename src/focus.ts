@@ -71,9 +71,11 @@ export function focusedBy(src: FocusSource, ctx: Context | null, rows: Row[], st
   }
   if (src.active.kind === 'one') {
     // The context is what Orca just sent with workspace.changed; an active row that disagrees with it is
-    // taken as not yet updated, and the next tier decides. Only rows on this machine are matched.
+    // taken as not yet updated, and the next tier decides. Only rows on this machine are matched. A stale
+    // row is seen only when its name or branch differ (two `main` worktrees on `main` look alike), and a
+    // folder workspace with no branch is compared by name alone.
     const row = rows.find((r) => r.path === src.active.path)
-    const stale = row && ctx && (row.name !== ctx.displayName || row.branch !== ctx.branch)
+    const stale = row && ctx && (row.name !== ctx.displayName || (row.branch !== null && row.branch !== ctx.branch))
     if (!stale) return byPath(src.active.path)
   }
   if (src.terminalPaths && src.terminalPaths.length === 1) return byPath(src.terminalPaths[0])

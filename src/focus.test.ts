@@ -103,3 +103,9 @@ test('an active row that disagrees with the context Orca just sent is taken as s
   assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/web' }, terminalPaths: [] }, ctx, [web, api], null), { kind: 'one', row: api })
   assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/api' }, terminalPaths: null }, ctx, [web, api], null), { kind: 'one', row: api })
 })
+
+test('an active folder workspace with no branch is focused: a missing branch is not a disagreement', () => {
+  const folder = row('f', '/home/acme/notes', { name: 'notes', branch: null })
+  const ctx = { displayName: 'notes', branch: '', terminals: [] }
+  assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/notes' }, terminalPaths: null }, ctx, [folder], null), { kind: 'one', row: folder })
+})
