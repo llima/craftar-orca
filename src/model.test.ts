@@ -128,3 +128,9 @@ test("the registry's warnings about another workspace are not this workspace's; 
   assert.ok(m.warnings.includes(`${WS}: a warning about this one`))
   assert.ok(m.warnings.includes('registry: one entry is missing'))
 })
+
+test("this workspace's plan warning, said again by the registry with its path, is listed once", () => {
+  const r = { ...registry(), warnings: [`${WS}: agents-md: the rule is long`] }
+  const m = model({ status: { ...status(), warnings: ['agents-md: the rule is long'] }, registry: r })
+  assert.deepEqual(m.warnings.filter((w) => w.includes('the rule is long')), ['agents-md: the rule is long'])
+})

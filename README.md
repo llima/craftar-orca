@@ -26,8 +26,8 @@ linked projects and the files coming and going between them — using the `craft
   parameter with no value), `craftar: check failed` (`craftar status` exits 1 for another reason — its lines say which) or
   `craftar: error`.
 - **The panel** draws the Forge and the workspace with the files on each arrow, linked projects (the profile's repositories and the
-  other registered workspaces of the same Forge), every warning craftar gives in its words, a refused sync in craftar's words, and a
-  failed check with craftar's lines.
+  other registered workspaces of the same Forge), every warning craftar gives for this workspace in its words (the registry's lines
+  about other workspaces stay out of its panel), a refused sync in craftar's words, and a failed check with craftar's lines.
   Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with `--allow-writes`. "Update" and
   "Send to Forge" are drawn disabled until the next slices.
 

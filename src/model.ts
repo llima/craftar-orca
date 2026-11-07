@@ -71,8 +71,13 @@ export function buildModel(i: ModelInput): PanelModel {
   const others = (i.registry?.workspaces ?? []).map((w) => w.path).filter((p) => p !== i.ws)
   const registryWarnings = (i.registry?.warnings ?? []).filter((w) => !others.some((p) => w.startsWith(`${p}: `)))
   const warnings: string[] = []
-  for (const w of [...i.status.warnings, ...(i.drift?.warnings ?? []), ...(i.repos?.warnings ?? []), ...registryWarnings]) {
+  for (const w of [...i.status.warnings, ...(i.drift?.warnings ?? []), ...(i.repos?.warnings ?? [])]) {
     if (!warnings.includes(w)) warnings.push(w)
+  }
+  // The registry says this workspace's own plan warnings again, prefixed with its path: said once.
+  for (const w of registryWarnings) {
+    const bare = w.startsWith(`${i.ws}: `) ? w.slice(i.ws.length + 2) : null
+    if (!warnings.includes(w) && (bare === null || !warnings.includes(bare))) warnings.push(w)
   }
 
   return {

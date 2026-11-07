@@ -80,7 +80,13 @@ const actions = {
             view = v as View
             draw()
           })
-          .catch(() => undefined),
+          .catch(() => {
+            // Nothing could be read back: give the choices back rather than leave them disabled.
+            for (const b of Array.from(root.querySelectorAll<HTMLButtonElement>('.ask button'))) {
+              b.disabled = false
+              b.removeAttribute('aria-busy')
+            }
+          }),
       )
   },
   refresh(): void {
