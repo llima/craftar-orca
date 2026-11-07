@@ -177,6 +177,7 @@ test('the probe shows one notification with the outcome and no terminal line', a
   assert.match(String(shown[0].body), /craftar panel/)
   assert.equal(String(shown[0].body).includes(marker), false)
   assert.equal(String(shown[0].body).includes('/tmp/'), false)
+  assert.equal(String(shown[0].body).includes('t1'), false)
   await worker.deactivate()
 })
 

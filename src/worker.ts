@@ -70,15 +70,17 @@ function failed(what: string, e: unknown): string {
 }
 
 interface TerminalResult {
-  /** One line, safe to log and to notify: the outcome and the terminal's id, never a line it printed. */
+  /** One line, safe to log and to notify: the outcome, never a line the terminal printed. */
   outcome: string
+  /** Orca's opaque handle of the terminal, for the log only. */
+  id: string | null
   /** The terminal's last lines — its prompt can carry a host name, a user name or a directory (O11). */
   lines: string[]
 }
 
 async function terminalProbe(orca: OrcaWorkerApi): Promise<TerminalResult> {
   const workspaceId = await focusedWorkspaceId(orca)
-  if (!workspaceId) return { outcome: 'terminal: not opened — no single local workspace to open it in (focus one and run the probe again)', lines: [] }
+  if (!workspaceId) return { outcome: 'terminal: not opened — no single local workspace to open it in (focus one and run the probe again)', id: null, lines: [] }
   const { terminalId } = (await orca.host.call('terminal.create', {
     workspaceId,
     title: 'craftar probe',
@@ -92,7 +94,8 @@ async function terminalProbe(orca: OrcaWorkerApi): Promise<TerminalResult> {
   }
   const seen = lines.some((l) => l.trim() === PROBE_MARK)
   return {
-    outcome: `terminal: ${seen ? `${PROBE_MARK} seen` : `${PROBE_MARK} not seen after 5 s`} (terminal ${terminalId})`,
+    outcome: `terminal: ${seen ? `${PROBE_MARK} seen` : `${PROBE_MARK} not seen after 5 s`}`,
+    id: terminalId,
     lines: lines.slice(-8),
   }
 }
@@ -142,13 +145,13 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   try {
     terminal = await terminalProbe(orca)
   } catch (e) {
-    terminal = { outcome: failed('terminal', e), lines: [] }
+    terminal = { outcome: failed('terminal', e), id: null, lines: [] }
   }
   summary.push(terminal.outcome)
-  // The log and the notification carry the summary only: craftar's path and output, and the terminal's
+  // The log and the notification carry the summary only (the log also the terminal's opaque id): craftar's path and output, and the terminal's
   // lines — a prompt can carry a host name, a user name or a directory (spec 60 O11) — are shown in the
   // panel, to the person who ran it, and never logged or notified.
-  orca.log(['probe ran', ...summary].join('\n'))
+  orca.log(['probe ran', ...summary.slice(0, -1), terminal.id ? `${terminal.outcome} (terminal ${terminal.id})` : terminal.outcome].join('\n'))
   const shown = (await orca.host
     .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
     .catch((e) => {
@@ -473,6 +476,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 export function deactivate(): void {
   if (timer) clearInterval(timer)
   timer = null
+  probing = null
   const s = st
   st = null
   if (s?.periodicTimer) clearTimeout(s.periodicTimer)
