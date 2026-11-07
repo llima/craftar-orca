@@ -686,3 +686,24 @@ test("the palette probe opens its terminal in Orca's active workspace when the w
   assert.match(report, /terminal: craftar-probe seen/)
   assert.deepEqual(h.callsOf('terminal.create').map((c) => (c as { workspaceId: string }).workspaceId), ['p'])
 })
+
+test('a consent terminal that is gone (the switch fails) is opened again on the next click, not reused', { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  const cli = stubOrcaCli()
+  process.env.PATH = `${gitDirOnPath()}:${cli.dir}`
+  h.respond('terminal.create', { terminalId: 'term_allow' })
+  h.respond('terminal.read', { lines: ['craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  cli.setSwitchCode(1)
+  const v = (await worker.request('consent.terminal', {})) as View
+  const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
+  assert.equal(created.length, 2)
+  // Not brought forward this time: the steps say where it is, without telling the person to open another.
+  assert.match(v.consent?.steps[0] ?? '', /in the background/)
+  assert.equal((v.consent?.steps ?? []).some((x) => x.startsWith('Open a terminal')), false)
+  cli.setSwitchCode(0)
+  const ok = (await worker.request('consent.terminal', {})) as View
+  assert.equal((ok.consent?.steps ?? []).some((x) => /in the background/.test(x)), false)
+})
