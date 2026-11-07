@@ -17,6 +17,7 @@ import { type Line, selfCheck, versionAtLeast } from './self-check'
 import { compareWithQuestion } from './compare'
 import { findGit, StageFailed, stagePaths } from './stage'
 import { syncOnce } from './sync-child'
+import { allowWritesCommand, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
 
 const ITEM = 'craftar'
 const HEARTBEAT = 'probe.heartbeat'
@@ -256,8 +257,8 @@ function updateView(s: State): UpdateView {
   const m = ws ? (s.models.get(ws) ?? null) : null
   const files = m ? m.pending.map((f) => ({ path: f.path, state: f.state })) : []
   const no = (reason: string): UpdateView => ({ allowed: false, reason, files })
+  if (ws && s.failed.has(ws)) return no('craftar status gave no document for this workspace — nothing to update from')
   if (!m || !ws) return no('no craftar workspace has the focus')
-  if (s.failed.has(ws)) return no('craftar status gave no document for this workspace')
   if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return no(`updating needs craftar ${WRITES_FLOOR} or later — upgrade craftar`)
   if (m.refused) return no('craftar refuses to sync this workspace — see its words above')
   if (m.checkFailed) return no('craftar status failed for this workspace — see its lines above')
@@ -535,7 +536,8 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
     const outcome = await syncOnce(craftar, ws)
     if (outcome.kind === 'consent') {
       s.sync = { phase: 'consent', message: outcome.text }
-      s.consent = { text: outcome.text, terminal: 'words', steps: consentSteps(ws) }
+      const known = (await s.orca.storage.get(SHELL_KEY).catch(() => null)) as Shell | null
+      s.consent = { text: outcome.text, terminal: known === 'cmd' || known === 'unknown' ? 'words' : 'offered', steps: consentSteps(ws) }
       return
     }
     if (outcome.kind !== 'ok') {
@@ -562,6 +564,46 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
   })
   const settings = await readSettings(s.orca)
   await readWorkspace(s, row, 'focus', settings)
+  await publish(s)
+}
+
+// The shell this machine's terminals run, as the probe found it (O12); one answer per host — S2 is local only.
+const SHELL_KEY = 'shell.local'
+
+/** The shell of a new terminal in the workspace: the stored answer, else the probe's, which is then stored. */
+async function shellOf(s: State, workspaceId: string): Promise<Shell> {
+  const known = (await s.orca.storage.get(SHELL_KEY).catch(() => null)) as Shell | null
+  if (known) return known
+  const { terminalId } = (await s.orca.host.call('terminal.create', { workspaceId, title: 'craftar shell check', command: PROBE_SHELL_COMMAND })) as {
+    terminalId: string
+  }
+  let shell: Shell = 'unknown'
+  for (let i = 0; i < 20 && shell === 'unknown'; i++) {
+    const { lines } = (await s.orca.host.call('terminal.read', { terminalId, maxLines: 40 })) as { lines: string[] }
+    shell = detectShell(lines)
+    if (shell === 'unknown') await new Promise((r) => setTimeout(r, 250))
+  }
+  await s.orca.storage.set(SHELL_KEY, shell).catch((e) => s.orca.log(failed('storage', e)))
+  return shell
+}
+
+/**
+ * O2: a terminal in the focused workspace running the person's craftar `mcp allow-writes --workspace <dir>`,
+ * quoted for its shell; the person reads what it allows and answers its [no] question. Never sendText. A
+ * shell the probe does not recognise (or cmd, S4) gets no terminal: the steps stay in words.
+ */
+async function openConsentTerminal(s: State): Promise<void> {
+  const row = s.focus.kind === 'one' ? s.focus.row : null
+  const craftar = s.craftar
+  if (!s.consent || !row || !craftar) throw new Error('nothing to allow — run Update first')
+  const shell = await shellOf(s, row.id)
+  const settings = await readSettings(s.orca)
+  const command = allowWritesCommand(shell, { bin: craftar.bin, home: settings.craftarHome }, row.path)
+  if (command === null) {
+    s.consent = { ...s.consent, terminal: 'words' }
+  } else {
+    await s.orca.host.call('terminal.create', { workspaceId: row.id, title: 'craftar allow writes', command })
+  }
   await publish(s)
 }
 
@@ -638,6 +680,10 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
     if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them — look again and confirm')
     await runUpdate(s, u.files)
+    return view(s) as never
+  })
+  orca.panels.handle('consent.terminal', async () => {
+    await openConsentTerminal(s)
     return view(s) as never
   })
   orca.panels.handle('diff.get', async (input) => {

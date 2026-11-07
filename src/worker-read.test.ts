@@ -469,3 +469,41 @@ test('Update is not offered on a cached copy of a remote Forge, and says why', a
   assert.equal(v.update.allowed, false)
   assert.match(String(v.update.reason), /cached copy/)
 })
+
+// O2/O12: the consent stays craftar's — the plugin opens a terminal running craftar mcp allow-writes, quoted
+// for the shell the probe recognised, and the person answers its question; it never types into a terminal.
+test('the consent terminal: a shell probe first, then allow-writes quoted for that shell; nothing typed', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { s, h, worker, ws } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const asked = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  assert.equal(asked.consent?.terminal, 'offered')
+  h.respond('terminal.create', { terminalId: 't1' })
+  h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ echo craftar-shell:$0', 'craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  const created = h.callsOf('terminal.create') as { workspaceId: string; title?: string; command?: string }[]
+  assert.equal(created.length, 2)
+  assert.equal(created[0].command, 'echo craftar-shell:$0')
+  assert.equal(created[1].command, `'${s.bin}' mcp allow-writes --workspace '${ws}'`)
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+  assert.equal(h.data().storage['shell.local'], 'bash')
+})
+
+test('a shell the probe does not recognise gets no terminal: the steps stay in words', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })
+  h.respond('terminal.create', { terminalId: 't1' })
+  h.respond('terminal.read', { lines: ['fish: $0 is not supported'], truncated: false })
+  const v = (await worker.request('consent.terminal', {})) as View
+  assert.equal((h.callsOf('terminal.create') as unknown[]).length, 1)
+  assert.equal(v.consent?.terminal, 'words')
+  assert.ok((v.consent?.steps ?? []).some((x) => x.includes('craftar mcp allow-writes')))
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+})
+
+test('a read that gave no document leaves Update off and says why (no cached copy to show)', async () => {
+  const { worker } = await updateSetup({ 'status --json': { stdout: 'not json', code: 1 } })
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /gave no document/)
+})

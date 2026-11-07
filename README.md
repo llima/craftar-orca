@@ -9,7 +9,8 @@
 An [Orca](https://github.com/stablyai/orca) plugin that shows, for the workspace you have open, which craftar Forge it follows, its
 linked projects and the files coming and going between them — using the `craftar` you installed. It adds nothing to craftar.
 
-**Status: S1, the read path.** The plugin reads only; it writes nothing. Only the probe (below) opens a terminal and shows a notification.
+**Status: S2, the incoming path.** The plugin reads, and writes only when you click **Update** in its panel and confirm: one sync through
+`craftar mcp --allow-writes`, then exactly the files it wrote staged — never a commit.
 
 - **On enable** a self-check runs: the binary found and absolute, its version at least **0.33.0** (taken from `craftar doctor
   --json`, asked about the focused craftar workspace or, with none focused, another one on this machine — with none at all nothing
@@ -35,7 +36,23 @@ linked projects and the files coming and going between them — using the `craft
   workspace in its words, under "craftar says" (open when the sync is refused, a check fails, the Forge could not be fetched or a read gave an error; the
   registry's lines about other workspaces stay out of its panel); a refused sync in craftar's words; and a failed check with
   craftar's lines. Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
-  `--allow-writes`. "Update and stage" and "Send to Forge" are drawn disabled, with a note, until the next slices.
+  `--allow-writes`. "Send to Forge" is drawn disabled, with a note, until a later slice.
+- **The periodic check notifies** once when the files coming from the Forge grow — "Forge <name> changed N files for <workspace> —
+  update N files and add them to the commit? Open the craftar panel." — names and counts only (an Orca notification takes no click).
+- **Update** is offered when the last read fetched the Forge (or the Forge is on this machine), files are pending, craftar neither
+  refuses the sync nor fails its check, and craftar is **0.35.0** or later; otherwise it says why. Its confirm lists every file —
+  "Update N files and add them to your commit?" — and **Update and stage** sends exactly that list. Then, in the workspace's queue:
+  - one `sync` through a fresh `craftar mcp --workspace <dir> --allow-writes --fetch`, stopped after it — never `craftar sync`, never
+    `--overwrite-drift`: every file you edited by hand (drift, orphan-drift, collision) is kept and listed;
+  - `git add -- <paths>` of the files it wrote, the removed files git tracks and `craftar.lock`, less what git ignores — never `-A`,
+    never a commit; then Orca's source-control view is shown;
+  - what it did is compared with the list you agreed to, and every difference is listed; a file that changed while craftar was writing
+    asks you to update again. craftar's warnings are listed in its words.
+- **The consent stays craftar's.** With none recorded (or one for an older Forge, ref or profile), Update writes nothing and the panel
+  shows craftar's words and offers **Open a terminal to allow writes**: a terminal in the workspace running your craftar's
+  `mcp allow-writes --workspace <dir>`, quoted for the shell a one-line probe found (`echo craftar-shell:$0`: bash, zsh, sh or
+  PowerShell), where you answer its question yourself. The plugin never types into a terminal; with cmd or a shell the probe does not
+  recognise, it opens none and lists the steps in words.
 
 **Clicking the craftar item in the status bar** shows or hides Orca's right side bar, where the craftar panel is (Orca 1.4.250 gives
 a plugin no way to open its own panel; the palette command `craftar: show or hide the craftar panel` does the same).
