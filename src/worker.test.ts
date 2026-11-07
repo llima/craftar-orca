@@ -278,8 +278,8 @@ test('the probe opens its terminal in a workspace whose hostId is "local"', asyn
 
 // The user's ruling (2026-11-07): the icon is drawn from the logo's three squares (A2) — the manifest's
 // `icon` (PNG, square, at least 128 px: Orca 1.4.250 refuses SVG) — and the panel tab and the status bar
-// item, which take only Orca's named icons, use `blocks`.
-test('the plugin icon is a square PNG of at least 128 px, and the panel and the status bar use `blocks`', async () => {
+// item, which take only Orca's named icons, use `package` (ruled 2026-11-07, after `blocks` read as a broken logo).
+test('the plugin icon is a square PNG of at least 128 px, and the panel and the status bar use `package`', async () => {
   const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../orca-plugin.json', import.meta.url)), 'utf8'))
   assert.equal(manifest.icon, 'assets/icon.png')
   const png = readFileSync(fileURLToPath(new URL('../assets/icon.png', import.meta.url)))
@@ -289,12 +289,12 @@ test('the plugin icon is a square PNG of at least 128 px, and the panel and the 
   assert.equal(w, hgt)
   assert.ok(w >= 128)
   assert.ok(png.length <= 256 * 1024)
-  assert.ok(manifest.contributes.panels.every((p: { icon: string }) => p.icon === 'blocks'))
-  assert.ok(manifest.contributes.statusBarItems.every((i: { icon: string }) => i.icon === 'blocks'))
+  assert.ok(manifest.contributes.panels.every((p: { icon: string }) => p.icon === 'package'))
+  assert.ok(manifest.contributes.statusBarItems.every((i: { icon: string }) => i.icon === 'package'))
   const h = host({ craftarPath: stubCraftar() })
   const worker = await mountWorker(main, { host: h, commands: ['craftar.probe', 'craftar.open'] })
   await worker.command('craftar.probe')
   const updates = h.callsOf('statusBar.update') as { icon?: string }[]
-  assert.ok(updates.length > 0 && updates.every((u) => u.icon === 'blocks'))
+  assert.ok(updates.length > 0 && updates.every((u) => u.icon === 'package'))
   await worker.deactivate()
 })

@@ -23,7 +23,7 @@
   ],
   "contributes": {
     "panels": [
-      { "id": "craftar", "title": "craftar", "icon": "blocks", "entry": "src/panel.ts", "ui": "html" }
+      { "id": "craftar", "title": "craftar", "icon": "package", "entry": "src/panel.ts", "ui": "html" }
     ],
     "commands": [
       { "id": "craftar.open", "title": "craftar: show or hide the craftar panel" },
@@ -31,7 +31,7 @@
     ],
     "events": [{ "on": "workspace.changed" }],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "blocks", "tooltip": "craftar — reading · click: show or hide the craftar panel", "command": "craftar.open" }
+      { "id": "craftar", "text": "craftar", "icon": "package", "tooltip": "craftar — reading · click: show or hide the craftar panel", "command": "craftar.open" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",
