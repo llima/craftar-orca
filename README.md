@@ -28,11 +28,14 @@ linked projects and the files coming and going between them — using the `craft
 - **The status bar** reads `craftar: in sync`, `Forge moved · N`, `edited · N` (or both), `craftar: sync refused` (a declared
   parameter with no value), `craftar: check failed` (`craftar status` exits 1 for another reason — its lines say which) or
   `craftar: error`.
-- **The panel** draws the Forge and the workspace with the files on each arrow, linked projects (the profile's repositories and the
-  other registered workspaces of the same Forge), every warning craftar gives for this workspace in its words (the registry's lines
-  about other workspaces stay out of its panel), a refused sync in craftar's words, and a failed check with craftar's lines.
-  Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with `--allow-writes`. "Update" and
-  "Send to Forge" are drawn disabled until the next slices.
+- **The panel** draws the Forge above the workspace, joined by two lanes — down (amber) lit when files are coming from the Forge,
+  up (blue) lit when an edited file can go up — with a moving comet on a lit lane (none when the system asks for reduced motion);
+  each owner craftar counts (its targets, and services), as craftar names it, with its file count; the files coming down and edited here; linked projects
+  (the profile's repositories and the other registered workspaces of the same Forge); every warning craftar gives for this
+  workspace in its words, under "craftar says" (open when the sync is refused, a check fails, the Forge could not be fetched or a read gave an error; the
+  registry's lines about other workspaces stay out of its panel); a refused sync in craftar's words; and a failed check with
+  craftar's lines. Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
+  `--allow-writes`. "Update and stage" and "Send to Forge" are drawn disabled, with a note, until the next slices.
 
 **Clicking the craftar item in the status bar** shows or hides Orca's right side bar, where the craftar panel is (Orca 1.4.250 gives
 a plugin no way to open its own panel; the palette command `craftar: show or hide the craftar panel` does the same).
