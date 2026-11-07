@@ -60,9 +60,16 @@ async function beat(orca: OrcaWorkerApi, startedAt: number): Promise<void> {
 async function focusedWorkspaceId(orca: OrcaWorkerApi): Promise<string | null> {
   const ctx = (await orca.host.call('workspace.readContext', {})) as { branch: string; displayName: string } | null
   const { workspaces } = (await orca.host.call('workspace.list', {})) as {
-    workspaces: { id: string; name: string; branch: string | null; hostId: string | null }[]
+    workspaces: { id: string; name: string; path?: string; branch: string | null; hostId: string | null }[]
   }
   const local = workspaces.filter((w) => onThisMachine(w.hostId))
+  // Orca's active workspace first, as the focus reads it (orca-cli.ts): name and branch tie.
+  const cli = findOrcaCli(process.env.PATH ?? '')
+  const active = cli ? await activeWorkspacePath(cli) : null
+  if (active?.kind === 'one') {
+    const byPath = local.find((w) => w.path === active.path)
+    if (byPath) return byPath.id
+  }
   if (ctx) {
     const match = local.filter((w) => w.name === ctx.displayName && w.branch === ctx.branch)
     if (match.length === 1) return match[0].id
@@ -378,6 +385,11 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
     if (model.forge && model.forge.freshness === 'cached' && s.fetchState.get(row.path) === 'fetched') model.forge.freshness = 'fetched'
     s.models.set(row.path, model)
+    // Nothing left to update: a consent asked for an earlier Update is no longer the question.
+    if (model.pending.length === 0 && s.consent.has(row.path)) {
+      s.consent.delete(row.path)
+      if (s.sync.get(row.path)?.phase === 'consent') s.sync.delete(row.path)
+    }
     await notifyGrowth(s, model, reason)
   })
 }

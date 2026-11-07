@@ -650,3 +650,39 @@ test('the consent terminal is brought forward with orca-ide terminal switch, and
   assert.equal(created.length, 1)
   assert.deepEqual(cli.calls().filter((c) => c.startsWith('terminal switch')), ['terminal switch --terminal term_allow --json', 'terminal switch --terminal term_allow --json'])
 })
+
+test('the consent card goes once a read shows nothing left to update', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { s, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const asked = await updateAndWait(worker)
+  assert.equal(asked.sync.phase, 'consent')
+  const tableFile = String(s.env.CRAFTAR_STUB_TABLE)
+  const t = JSON.parse(readFileSync(tableFile, 'utf8'))
+  const status = JSON.parse(fixture('status.json'))
+  status.statuses = status.statuses.map((x: { state: string }) => ({ ...x, state: x.state === 'update' ? 'unchanged' : x.state }))
+  t['status --json'] = { stdout: JSON.stringify(status), code: 0 }
+  writeFileSync(tableFile, JSON.stringify(t))
+  await worker.request('state.refresh')
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.consent, null)
+  assert.equal(v.sync.phase, 'idle')
+})
+
+test("the palette probe opens its terminal in Orca's active workspace when the worker has no focus", { skip: process.platform === 'win32' }, async () => {
+  const one = craftarDir()
+  const plain = tempDir('craftar-orca-plain-')
+  process.env.PATH = stubOrcaCli({ ps: psDoc([{ path: one }, { path: plain, active: true }]) }).dir
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'p', kind: 'worktree', name: 'main', path: plain, branch: 'main', hostId: 'local' },
+  ]
+  const { h, worker } = await setup({
+    rows,
+    ctx: { branch: 'main', displayName: 'main' },
+    results: { 'terminal.create': { terminalId: 't1' }, 'terminal.read': { lines: ['craftar-probe'], truncated: false } },
+  })
+  assert.equal(((await worker.request('state.get')) as View).focus, 'none')
+  const report = String(await worker.command('craftar.probe'))
+  assert.match(report, /terminal: craftar-probe seen/)
+  assert.deepEqual(h.callsOf('terminal.create').map((c) => (c as { workspaceId: string }).workspaceId), ['p'])
+})
