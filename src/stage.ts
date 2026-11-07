@@ -2,6 +2,8 @@
 // git tracks, and craftar.lock — less what git ignores — through `git add -- <paths>`. Never -A, never a
 // commit: the person commits. git is started as a child by its absolute path, with an argument array and
 // `-C <workspace>`, every path after `--`.
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { findOnPath } from './resolve'
 import { run } from './run'
 
@@ -26,8 +28,11 @@ function nul(out: string): string[] {
   return out.split('\0').filter((p) => p !== '')
 }
 
+// --literal-pathspecs: every path a literal name, never a pattern (`[a].md` must not also match `a.md`).
+// check-ignore reads pathnames, not pathspecs, and refuses the option, so it runs without it.
 async function git(g: Git, ws: string, args: string[], input?: string): Promise<{ code: number | null; out: string }> {
-  const r = await run(g.bin, ['-C', ws, ...args], g.env, 30_000, input)
+  const literal = args[0] === 'check-ignore' ? [] : ['--literal-pathspecs']
+  const r = await run(g.bin, [...literal, '-C', ws, ...args], g.env, 30_000, input)
   return { code: r.code, out: r.stdout }
 }
 
@@ -48,11 +53,14 @@ export async function stagePaths(g: Git, ws: string, result: { written: string[]
   const ci = await git(g, ws, ['check-ignore', '-z', '--stdin'], wanted.join('\0') + '\0')
   if (ci.code !== 0 && ci.code !== 1) throw new StageFailed('git check-ignore did not answer')
   const ignored = new Set(nul(ci.out))
-  const toAdd = [...new Set([...wanted.filter((p) => !ignored.has(p)), ...tracked])].sort()
-  const leftOut = [...result.written.filter((p) => ignored.has(p)), ...removed.filter((p) => !tracked.includes(p))].sort()
+  // craftar.lock only when it is there: a workspace whose sync wrote nothing may have none yet.
+  const present = wanted.filter((p) => p !== LOCK || existsSync(join(ws, LOCK)))
+  const toAdd = [...new Set([...present.filter((p) => !ignored.has(p)), ...tracked])].sort()
+  const leftOut = [...wanted.filter((p) => ignored.has(p)), ...removed.filter((p) => !tracked.includes(p))].sort()
   if (toAdd.length === 0) return { staged: [], leftOut }
   const add = await git(g, ws, ['add', '--', ...toAdd])
   if (add.code !== 0) throw new StageFailed('git add did not succeed')
-  const now = nul((await git(g, ws, ['diff', '--cached', '--name-only', '-z', '--', ...toAdd])).out).sort()
+  // --relative: paths as the workspace names them, not from the repository's top.
+  const now = nul((await git(g, ws, ['diff', '--cached', '--name-only', '--relative', '-z', '--', ...toAdd])).out).sort()
   return { staged: now, leftOut }
 }

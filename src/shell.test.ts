@@ -37,3 +37,8 @@ test('the allow-writes command names the craftar binary and the workspace, quote
   assert.equal(allowWritesCommand('cmd', { bin: 'C:\\craftar.exe', home: '' }, 'C:\\web'), null)
   assert.equal(allowWritesCommand('unknown', { bin: '/usr/bin/craftar', home: '' }, '/web'), null)
 })
+
+test("PowerShell's typographic single quotes are doubled too: a path holding one cannot close the quote", () => {
+  assert.equal(quote('pwsh', 'C:\\acme\\Luiz\u2019s web'), `'C:\\acme\\Luiz\u2019\u2019s web'`)
+  assert.equal(quote('pwsh', 'a\u2018b\u201Ac\u201Bd'), `'a\u2018\u2018b\u201A\u201Ac\u201B\u201Bd'`)
+})

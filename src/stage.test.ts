@@ -62,3 +62,29 @@ test('a path that starts with a dash is passed after --, never read as an option
   assert.ok(r.staged.includes('-n.md'))
   assert.ok(staged(dir).includes('-n.md'))
 })
+
+test('a path with glob characters is a literal name: it never stages another file', { skip: !git }, async () => {
+  const dir = repo()
+  writeFileSync(join(dir, '[a].md'), 'forge\n')
+  writeFileSync(join(dir, 'a.md'), 'mine\n')
+  const r = await stagePaths(git!, dir, { written: ['[a].md'], removed: [] })
+  assert.deepEqual(r.staged, ['[a].md'])
+  assert.deepEqual(staged(dir), ['[a].md'])
+})
+
+test('a workspace in a subfolder of its repository reports staged paths relative to the workspace', { skip: !git }, async () => {
+  const dir = repo()
+  const sub = join(dir, 'sub')
+  mkdirSync(join(sub, '.claude/rules'), { recursive: true })
+  writeFileSync(join(sub, '.claude/rules/x.md'), 'x\n')
+  const r = await stagePaths(git!, sub, { written: ['.claude/rules/x.md'], removed: [] })
+  assert.deepEqual(r.staged, ['.claude/rules/x.md'])
+})
+
+test('an ignored, untracked craftar.lock is listed as left out', { skip: !git }, async () => {
+  const dir = repo()
+  writeFileSync(join(dir, '.gitignore'), 'ignored/\ncraftar.lock\n')
+  execFileSync('git', ['-C', dir, 'rm', '-q', '--cached', 'craftar.lock'])
+  const r = await stagePaths(git!, dir, { written: [], removed: [] })
+  assert.ok(r.leftOut.includes('craftar.lock'))
+})

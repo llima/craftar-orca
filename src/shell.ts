@@ -27,7 +27,8 @@ export function detectShell(lines: readonly string[]): Shell {
 }
 
 export function quote(shell: 'bash' | 'zsh' | 'sh' | 'pwsh', value: string): string {
-  return shell === 'pwsh' ? `'${value.replace(/'/g, "''")}'` : `'${value.replace(/'/g, `'\\''`)}'`
+  // PowerShell reads the typographic single quotes (U+2018–U+201B) as quotes too: each is doubled.
+  return shell === 'pwsh' ? `'${value.replace(/['\u2018\u2019\u201A\u201B]/g, (q) => q + q)}'` : `'${value.replace(/'/g, `'\\''`)}'`
 }
 
 /**
