@@ -40,8 +40,8 @@ test('the drawing: the Forge box, the workspace, the arrows with their counts, a
   assert.match(text, /\.\.\/forge2/)
   assert.match(text, /d2309dc/)
   assert.match(text, /acme-web/)
-  assert.match(text, /1 pending/)
-  assert.match(text, /1 edited/)
+  assert.match(text, /1 coming down from the Forge/)
+  assert.match(text, /1 can go up to the Forge/)
   assert.ok(all(root).some((e) => e.tag === 'svg' && e.ns === 'http://www.w3.org/2000/svg'))
 })
 
