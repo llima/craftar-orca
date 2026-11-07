@@ -1,8 +1,9 @@
 // The craftar worker. S1, the read path: the self-check on enable (spec 60 §5), the reads of the focused
 // craftar workspace on every focus change (offline) and of every local one on the periodic check (the
 // only read that may fetch), the panel's requests, and the status bar item that keeps the worker alive
-// (§2.4; pending the S0 probe — README). S0's probe command and heartbeat stay until the probe is
-// reported. Nothing here writes a workspace or a Forge, opens a terminal or shows a notification.
+// (§2.4, measured by the S0 probe — README). S0's probe and heartbeat stay until the terminal is measured;
+// the status bar item runs the probe, whose report goes to the panel and whose outcome goes to one
+// notification and the log. Nothing here writes a workspace or a Forge; only the probe opens a terminal.
 import type { OrcaWorkerApi } from 'orca/worker'
 import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
 import { DiffChild, DiffRefused } from './diff-child'
@@ -23,6 +24,8 @@ const HEARTBEAT_MS = 60_000
 // A fixed, harmless command: no value of anyone's is put into a terminal (spec 60 §10).
 const PROBE_COMMAND = 'echo craftar-probe'
 const PROBE_MARK = 'craftar-probe'
+// The status bar item runs the probe when pressed (orca-plugin.json); its tooltip says so.
+const CLICK_HINT = ' · click: run the probe'
 const WATCHED_ENV = ['CRAFTAR_HOME', 'SSH_AUTH_SOCK', 'GIT_AUTHOR_NAME', 'GH_TOKEN'] as const
 
 interface Heartbeat {
@@ -33,6 +36,8 @@ interface Heartbeat {
 
 let timer: ReturnType<typeof setInterval> | null = null
 let firstBeat: Promise<void> = Promise.resolve()
+// The probe in flight: a second click while it runs gets the same report, not a second terminal.
+let probing: Promise<string> | null = null
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -64,9 +69,18 @@ function failed(what: string, e: unknown): string {
   return `${what}: failed (${code})`
 }
 
-async function terminalProbe(orca: OrcaWorkerApi): Promise<string[]> {
+interface TerminalResult {
+  /** One line, safe to log and to notify: the outcome, never a line the terminal printed. */
+  outcome: string
+  /** Orca's opaque handle of the terminal, for the log only. */
+  id: string | null
+  /** The terminal's last lines — its prompt can carry a host name, a user name or a directory (O11). */
+  lines: string[]
+}
+
+async function terminalProbe(orca: OrcaWorkerApi): Promise<TerminalResult> {
   const workspaceId = await focusedWorkspaceId(orca)
-  if (!workspaceId) return ['terminal: not opened — no single local workspace to open it in (focus one and run the probe again)']
+  if (!workspaceId) return { outcome: 'terminal: not opened — no single local workspace to open it in (focus one and run the probe again)', id: null, lines: [] }
   const { terminalId } = (await orca.host.call('terminal.create', {
     workspaceId,
     title: 'craftar probe',
@@ -79,10 +93,17 @@ async function terminalProbe(orca: OrcaWorkerApi): Promise<string[]> {
     await new Promise((r) => setTimeout(r, 250))
   }
   const seen = lines.some((l) => l.trim() === PROBE_MARK)
-  return [
-    `terminal: ${seen ? `${PROBE_MARK} seen` : `${PROBE_MARK} not seen after 5 s`} (the lines below show its prompt: which shell, which directory)`,
-    ...lines.slice(-8).map((l) => `  | ${l}`),
-  ]
+  return {
+    outcome: `terminal: ${seen ? `${PROBE_MARK} seen` : `${PROBE_MARK} not seen after 5 s`}`,
+    id: terminalId,
+    lines: lines.slice(-8),
+  }
+}
+
+/** A craftar version as craftar prints it, else nothing: only that shape reaches the log. */
+function versionShaped(line: string): string | null {
+  const m = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.exec(line.trim())
+  return m ? m[0] : null
 }
 
 export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<string> {
@@ -91,35 +112,67 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   const craftarHome = text(settings.craftarHome)
   const out: string[] = ['craftar probe — S0 (spec 60 §12)']
 
+  // `summary` is what may be logged and notified: outcomes only, no path and no line of anyone's.
+  const summary: string[] = []
   const found = findCraftar({ craftarPath, path: process.env.PATH ?? '' })
   if (found.found === null) {
     out.push(`craftar: not found — ${found.reason}`)
+    summary.push('craftar not found')
   } else {
     out.push(`craftar: found at ${found.found}${found.shim ? ` (under the ${found.shim} shim directory: a project's files can choose what runs)` : ''}`)
     const r = await run(found.found, ['--version'], childEnv(process.env, craftarHome))
-    out.push(r.code === 0 ? `version: ${r.stdout.trim().split(/\r?\n/)[0]}` : `version: craftar --version failed (exit ${r.code ?? 'none'})`)
+    const first = r.stdout.trim().split(/\r?\n/)[0] ?? ''
+    out.push(r.code === 0 ? `version: ${first}` : `version: craftar --version failed (exit ${r.code ?? 'none'})`)
+    const v = r.code === 0 ? versionShaped(first) : null
+    summary.push(`craftar found${found.shim ? ` (${found.shim} shim)` : ''}, ${r.code === 0 ? `version ${v ?? '(not shown)'}` : `--version failed (exit ${r.code ?? 'none'})`}`)
   }
   out.push(`CRAFTAR_HOME: ${craftarHome.trim() !== '' ? 'set from the setting' : 'not set (craftar uses its default)'}`)
   out.push(`worker environment: ${WATCHED_ENV.map((k) => `${k} ${process.env[k] ? 'present' : 'absent'}`).join(', ')}`)
-  const orcaCli = findOnPath('orca', process.env.PATH ?? '')
-  out.push(`orca CLI: ${orcaCli ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}`)
+  // Orca's CLI is `orca-ide`; an `orca` on PATH can be another program (on GNOME, the screen reader).
+  const orcaIde = findOnPath('orca-ide', process.env.PATH ?? '')
+  const otherOrca = findOnPath('orca', process.env.PATH ?? '')
+  out.push(
+    `Orca CLI (orca-ide): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}` +
+      (otherOrca ? ' — an `orca` on PATH is another program, not taken for it' : ''),
+  )
 
   await firstBeat
   const hb = (await orca.storage.get(HEARTBEAT).catch(() => null)) as Heartbeat | null
   const upMin = Math.round((Date.now() - startedAt) / 60_000)
   out.push(`worker alive: ${upMin} min since this start${hb && hb.startedAt === startedAt ? `, ${hb.ticks} heartbeats` : ''}`)
 
-  let terminal: string[]
+  let terminal: TerminalResult
   try {
     terminal = await terminalProbe(orca)
   } catch (e) {
-    terminal = [failed('terminal', e)]
+    terminal = { outcome: failed('terminal', e), id: null, lines: [] }
   }
-  out.push('notifications.show: no action (host-api 1.3) — the panel holds the one click')
-  // Nothing of the report is logged: craftar's path and output, and the terminal's lines — a prompt can
-  // carry a host name, a user name or a directory (spec 60 O11) — are shown to the person who ran it.
-  orca.log('probe ran (its report is shown to the person who ran it, not logged)')
-  return [...out, ...terminal].join('\n')
+  summary.push(terminal.outcome)
+  // The log and the notification carry the summary only (the log also the terminal's opaque id): craftar's path and output, and the terminal's
+  // lines — a prompt can carry a host name, a user name or a directory (spec 60 O11) — are shown in the
+  // panel, to the person who ran it, and never logged or notified.
+  orca.log(['probe ran', ...summary.slice(0, -1), terminal.id ? `${terminal.outcome} (terminal ${terminal.id})` : terminal.outcome].join('\n'))
+  const shown = (await orca.host
+    .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
+    .catch((e) => {
+      orca.log(failed('notification', e))
+      return null
+    })) as { delivered?: unknown } | null
+  out.push(
+    `notifications.show: ${shown?.delivered === true ? 'delivered' : 'not delivered'} (host-api 1.3: a notification has no action — the panel holds the one click)`,
+  )
+  const report = [
+    ...out,
+    terminal.outcome,
+    ...(terminal.lines.length > 0 ? ['  (its last lines show its prompt: which shell, which directory)'] : []),
+    ...terminal.lines.map((l) => `  | ${l}`),
+  ]
+  const s = st
+  if (s) {
+    s.probe = { at: Date.now(), lines: report }
+    await publish(s).catch((e) => orca.log(failed('probe publish', e)))
+  }
+  return report.join('\n')
 }
 
 interface State {
@@ -138,6 +191,8 @@ interface State {
   /** The workspace the last self-check asked doctor about; null when there was none to ask. */
   checkedWs: string | null
   periodicTimer: ReturnType<typeof setTimeout> | null
+  /** The last probe report, shown in the panel; kept in memory only, never stored. */
+  probe: { at: number; lines: string[] } | null
 }
 
 let st: State | null = null
@@ -235,6 +290,7 @@ export interface View {
   readFailed: boolean
   ask: { id: string; name: string; path: string }[]
   remote: { name: string; path: string }[]
+  probe: { at: number; lines: string[] } | null
 }
 
 function view(s: State): View {
@@ -246,6 +302,7 @@ function view(s: State): View {
     readFailed: ws ? s.failed.has(ws) : false,
     ask: s.focus.kind === 'ask' ? s.focus.rows.map((r) => ({ id: r.id, name: r.name, path: r.path })) : [],
     remote: s.remote.map((r) => ({ name: r.name, path: r.path })),
+    probe: s.probe,
   }
 }
 
@@ -254,7 +311,7 @@ async function publish(s: State): Promise<void> {
   const broken = s.craftar === null && s.selfCheck.some((l) => l.level === 'error')
   const m = ws ? (s.models.get(ws) ?? null) : null
   const bar = barFor(broken || (ws !== null && s.failed.has(ws)) ? 'error' : m)
-  const tooltip = ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'
+  const tooltip = `${ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'}${CLICK_HINT}`
   await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'layers' }).catch((e) => s.orca.log(failed('status bar', e)))
   s.orca.panels.post('state.changed', view(s) as never)
 }
@@ -363,15 +420,19 @@ export default function activate(orca: OrcaWorkerApi): void {
     usedKey: null,
     checkedWs: null,
     periodicTimer: null,
+    probe: null,
   }
   st = s
   orca.host
-    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: 'craftar — reading', icon: 'layers' })
+    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'layers' })
     .catch((e) => orca.log(failed('status bar', e)))
   firstBeat = tick()
   timer = setInterval(() => void tick(), HEARTBEAT_MS)
   if (typeof timer === 'object' && timer && 'unref' in timer) timer.unref()
-  orca.commands.register('craftar.probe', () => probe(orca, startedAt))
+  orca.commands.register('craftar.probe', () => {
+    if (!probing) probing = probe(orca, startedAt).finally(() => (probing = null))
+    return probing
+  })
 
   // One refresh at a time: Orca delivers the current context to a new subscriber, on top of the first one.
   const refresh = (ctx?: Context | null, recheck = false): Promise<void> =>
@@ -415,6 +476,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 export function deactivate(): void {
   if (timer) clearInterval(timer)
   timer = null
+  probing = null
   const s = st
   st = null
   if (s?.periodicTimer) clearTimeout(s.periodicTimer)

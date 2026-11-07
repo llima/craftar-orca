@@ -1,7 +1,7 @@
 # craftar for Orca
 
 > **Approving this plugin grants it full Node on your machine** — it is a `trusted-worker` plugin, so its worker runs with your
-> user account's access — plus the Orca capabilities it lists (`orca plugin inspect` shows them). `drift promote`, `git` and `gh` are
+> user account's access — plus the Orca capabilities it lists (`orca-ide plugin inspect` shows them). `drift promote`, `git` and `gh` are
 > gated only by that approval and a click each; a sync goes through craftar's own consent (`craftar mcp allow-writes`, typed by you in
 > a terminal). The plugin sends nothing anywhere: no telemetry; the only network traffic is craftar's own fetch and the `git push` /
 > `gh pr create` you click. For a remote Forge over ssh the worker gets no `SSH_AUTH_SOCK`: use https with a credential helper.
@@ -9,7 +9,7 @@
 An [Orca](https://github.com/stablyai/orca) plugin that shows, for the workspace you have open, which craftar Forge it follows, its
 linked projects and the files coming and going between them — using the `craftar` you installed. It adds nothing to craftar.
 
-**Status: S1, the read path.** The plugin reads only; it writes nothing, opens no terminal and shows no notification yet.
+**Status: S1, the read path.** The plugin reads only; it writes nothing. Only the probe (below) opens a terminal and shows a notification.
 
 - **On enable** a self-check runs: the binary found and absolute, its version at least **0.33.0** (taken from `craftar doctor
   --json`, asked about the focused craftar workspace or, with none focused, another one on this machine — with none at all nothing
@@ -31,18 +31,25 @@ linked projects and the files coming and going between them — using the `craft
   Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with `--allow-writes`. "Update" and
   "Send to Forge" are drawn disabled until the next slices.
 
-The palette command `craftar: run the probe` (S0) stays: it says which `craftar` it found and which environment variables the worker
-has (present or absent, never a value), and opens a terminal named "craftar probe" running `echo craftar-probe`, whose last lines —
-your prompt, so possibly your host name, user name and directory — it shows to you and never logs or sends.
+The probe `craftar: run the probe` (S0) stays. It is bound to the **craftar item in the status bar**, so a click runs it (Orca's
+manifest schema runs an item's `command` when it is pressed — not yet clicked in Orca), and it is in the palette (Orca's default
+Ctrl+Shift+J on Linux, typing `craftar` — measured): it says which `craftar` it found and which environment variables the worker has (present or absent,
+never a value), and opens a terminal named "craftar probe" running `echo craftar-probe`. Its report appears in the **craftar panel**,
+the terminal's last lines included — your prompt, so possibly your host name, user name and directory, shown there only. A
+notification gives the outcome (craftar found and its version, the terminal's result) and points at the panel; the plugin's log gets
+the same outcome lines, never craftar's path or a line of the terminal.
 
-### Pending the S0 probe
+### Measured by the S0 probe
 
-Three things the plugin relies on were not yet measured in a real Orca when S1 was written (spec 60 §12); until the probe reports
-them, S1 is **coded, not run in Orca**:
+Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 
-- that the worker can start `craftar` from inside Orca (every read depends on it);
-- that the status bar item keeps the worker alive for hours (the periodic check depends on it);
-- that `orca` is on the worker's `PATH` (a later slice depends on it).
+- the worker starts `craftar` from inside Orca, found on an absolute `PATH` entry (every read depends on it);
+- the status bar item keeps the worker alive: 938 heartbeats in 938 minutes, none missed (the periodic check depends on it);
+- Orca's CLI is `orca-ide`; an `orca` on `PATH` can be another program (on GNOME, the screen reader), so the probe looks for
+  `orca-ide` (a later slice depends on it).
+
+Not measured yet: that a click on the status bar item runs the probe in Orca, and whether the probe's terminal is a real terminal
+and its lines can be read back — the next run of the probe, from the status bar, reports both.
 
 ## Settings
 
@@ -55,10 +62,10 @@ them, S1 is **coded, not run in Orca**:
 ## Development
 
 ```bash
-orca plugin test .        # node:test, with Orca's own orca/testing
-orca plugin validate .
-orca plugin check .
-orca plugin inspect .
+orca-ide plugin test .        # node:test, with Orca's own orca/testing
+orca-ide plugin validate .
+orca-ide plugin check .
+orca-ide plugin inspect .
 ```
 
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
