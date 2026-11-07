@@ -20,7 +20,10 @@ h1 { font-size: 15px; margin: 0; }
 h2 { font-size: 12px; margin: 14px 0 6px; color: var(--orca-muted-foreground); text-transform: uppercase; letter-spacing: .04em; }
 ul { list-style: none; margin: 0; padding: 0; }
 li { padding: 2px 0; }
-button { font: inherit; color: var(--orca-secondary-foreground); background: var(--orca-secondary); border: 1px solid var(--orca-border, transparent); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+button { font: inherit; color: var(--orca-secondary-foreground, inherit); background: var(--orca-secondary, rgba(127, 127, 127, .16)); border: 1px solid var(--orca-border, rgba(127, 127, 127, .55)); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+button:hover:not([disabled]) { border-color: var(--orca-primary, currentColor); }
+.ask button { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 6px 10px; }
+.ask button[aria-busy='true'] { opacity: .6; cursor: progress; }
 button[disabled] { opacity: .5; cursor: not-allowed; }
 button.file { background: none; border: none; padding: 0; color: var(--orca-foreground); text-decoration: underline; text-align: left; }
 .state, .reason, .muted, figcaption { color: var(--orca-muted-foreground); }
@@ -57,11 +60,34 @@ function draw(): void {
 
 const actions = {
   choose(id: string): void {
-    void orca.plugin.request('focus.choose', { id }).then((v) => {
-      view = v as View
-      diff = null
-      draw()
-    })
+    // The worker reads the chosen workspace before it answers: the buttons stay drawn meanwhile, so they
+    // are disabled at once and a second click sends nothing. A refusal redraws from the worker's view.
+    for (const b of Array.from(root.querySelectorAll<HTMLButtonElement>('.ask button'))) {
+      b.disabled = true
+      if (b.dataset.id === id) b.setAttribute('aria-busy', 'true')
+    }
+    void orca.plugin
+      .request('focus.choose', { id }, { timeoutMs: 120_000 })
+      .then((v) => {
+        view = v as View
+        diff = null
+        draw()
+      })
+      .catch(() =>
+        orca.plugin
+          .request('state.get')
+          .then((v) => {
+            view = v as View
+            draw()
+          })
+          .catch(() => {
+            // Nothing could be read back: give the choices back rather than leave them disabled.
+            for (const b of Array.from(root.querySelectorAll<HTMLButtonElement>('.ask button'))) {
+              b.disabled = false
+              b.removeAttribute('aria-busy')
+            }
+          }),
+      )
   },
   refresh(): void {
     void orca.plugin.request('state.refresh', undefined, { timeoutMs: 120_000 }).then((v) => {

@@ -112,3 +112,25 @@ test("the registry's warnings join craftar's lines too", () => {
   const r = { ...registry(), warnings: ['registry: one entry is missing'] }
   assert.ok(model({ registry: r }).warnings.includes('registry: one entry is missing'))
 })
+
+// Measured in Orca 1.4.250 (2026-11-07): `craftar workspaces --json` says each registered workspace's plan
+// warnings as `<its path>: <warning>`, so the focused workspace's panel listed every other one's.
+test("the registry's warnings about another workspace are not this workspace's; its own and the registry's are kept", () => {
+  const base = registry()
+  const other = '/home/acme/other-client'
+  const r = {
+    ...base,
+    workspaces: [...base.workspaces, { ...base.workspaces[0], path: other, name: 'other' }],
+    warnings: [`${other}: agents-md: 2 agent ingredient(s) have no AGENTS.md equivalent — skipped`, `${WS}: a warning about this one`, 'registry: one entry is missing'],
+  }
+  const m = model({ registry: r })
+  assert.equal(m.warnings.some((w) => w.includes(other)), false)
+  assert.ok(m.warnings.includes(`${WS}: a warning about this one`))
+  assert.ok(m.warnings.includes('registry: one entry is missing'))
+})
+
+test("this workspace's plan warning, said again by the registry with its path, is listed once", () => {
+  const r = { ...registry(), warnings: [`${WS}: agents-md: the rule is long`] }
+  const m = model({ status: { ...status(), warnings: ['agents-md: the rule is long'] }, registry: r })
+  assert.deepEqual(m.warnings.filter((w) => w.includes('the rule is long')), ['agents-md: the rule is long'])
+})

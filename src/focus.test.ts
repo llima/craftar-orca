@@ -58,3 +58,13 @@ test('a stored answer wins over a tie only when it is one of the tied rows', () 
   assert.deepEqual(focused(ctx, [a, b], 'b'), { kind: 'one', row: b })
   assert.deepEqual(focused(ctx, [a, b], 'gone'), { kind: 'ask', rows: [a, b] })
 })
+
+// Measured in Orca 1.4.250 (Linux, 2026-11-07): workspace.list gives this machine's rows hostId "local"
+// (`orca-ide host list`: `local  this machine`); null only on hosts that record no host.
+test('a row whose hostId is "local" is on this machine: read when it holds craftar.yaml, never listed as another host', () => {
+  const yes = withYaml()
+  const no = tempDir()
+  const r = craftarWorkspaces([row('a', yes, { hostId: 'local' }), row('b', no, { hostId: 'local' }), row('s', '/home/acme/x', { hostId: 'ssh-1' })])
+  assert.deepEqual(r.local.map((x) => x.id), ['a'])
+  assert.deepEqual(r.remote.map((x) => x.id), ['s'])
+})
