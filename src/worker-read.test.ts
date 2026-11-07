@@ -413,6 +413,12 @@ const SYNCED = {
 const synced = { content: [{ type: 'text', text: JSON.stringify(SYNCED) }], structuredContent: SYNCED }
 const toolError = (text: string) => ({ content: [{ type: 'text', text }], isError: true })
 
+async function updateAndWait(worker: { request: (name: string, data?: unknown) => Promise<unknown> }): Promise<View> {
+  await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })
+  await main.settled()
+  return (await worker.request('state.get')) as View
+}
+
 async function updateSetup(extra: Record<string, unknown>) {
   const ws = gitCraftarDir()
   const r = await setup({ rows: [{ id: 'w1', kind: 'folder', name: 'web', path: ws, branch: 'main', hostId: 'local' }], extra })
@@ -426,7 +432,7 @@ test('Update is offered with the pending files, then syncs, stages exactly and s
   assert.equal(before.update.allowed, true)
   assert.deepEqual(before.update.files, [{ path: '.claude/rules/workflow.md', state: 'update' }])
   writeFileSync(join(ws, '.claude', 'rules', 'workflow.md'), 'new\n')
-  const after = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  const after = (await updateAndWait(worker))
   const mcp = s.calls().filter((c) => c.argv[0] === 'mcp')
   assert.deepEqual(mcp.map((c) => c.argv), [['mcp', '--workspace', ws, '--allow-writes', '--fetch']])
   assert.equal(after.sync.phase, 'done')
@@ -451,7 +457,7 @@ test('Update refuses a list that is not the pending set: nothing is started', as
 test("with no consent recorded, Update writes nothing and shows craftar's words and the way to allow writes", async () => {
   const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
   const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
-  const after = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  const after = (await updateAndWait(worker))
   assert.equal(after.sync.phase, 'consent')
   assert.equal(after.consent?.text, text)
   assert.equal(after.lastSync, null)
@@ -461,15 +467,35 @@ test("with no consent recorded, Update writes nothing and shows craftar's words 
 test('a refused sync in other words is an error shown verbatim, and nothing is staged', async () => {
   const text = 'declared params with no value: acme.key — the sync is refused'
   const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
-  const after = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  const after = (await updateAndWait(worker))
   assert.deepEqual(after.sync, { phase: 'error', message: text })
   assert.equal(h.callsOf('commands.run').length, 0)
 })
 
-test('Update is not offered on a cached copy of a remote Forge, and says why', async () => {
+const remoteStatus = (fetched: boolean) => {
   const status = JSON.parse(fixture('status.json'))
-  status.forge = { ...status.forge, kind: 'git', fetched: false }
-  const { worker } = await updateSetup({ 'status --json': { stdout: JSON.stringify(status), code: 0 } })
+  return { stdout: JSON.stringify({ ...status, forge: { ...status.forge, kind: 'git', fetched } }), code: 0 }
+}
+
+test('a remote Forge never fetched yet: Update is off and says the next periodic check fetches it', async () => {
+  const { worker } = await updateSetup({ 'status --json': remoteStatus(false) })
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /not been fetched yet/)
+})
+
+test('a periodic fetch that worked allows Update after offline focus reads', async () => {
+  // A focus read is --offline (fetched: false); the periodic read fetches (fetched: true).
+  const { worker } = await updateSetup({ 'status --json --offline': remoteStatus(false), 'status --json --workspace': remoteStatus(true) })
+  await main.periodic()
+  await worker.request('state.refresh')
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, true, String(v.update.reason))
+})
+
+test('a periodic fetch that fell back to the cached copy keeps Update off, with the cache named', async () => {
+  const { worker } = await updateSetup({ 'status --json': remoteStatus(false) })
+  await main.periodic()
   const v = (await worker.request('state.get')) as View
   assert.equal(v.update.allowed, false)
   assert.match(String(v.update.reason), /cached copy/)
@@ -480,7 +506,7 @@ test('Update is not offered on a cached copy of a remote Forge, and says why', a
 test('the consent terminal: a shell probe first, then allow-writes quoted for that shell; nothing typed', async () => {
   const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
   const { s, h, worker, ws } = await updateSetup({ 'mcp call 0': toolError(text) })
-  const asked = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  const asked = (await updateAndWait(worker))
   assert.equal(asked.consent?.terminal, 'offered')
   h.respond('terminal.create', { terminalId: 't1' })
   h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ echo craftar-shell:$0', 'craftar-shell:bash'], truncated: false })
@@ -496,13 +522,17 @@ test('the consent terminal: a shell probe first, then allow-writes quoted for th
 test('a shell the probe does not recognise gets no terminal: the steps stay in words', async () => {
   const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
   const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
-  await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })
+  await updateAndWait(worker)
   h.respond('terminal.create', { terminalId: 't1' })
   h.respond('terminal.read', { lines: ['fish: $0 is not supported'], truncated: false })
   const v = (await worker.request('consent.terminal', {})) as View
   assert.equal((h.callsOf('terminal.create') as unknown[]).length, 1)
   assert.equal(v.consent?.terminal, 'words')
-  assert.ok((v.consent?.steps ?? []).some((x) => x.includes('craftar mcp allow-writes')))
+  const steps = v.consent?.steps ?? []
+  assert.match(steps[0], /No terminal was opened: the plugin does not recognise this terminal's shell/)
+  assert.ok(steps.some((x) => x.includes('allow-writes')))
+  // In words, never a command line to paste: no step starts with the binary or holds a ready command.
+  assert.equal(steps.some((x) => /craftar mcp allow-writes --workspace/.test(x)), false)
   assert.equal(h.callsOf('terminal.sendText').length, 0)
 })
 
@@ -523,7 +553,7 @@ test("a consent belongs to the workspace that was refused: after a focus change,
   ]
   const { h, worker } = await setup({ rows, extra: { 'mcp call 0': toolError(text) } })
   process.env.PATH = gitDirOnPath()
-  const asked = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  const asked = (await updateAndWait(worker))
   assert.equal(asked.consent?.terminal, 'offered')
   await worker.emit('workspace.changed', { context: { branch: 'dev', displayName: 'api', terminals: [] } })
   await main.settled()
@@ -539,9 +569,26 @@ test("a consent belongs to the workspace that was refused: after a focus change,
 test('a shell probe that shows no answer is not stored: the next click probes again', async () => {
   const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
   const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
-  await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })
+  await updateAndWait(worker)
   h.respond('terminal.create', { terminalId: 't1' })
   h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ '], truncated: false })
   await worker.request('consent.terminal', {})
   assert.equal(h.data().storage['shell.local'], undefined)
+})
+
+test('a notification is not sent for a workspace Update could not run on: a refused sync', async () => {
+  const status = JSON.parse(fixture('status.json'))
+  status.unsetParams = [{ key: 'acme.key', declaredBy: ['rule/a'], citedBy: ['rule/a'] }]
+  const { h } = await updateSetup({ 'status --json': { stdout: JSON.stringify(status), code: 1 } })
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 0)
+})
+
+test('update.run answers at once with the update running; the panel follows on state.changed', async () => {
+  const { worker } = await updateSetup({ 'mcp call 0': synced })
+  const started = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  assert.equal(started.sync.phase, 'running')
+  await main.settled()
+  const done = (await worker.request('state.get')) as View
+  assert.equal(done.sync.phase, 'done')
 })

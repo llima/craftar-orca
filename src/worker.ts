@@ -216,6 +216,8 @@ interface State {
   sync: Map<string, SyncView>
   consent: Map<string, ConsentView>
   lastSync: Map<string, LastSync>
+  /** Per workspace path with a remote Forge: what the last periodic read did with the fetch (O10). */
+  fetchState: Map<string, 'fetched' | 'failed' | 'off'>
 }
 
 export interface SyncView {
@@ -264,7 +266,12 @@ function updateView(s: State): UpdateView {
   if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return no(`updating needs craftar ${WRITES_FLOOR} or later — upgrade craftar`)
   if (m.refused) return no('craftar refuses to sync this workspace — see its words above')
   if (m.checkFailed) return no('craftar status failed for this workspace — see its lines above')
-  if (m.forge?.freshness === 'cached') return no('the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works')
+  if (m.forge && m.forge.freshness !== 'local') {
+    const f = s.fetchState.get(ws)
+    if (f === 'off') return no('"Fetch a remote Forge" is off: updating needs a fetched read — turn it on in the plugin settings')
+    if (f === 'failed') return no('the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works')
+    if (f !== 'fetched') return no('the Forge has not been fetched yet — the next periodic check fetches it')
+  }
   if (files.length === 0) return no('nothing to update')
   if (s.sync.get(ws)?.phase === 'running') return no('an update is running')
   return { allowed: true, reason: null, files }
@@ -342,6 +349,10 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
       return
     }
     s.failed.delete(row.path)
+    // O10: only the periodic read fetches; an offline focus read says nothing about a failed fetch.
+    const remote = status.forge?.kind !== undefined && status.forge.kind !== 'path'
+    if (remote && reason === 'periodic') s.fetchState.set(row.path, !settings.fetch ? 'off' : status.forge?.fetched === true ? 'fetched' : 'failed')
+    if (!remote) s.fetchState.delete(row.path)
     const errors: string[] = []
     const fetched = await fetchedAtMap(s.orca)
     if (status.forge?.fetched === true) {
@@ -367,6 +378,9 @@ const NOTIFIED = 'notified'
  */
 async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<void> {
   if (reason !== 'periodic') return
+  // Not for a workspace Update could not run on: the notification's question would get a disabled button.
+  const f = s.fetchState.get(m.ws)
+  if (m.refused || m.checkFailed || f === 'failed' || f === 'off') return
   const seen = ((await s.orca.storage.get(NOTIFIED).catch(() => null)) as Record<string, { count: number; at: number }> | null) ?? {}
   const before = typeof seen[m.ws]?.count === 'number' ? seen[m.ws].count : 0
   const now = m.pending.length
@@ -521,7 +535,7 @@ function listed(m: PanelModel | null, path: string): boolean {
 }
 
 /**
- * Update (spec 60 §7 steps 3–6, O2): in the workspace's queue, the one sync through craftar mcp
+ * Update (spec 60 §7 steps 3–4, O2): in the workspace's queue, the one sync through craftar mcp
  * --allow-writes --fetch; on success exact staging, the source-control view shown, the result compared with
  * the list the person agreed to; then the workspace is read again, offline. A consent or another refusal
  * writes nothing and is shown in craftar's words.
@@ -540,7 +554,8 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
     if (outcome.kind === 'consent') {
       s.sync.set(ws, { phase: 'consent', message: outcome.text })
       const known = (await s.orca.storage.get(SHELL_KEY).catch(() => null)) as Shell | null
-      s.consent.set(ws, { text: outcome.text, terminal: known === 'cmd' || known === 'unknown' ? 'words' : 'offered', steps: consentSteps(ws) })
+      const home = (await readSettings(s.orca)).craftarHome
+      s.consent.set(ws, { text: outcome.text, terminal: known === 'cmd' || known === 'unknown' ? 'words' : 'offered', steps: consentSteps(ws, craftar, home, known === 'cmd' || known === 'unknown' ? NO_TERMINAL : null) })
       return
     }
     if (outcome.kind !== 'ok') {
@@ -574,6 +589,8 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
   await readWorkspace(s, row, 'focus', settings)
   await publish(s)
 }
+
+const NO_TERMINAL = "No terminal was opened: the plugin does not recognise this terminal's shell, or cannot quote a command for it yet (cmd)."
 
 // The shell this machine's terminals run, as the probe found it (O12); one answer per host — S2 is local only.
 const SHELL_KEY = 'shell.local'
@@ -613,18 +630,23 @@ async function openConsentTerminal(s: State): Promise<void> {
   const settings = await readSettings(s.orca)
   const command = allowWritesCommand(shell, { bin: craftar.bin, home: settings.craftarHome }, row.path)
   if (command === null) {
-    s.consent.set(row.path, { ...consent, terminal: 'words' })
+    s.consent.set(row.path, { ...consent, terminal: 'words', steps: consentSteps(row.path, craftar, settings.craftarHome, NO_TERMINAL) })
   } else {
     await s.orca.host.call('terminal.create', { workspaceId: row.id, title: 'craftar allow writes', command })
   }
   await publish(s)
 }
 
-/** The consent in words (O2): the person types it in a terminal; the plugin never types it. */
-function consentSteps(ws: string): string[] {
+/**
+ * The consent in words (O2): the person types it in a terminal; the plugin never types it. The binary, the
+ * home and the directory are named as separate facts — never a command line to paste (§12a case 6).
+ */
+function consentSteps(ws: string, craftar: Craftar, home: string, why: string | null = null): string[] {
   return [
+    ...(why ? [why] : []),
     'Open a terminal in this workspace.',
-    `Type: craftar mcp allow-writes --workspace ${ws}`,
+    `Run your craftar (${craftar.bin}) with its mcp allow-writes command, giving this workspace's folder as --workspace: ${ws}`,
+    ...(home.trim() !== '' ? [`Set CRAFTAR_HOME to ${home.trim()} for it first, as the plugin's craftarHome setting does.`] : []),
     'Read what it will allow and answer its question yourself.',
     'Then click Update again.',
   ]
@@ -652,6 +674,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     sync: new Map(),
     consent: new Map(),
     lastSync: new Map(),
+    fetchState: new Map(),
   }
   st = s
   orca.host
@@ -692,7 +715,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     const given = Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string').sort() : null
     if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
     if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them — look again and confirm')
-    await runUpdate(s, u.files)
+    // Answered at once (plugin.request's ceiling is 120 s, measured): the update runs on, tracked, and the
+    // panel follows it on state.changed.
+    void track(s, runUpdate(s, u.files)).catch((e) => orca.log(failed('update', e)))
     return view(s) as never
   })
   orca.panels.handle('consent.terminal', async () => {

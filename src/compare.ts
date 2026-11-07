@@ -1,4 +1,4 @@
-// What the sync did, against the question the person said yes to (spec 60 §7 step 5): the `sync` tool takes
+// What the sync did, against the question the person said yes to (spec 60 §7 step 3): the `sync` tool takes
 // no digest, so the files can have moved between the read and the write. Every difference is listed in
 // words, never acted on; a file craftar kept because it changed while craftar was writing asks for a re-run.
 export interface Asked {
