@@ -79,7 +79,14 @@ interface TerminalResult {
 }
 
 async function terminalProbe(orca: OrcaWorkerApi): Promise<TerminalResult> {
-  const workspaceId = await focusedWorkspaceId(orca)
+  // The worker's focus first — the one the panel shows, the person's answer to a tie included (O9):
+  // readContext names a workspace by display name and branch only, which tie (in Orca 1.4.250 every
+  // `main` worktree is named `main`). Its own deduction only when no craftar workspace has the focus.
+  const s = st
+  if (s?.focus.kind === 'ask') {
+    return { outcome: 'terminal: not opened — several workspaces match the focused one: pick it in the craftar panel, then run the probe again', id: null, lines: [] }
+  }
+  const workspaceId = s?.focus.kind === 'one' ? s.focus.row.id : await focusedWorkspaceId(orca)
   if (!workspaceId) return { outcome: 'terminal: not opened — no single local workspace to open it in (focus one and run the probe again)', id: null, lines: [] }
   const { terminalId } = (await orca.host.call('terminal.create', {
     workspaceId,
