@@ -1,11 +1,13 @@
 // The S1 worker: the self-check on enable, the reads of the focused craftar workspace, the periodic
 // read, the panel's requests and the status bar (spec 60 §4–§7.1, O9, O10). Every craftar is a stub.
 import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
-import { writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
-import { psDoc, stubOrcaCli } from '../test-support/stub-orca-cli'
+import { psDoc, stubOrcaCli, terminalsDoc } from '../test-support/stub-orca-cli'
 import * as main from './worker'
 
 const CAPS = ['workspace:read', 'workspace:write', 'terminal:send', 'terminal:read', 'notifications:show', 'storage:own', 'settings:own']
@@ -89,6 +91,10 @@ type View = {
   model: { ws: string; forge: { commit: string } | null; pending: { path: string }[] } | null
   ask: { id: string; name: string; path: string }[]
   remote: { name: string; path: string }[]
+  update: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
+  sync: { phase: string; message: string | null }
+  consent: { text: string; terminal: string; steps: string[] } | null
+  lastSync: { written: string[]; removed: { path: string; reason: string }[]; kept: { path: string; state: string; reason: string }[]; staged: string[]; leftOut: string[]; differences: string[]; warnings: string[]; rerun: boolean } | null
 }
 
 test('on enable: the self-check runs, the focused workspace is read offline, the bar and the panel follow', async () => {
@@ -108,14 +114,29 @@ test('on enable: the self-check runs, the focused workspace is read offline, the
   assert.deepEqual(worker.refusals, [])
 })
 
-test('S1 writes nothing: no terminal, no typing into one, no notification, no sync child', async () => {
+test('a read writes nothing: no terminal, no typing into one, no sync child', async () => {
   const { s, h, worker } = await setup()
   await worker.request('state.refresh')
   await main.periodic()
   assert.equal(h.callsOf('terminal.create').length, 0)
   assert.equal(h.callsOf('terminal.sendText').length, 0)
-  assert.equal(h.callsOf('notifications.show').length, 0)
   assert.equal(s.calls().some((c) => c.argv.includes('--allow-writes') || c.argv[0] === 'sync'), false)
+})
+
+// O3/O4: the timer only reads and notifies — one notification when the pending set grows, names and counts.
+test('a periodic read whose pending set grew notifies once, with the Forge, the count and the workspace only', async () => {
+  const { h, worker } = await setup()
+  await worker.request('state.refresh')
+  assert.equal(h.callsOf('notifications.show').length, 0, 'a focus read does not notify')
+  await main.periodic()
+  const shown = h.callsOf('notifications.show') as { title: string; body?: string }[]
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].title, 'craftar')
+  assert.equal(shown[0].body, 'Forge ../forge2 changed 1 file for web — update 1 file and add it to the commit? Open the craftar panel.')
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 1, 'the same count again does not notify')
+  const stored = h.data().storage['notified'] as Record<string, Record<string, unknown>>
+  for (const v of Object.values(stored)) assert.deepEqual(Object.keys(v).sort(), ['at', 'count'])
 })
 
 test('the periodic read fetches every local craftar workspace; with fetch off it stays offline', async () => {
@@ -354,4 +375,349 @@ test('an Orca CLI that does not answer within 5 s is no answer: no terminal list
   // Activation refreshes twice (Orca delivers the current context to a new subscriber); one call each.
   assert.ok(s.calls().length > 0)
   assert.ok(s.calls().every((c) => c === 'worktree ps --json'))
+})
+
+
+// S2, the incoming path (spec 60 §7, O2): Update in the panel syncs through craftar mcp --allow-writes and stages exactly.
+const ORIGINAL_PATH = savedOriginalPath()
+function savedOriginalPath(): string {
+  return process.env.PATH ?? ''
+}
+// A directory holding only a link to git: git's own directory (often /usr/bin) can hold orca-ide too, and no
+// test may reach the person's own Orca.
+function gitDirOnPath(): string {
+  const git = findOnPath('git', ORIGINAL_PATH)
+  if (!git) return ''
+  const dir = tempDir('craftar-orca-gitbin-')
+  symlinkSync(git, join(dir, 'git'))
+  return dir
+}
+function gitCraftarDir(): string {
+  const dir = craftarDir()
+  const env = { ...process.env, PATH: ORIGINAL_PATH, GIT_AUTHOR_NAME: 'acme', GIT_AUTHOR_EMAIL: 'acme@example.com', GIT_COMMITTER_NAME: 'acme', GIT_COMMITTER_EMAIL: 'acme@example.com' }
+  const g = (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { env })
+  g('init', '-q', '-b', 'main')
+  mkdirSync(join(dir, '.claude', 'rules'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'rules', 'workflow.md'), 'old\n')
+  writeFileSync(join(dir, 'craftar.lock'), '{}\n')
+  g('add', '-A')
+  g('commit', '-q', '-m', 'init')
+  return dir
+}
+const SYNCED = {
+  profile: 'acme-web', recipes: ['base'], targets: ['claude-code'], forge: 'forge ../forge2 @ d2309dc',
+  written: ['.claude/rules/workflow.md'], removed: [],
+  skipped: [{ path: '.claude/rules/commit-conventions.md', state: 'drift', reason: 'edited by hand — kept' }],
+  warnings: ['agents-md: the rule is long'], registry: 'updated',
+}
+const synced = { content: [{ type: 'text', text: JSON.stringify(SYNCED) }], structuredContent: SYNCED }
+const toolError = (text: string) => ({ content: [{ type: 'text', text }], isError: true })
+
+async function updateAndWait(worker: { request: (name: string, data?: unknown) => Promise<unknown> }): Promise<View> {
+  await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })
+  await main.settled()
+  return (await worker.request('state.get')) as View
+}
+
+async function updateSetup(extra: Record<string, unknown>, settings: Record<string, unknown> = {}) {
+  const ws = gitCraftarDir()
+  const r = await setup({ rows: [{ id: 'w1', kind: 'folder', name: 'web', path: ws, branch: 'main', hostId: 'local' }], extra, settings })
+  process.env.PATH = gitDirOnPath()
+  return { ...r, ws }
+}
+
+test('Update is offered with the pending files, then syncs, stages exactly and shows what it did', { skip: !findOnPath('git', process.env.PATH ?? '') && !process.env.CI }, async () => {
+  const { s, h, worker, ws } = await updateSetup({ 'mcp call 0': synced })
+  const before = (await worker.request('state.get')) as View
+  assert.equal(before.update.allowed, true)
+  assert.deepEqual(before.update.files, [{ path: '.claude/rules/workflow.md', state: 'update' }])
+  writeFileSync(join(ws, '.claude', 'rules', 'workflow.md'), 'new\n')
+  const after = (await updateAndWait(worker))
+  const mcp = s.calls().filter((c) => c.argv[0] === 'mcp')
+  assert.deepEqual(mcp.map((c) => c.argv), [['mcp', '--workspace', ws, '--allow-writes', '--fetch']])
+  assert.equal(after.sync.phase, 'done')
+  assert.deepEqual(after.lastSync?.staged, ['.claude/rules/workflow.md'])
+  assert.deepEqual(after.lastSync?.kept, SYNCED.skipped)
+  assert.deepEqual(after.lastSync?.warnings, SYNCED.warnings)
+  assert.deepEqual(after.lastSync?.differences, [])
+  assert.deepEqual(h.callsOf('commands.run'), [{ action: 'sidebar.sourceControl.toggle' }])
+  const staged = execFileSync('git', ['-C', ws, 'diff', '--cached', '--name-only'], { encoding: 'utf8', env: { ...process.env, PATH: ORIGINAL_PATH } }).trim()
+  assert.equal(staged, '.claude/rules/workflow.md')
+  const commits = execFileSync('git', ['-C', ws, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8', env: { ...process.env, PATH: ORIGINAL_PATH } }).trim()
+  assert.equal(commits, '1')
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+})
+
+test('Update refuses a list that is not the pending set: nothing is started', async () => {
+  const { s, worker } = await updateSetup({ 'mcp call 0': synced })
+  await assert.rejects(worker.request('update.run', { files: ['.claude/rules/other.md'] }), /the files changed since the panel showed them/)
+  assert.equal(s.calls().some((c) => c.argv.includes('--allow-writes')), false)
+})
+
+test("with no consent recorded, Update writes nothing and shows craftar's words and the way to allow writes", async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const after = (await updateAndWait(worker))
+  assert.equal(after.sync.phase, 'consent')
+  assert.equal(after.consent?.text, text)
+  assert.equal(after.lastSync, null)
+  assert.equal(h.callsOf('commands.run').length, 0)
+})
+
+test('a refused sync in other words is an error shown verbatim, and nothing is staged', async () => {
+  const text = 'declared params with no value: acme.key — the sync is refused'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const after = (await updateAndWait(worker))
+  assert.deepEqual(after.sync, { phase: 'error', message: text })
+  assert.equal(h.callsOf('commands.run').length, 0)
+})
+
+const remoteStatus = (fetched: boolean) => {
+  const status = JSON.parse(fixture('status.json'))
+  return { stdout: JSON.stringify({ ...status, forge: { ...status.forge, kind: 'git', fetched } }), code: 0 }
+}
+
+test('a remote Forge never fetched yet: Update is off and says the next periodic check fetches it', async () => {
+  const { worker } = await updateSetup({ 'status --json': remoteStatus(false) })
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /not been fetched yet/)
+})
+
+test('a periodic fetch that worked allows Update after offline focus reads', async () => {
+  // A focus read is --offline (fetched: false); the periodic read fetches (fetched: true).
+  const { worker } = await updateSetup({ 'status --json --offline': remoteStatus(false), 'status --json --workspace': remoteStatus(true) })
+  await main.periodic()
+  await worker.request('state.refresh')
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, true, String(v.update.reason))
+  assert.equal((v.model as unknown as { forge: { freshness: string } }).forge.freshness, 'fetched')
+})
+
+test('a periodic fetch that fell back to the cached copy keeps Update off, with the cache named', async () => {
+  const { worker } = await updateSetup({ 'status --json': remoteStatus(false) })
+  await main.periodic()
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /cached copy/)
+})
+
+// O2/O12: the consent stays craftar's — the plugin opens a terminal running craftar mcp allow-writes, quoted
+// for the shell the probe recognised, and the person answers its question; it never types into a terminal.
+test('the consent terminal: a shell probe first, then allow-writes quoted for that shell; nothing typed', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { s, h, worker, ws } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const asked = (await updateAndWait(worker))
+  assert.equal(asked.consent?.terminal, 'offered')
+  h.respond('terminal.create', { terminalId: 't1' })
+  h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ echo craftar-shell:$0', 'craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  const created = h.callsOf('terminal.create') as { workspaceId: string; title?: string; command?: string }[]
+  assert.equal(created.length, 2)
+  assert.equal(created[0].command, 'echo craftar-shell:$0')
+  assert.equal(created[1].command, `'${s.bin}' mcp allow-writes --workspace '${ws}'`)
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+  assert.equal(h.data().storage['shell.local'], 'bash')
+})
+
+test('a shell the probe does not recognise gets no terminal: the steps stay in words', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  h.respond('terminal.create', { terminalId: 't1' })
+  h.respond('terminal.read', { lines: ['fish: $0 is not supported'], truncated: false })
+  const v = (await worker.request('consent.terminal', {})) as View
+  assert.equal((h.callsOf('terminal.create') as unknown[]).length, 1)
+  assert.equal(v.consent?.terminal, 'words')
+  const steps = v.consent?.steps ?? []
+  assert.match(steps[0], /No terminal was opened: the plugin does not recognise this terminal's shell/)
+  assert.ok(steps.some((x) => x.includes('allow-writes')))
+  // In words, never a command line to paste: no step starts with the binary or holds a ready command.
+  assert.equal(steps.some((x) => /craftar mcp allow-writes --workspace/.test(x)), false)
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+})
+
+test('a read that gave no document leaves Update off and says why (no cached copy to show)', async () => {
+  const { worker } = await updateSetup({ 'status --json': { stdout: 'not json', code: 1 } })
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /gave no document/)
+})
+
+test("a consent belongs to the workspace that was refused: after a focus change, no terminal opens for another", { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const a = gitCraftarDir()
+  const b = gitCraftarDir()
+  const rows: Ws[] = [
+    { id: 'wa', kind: 'folder', name: 'web', path: a, branch: 'main', hostId: 'local' },
+    { id: 'wb', kind: 'folder', name: 'api', path: b, branch: 'dev', hostId: 'local' },
+  ]
+  const { h, worker } = await setup({ rows, extra: { 'mcp call 0': toolError(text) } })
+  process.env.PATH = gitDirOnPath()
+  const asked = (await updateAndWait(worker))
+  assert.equal(asked.consent?.terminal, 'offered')
+  await worker.emit('workspace.changed', { context: { branch: 'dev', displayName: 'api', terminals: [] } })
+  await main.settled()
+  const onB = (await worker.request('state.get')) as View
+  assert.equal(onB.focus, 'one', JSON.stringify({ focus: onB.focus, ask: onB.ask.length }))
+  assert.equal(onB.model?.ws, b)
+  assert.equal(onB.consent, null)
+  assert.equal(onB.sync.phase, 'idle')
+  await assert.rejects(worker.request('consent.terminal', {}), /nothing to allow/)
+  assert.equal(h.callsOf('terminal.create').length, 0)
+})
+
+test('a shell probe that shows no answer is not stored: the next click probes again', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  h.respond('terminal.create', { terminalId: 't1' })
+  h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ '], truncated: false })
+  await worker.request('consent.terminal', {})
+  assert.equal(h.data().storage['shell.local'], undefined)
+})
+
+test('a notification is not sent for a workspace Update could not run on: a refused sync', async () => {
+  const status = JSON.parse(fixture('status.json'))
+  status.unsetParams = [{ key: 'acme.key', declaredBy: ['rule/a'], citedBy: ['rule/a'] }]
+  const { h } = await updateSetup({ 'status --json': { stdout: JSON.stringify(status), code: 1 } })
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 0)
+})
+
+test('update.run answers at once with the update running; the panel follows on state.changed', async () => {
+  const { worker } = await updateSetup({ 'mcp call 0': synced })
+  const started = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  assert.equal(started.sync.phase, 'running')
+  await main.settled()
+  const done = (await worker.request('state.get')) as View
+  assert.equal(done.sync.phase, 'done')
+})
+
+test('with "Fetch a remote Forge" off, Update for a remote Forge stays off and says so', async () => {
+  const { worker } = await updateSetup({ 'status --json': remoteStatus(false) }, { fetch: false })
+  await main.periodic()
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /Fetch a remote Forge" is off/)
+})
+
+test('no notification after a periodic fetch that fell back to the cached copy', async () => {
+  const { h } = await updateSetup({ 'status --json': remoteStatus(false) })
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 0)
+})
+
+test('no notification for a craftar older than 0.35.0: Update could not run', async () => {
+  const doctor = JSON.parse(fixture('doctor.json'))
+  doctor.version = '0.34.0'
+  const { h, worker } = await updateSetup({ 'doctor --json': { stdout: JSON.stringify(doctor), code: 0 } })
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 0)
+  const v = (await worker.request('state.get')) as View
+  assert.match(String(v.update.reason), /0\.35\.0/)
+})
+
+test('a fetch that worked, then a periodic fallback: the offline focus read is the cached copy again, Update off', async () => {
+  const { s, worker } = await updateSetup({ 'status --json --offline': remoteStatus(false), 'status --json --workspace': remoteStatus(true) })
+  await main.periodic()
+  // The next periodic fetch falls back to the cached copy: the stub reads its table on every call.
+  const tableFile = String(s.env.CRAFTAR_STUB_TABLE)
+  const t = JSON.parse(readFileSync(tableFile, 'utf8'))
+  t['status --json --workspace'] = remoteStatus(false)
+  writeFileSync(tableFile, JSON.stringify(t))
+  await main.periodic()
+  await worker.request('state.refresh')
+  const v = (await worker.request('state.get')) as View
+  assert.equal((v.model as unknown as { forge: { freshness: string } }).forge.freshness, 'cached')
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /cached copy/)
+})
+
+// Measured in Orca 1.4.250 on the live run: terminal.create opens the terminal "in the background" (host
+// API), so the person never saw the allow-writes question; each click opened another hidden one.
+test('the consent terminal is brought forward with orca-ide terminal switch, and a second click reuses it', { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  const cli = stubOrcaCli()
+  process.env.PATH = `${gitDirOnPath()}:${cli.dir}`
+  h.respond('terminal.create', { terminalId: 'term_allow' })
+  h.respond('terminal.read', { lines: ['craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  await worker.request('consent.terminal', {})
+  const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
+  assert.equal(created.length, 1)
+  assert.deepEqual(cli.calls().filter((c) => c.startsWith('terminal switch')), ['terminal switch --terminal term_allow --json', 'terminal switch --terminal term_allow --json'])
+})
+
+test('the consent card goes once a read shows nothing left to update', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { s, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const asked = await updateAndWait(worker)
+  assert.equal(asked.sync.phase, 'consent')
+  const tableFile = String(s.env.CRAFTAR_STUB_TABLE)
+  const t = JSON.parse(readFileSync(tableFile, 'utf8'))
+  const status = JSON.parse(fixture('status.json'))
+  status.statuses = status.statuses.map((x: { state: string }) => ({ ...x, state: x.state === 'update' ? 'unchanged' : x.state }))
+  t['status --json'] = { stdout: JSON.stringify(status), code: 0 }
+  writeFileSync(tableFile, JSON.stringify(t))
+  await worker.request('state.refresh')
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.consent, null)
+  assert.equal(v.sync.phase, 'idle')
+})
+
+test("the palette probe opens its terminal in Orca's active workspace when the worker has no focus", { skip: process.platform === 'win32' }, async () => {
+  const one = craftarDir()
+  const plain = tempDir('craftar-orca-plain-')
+  process.env.PATH = stubOrcaCli({ ps: psDoc([{ path: one }, { path: plain, active: true }]) }).dir
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'p', kind: 'worktree', name: 'main', path: plain, branch: 'main', hostId: 'local' },
+  ]
+  const { h, worker } = await setup({
+    rows,
+    ctx: { branch: 'main', displayName: 'main' },
+    results: { 'terminal.create': { terminalId: 't1' }, 'terminal.read': { lines: ['craftar-probe'], truncated: false } },
+  })
+  assert.equal(((await worker.request('state.get')) as View).focus, 'none')
+  const report = String(await worker.command('craftar.probe'))
+  assert.match(report, /terminal: craftar-probe seen/)
+  assert.deepEqual(h.callsOf('terminal.create').map((c) => (c as { workspaceId: string }).workspaceId), ['p'])
+})
+
+test('a consent terminal that is gone (the switch fails) is opened again on the next click, not reused', { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  const cli = stubOrcaCli()
+  process.env.PATH = `${gitDirOnPath()}:${cli.dir}`
+  h.respond('terminal.create', { terminalId: 'term_allow' })
+  h.respond('terminal.read', { lines: ['craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  cli.setSwitchCode(1)
+  const v = (await worker.request('consent.terminal', {})) as View
+  const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
+  assert.equal(created.length, 2)
+  // Not brought forward this time: the card's note says where it is.
+  assert.match(String((v.consent as { note?: string } | null)?.note), /in the background/)
+  cli.setSwitchCode(0)
+  const ok = (await worker.request('consent.terminal', {})) as View
+  assert.equal((ok.consent as { note?: string | null } | null)?.note ?? null, null)
+})
+
+test('a switch that fails while Orca still lists the terminal opens no second one', { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker, ws } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  const cli = stubOrcaCli({ switchCode: 1, terminals: terminalsDoc([{ handle: 'term_allow', path: ws }]) })
+  process.env.PATH = `${gitDirOnPath()}:${cli.dir}`
+  h.respond('terminal.create', { terminalId: 'term_allow' })
+  h.respond('terminal.read', { lines: ['craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  await worker.request('consent.terminal', {})
+  await worker.request('consent.terminal', {})
+  const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
+  assert.equal(created.length, 1)
 })

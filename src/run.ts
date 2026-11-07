@@ -14,11 +14,16 @@ export function childEnv(base: NodeJS.ProcessEnv, craftarHome: string): NodeJS.P
   return env
 }
 
-export function run(file: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<RunResult> {
+/** `input`, when given, is written to the child's stdin, which is then closed. */
+export function run(file: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs = 30_000, input?: string): Promise<RunResult> {
   return new Promise((resolve) => {
-    execFile(file, [...args], { env, timeout: timeoutMs, shell: false, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const child = execFile(file, [...args], { env, timeout: timeoutMs, shell: false, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : null) : 0
       resolve({ code, stdout: String(stdout), stderr: String(stderr) })
     })
+    if (input !== undefined) {
+      child.stdin?.on('error', () => undefined)
+      child.stdin?.end(input)
+    }
   })
 }

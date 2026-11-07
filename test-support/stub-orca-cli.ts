@@ -10,12 +10,16 @@ import { tempDir } from './tmp'
 export interface OrcaCliStub {
   dir: string
   calls: () => string[]
+  /** The exit code `terminal switch` answers with from now on. */
+  setSwitchCode: (code: number) => void
 }
 
-export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySeconds?: number; terminals?: unknown } = {}): OrcaCliStub {
+export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySeconds?: number; terminals?: unknown; switchCode?: number } = {}): OrcaCliStub {
   const dir = tempDir('craftar-orca-cli-')
   writeFileSync(join(dir, 'ps.json'), JSON.stringify(opts.ps ?? { id: 'x', ok: true, result: { worktrees: [] } }))
   writeFileSync(join(dir, 'tl.json'), JSON.stringify(opts.terminals ?? { id: 'x', ok: true, result: { terminals: [] } }))
+  writeFileSync(join(dir, 'sw.json'), JSON.stringify({ id: 'x', ok: true, result: {} }))
+  writeFileSync(join(dir, 'sw.code'), String(opts.switchCode ?? 0))
   const q = (p: string) => `'${p.replace(/'/g, `'\\''`)}'`
   const script = [
     '#!/bin/sh',
@@ -23,6 +27,7 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySecond
     'case "$*" in',
     `  "worktree ps --json") ${opts.psDelaySeconds ? `/bin/sleep ${opts.psDelaySeconds}; ` : ''}/bin/cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
     `  "terminal list --json") /bin/cat ${q(join(dir, 'tl.json'))} ;;`,
+    `  "terminal switch --terminal "*) /bin/cat ${q(join(dir, 'sw.json'))}; exit $(/bin/cat ${q(join(dir, 'sw.code'))}) ;;`,
     '  *) exit 2 ;;',
     'esac',
     '',
@@ -31,7 +36,11 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySecond
   writeFileSync(bin, script)
   chmodSync(bin, 0o755)
   const log = join(dir, 'calls.log')
-  return { dir, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((l) => l !== '') : []) }
+  return {
+    dir,
+    calls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((l) => l !== '') : []),
+    setSwitchCode: (code) => writeFileSync(join(dir, 'sw.code'), String(code)),
+  }
 }
 
 /** A `worktree ps --json` answer: one row per path, the active one marked. */

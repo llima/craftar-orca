@@ -57,3 +57,20 @@ export async function terminalWorkspacePaths(cli: OrcaCli, ids: readonly string[
   }
   return [...paths].sort()
 }
+
+/**
+ * Brings a terminal forward in Orca's window: terminal.create opens it "in the background" (host API, Orca
+ * 1.4.250), where the person cannot see a question it asks. The handle is the one terminal.create returned
+ * (the same `term_…` the CLI lists). Whether it worked is the only thing kept.
+ */
+export async function switchToTerminal(cli: OrcaCli, terminalId: string): Promise<boolean> {
+  const r = await run(cli.bin, ['terminal', 'switch', '--terminal', terminalId, '--json'], cli.env, TIMEOUT_MS)
+  return r.code === 0
+}
+
+/** Whether Orca still lists this terminal; null when its CLI cannot say. */
+export async function terminalListed(cli: OrcaCli, terminalId: string): Promise<boolean | null> {
+  const r = await rows(cli, ['terminal', 'list', '--json'], 'terminals')
+  if (!Array.isArray(r)) return null
+  return (r as { handle?: unknown }[]).some((t) => t.handle === terminalId)
+}

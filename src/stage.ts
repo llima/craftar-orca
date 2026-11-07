@@ -1,0 +1,66 @@
+// Exact staging after a sync (spec 60 §7 step 4, O2): the result's written paths, its removed paths that
+// git tracks, and craftar.lock — less what git ignores — through `git add -- <paths>`. Never -A, never a
+// commit: the person commits. git is started as a child by its absolute path, with an argument array and
+// `-C <workspace>`, every path after `--`.
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { findOnPath } from './resolve'
+import { run } from './run'
+
+const LOCK = 'craftar.lock'
+// git's repository-location variables, which would point git at another repository than the workspace's.
+const LOCATION = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_PREFIX']
+
+export interface Git {
+  bin: string
+  env: NodeJS.ProcessEnv
+}
+
+export function findGit(path: string, base: NodeJS.ProcessEnv = process.env): Git | null {
+  const bin = findOnPath('git', path)
+  if (!bin) return null
+  const env = { ...base }
+  for (const k of LOCATION) delete env[k]
+  return { bin, env }
+}
+
+function nul(out: string): string[] {
+  return out.split('\0').filter((p) => p !== '')
+}
+
+// --literal-pathspecs: every path a literal name, never a pattern (`[a].md` must not also match `a.md`).
+// check-ignore reads pathnames, not pathspecs, and refuses the option, so it runs without it.
+async function git(g: Git, ws: string, args: string[], input?: string): Promise<{ code: number | null; out: string }> {
+  const literal = args[0] === 'check-ignore' ? [] : ['--literal-pathspecs']
+  const r = await run(g.bin, [...literal, '-C', ws, ...args], g.env, 30_000, input)
+  return { code: r.code, out: r.stdout }
+}
+
+export interface Staged {
+  /** The paths now staged among the ones this sync touched. */
+  staged: string[]
+  /** Paths the sync touched that were not staged: ignored by git, or removed and never tracked. */
+  leftOut: string[]
+}
+
+export class StageFailed extends Error {}
+
+export async function stagePaths(g: Git, ws: string, result: { written: string[]; removed: { path: string }[] }): Promise<Staged> {
+  const removed = result.removed.map((r) => r.path)
+  const tracked = removed.length === 0 ? [] : nul((await git(g, ws, ['ls-files', '-z', '--', ...removed])).out)
+  const wanted = [...new Set([...result.written, LOCK])]
+  // Paths on stdin, NUL-separated (`-z` needs --stdin): a path never reaches the argument list here.
+  const ci = await git(g, ws, ['check-ignore', '-z', '--stdin'], wanted.join('\0') + '\0')
+  if (ci.code !== 0 && ci.code !== 1) throw new StageFailed('git check-ignore did not answer')
+  const ignored = new Set(nul(ci.out))
+  // craftar.lock only when it is there: a workspace whose sync wrote nothing may have none yet.
+  const present = wanted.filter((p) => p !== LOCK || existsSync(join(ws, LOCK)))
+  const toAdd = [...new Set([...present.filter((p) => !ignored.has(p)), ...tracked])].sort()
+  const leftOut = [...wanted.filter((p) => ignored.has(p)), ...removed.filter((p) => !tracked.includes(p))].sort()
+  if (toAdd.length === 0) return { staged: [], leftOut }
+  const add = await git(g, ws, ['add', '--', ...toAdd])
+  if (add.code !== 0) throw new StageFailed('git add did not succeed')
+  // --relative: paths as the workspace names them, not from the repository's top.
+  const now = nul((await git(g, ws, ['diff', '--cached', '--name-only', '--relative', '-z', '--', ...toAdd])).out).sort()
+  return { staged: now, leftOut }
+}

@@ -2,8 +2,9 @@
 // the user's approval of 2026-11-07): a header with one state pill, the Forge → workspace tree whose link
 // carries two lanes (down ember, up steel), the cards that ask, flat file lists, linked projects, craftar's
 // words verbatim and a footer. Every value is put in with textContent, never as markup.
-// S2's fields (update, sync, consent, lastSync) are read when the worker gives them; until then Update and
-// Send are drawn disabled with a note. Send to Forge is S3's.
+// S2's fields (update, sync, consent, lastSync) come from the worker, and Update and the consent terminal
+// call its update.run and consent.terminal; a panel without those actions draws Update disabled with a note.
+// Send to Forge is S3's.
 import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
@@ -14,19 +15,22 @@ const SVG = 'http://www.w3.org/2000/svg'
 export interface S2View {
   update?: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
   sync?: { phase: 'idle' | 'running' | 'consent' | 'done' | 'error'; message: string | null }
-  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[] } | null
+  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[]; note?: string | null } | null
   lastSync?: {
     written: string[]
     removed: { path: string; reason: string }[]
     kept: { path: string; state: string; reason: string | null }[]
     staged: string[]
+    leftOut?: string[]
     differences: string[]
     warnings: string[]
     rerun: boolean
   } | null
 }
 
-export type PanelView = View & S2View
+// The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
+// worker's View rather than intersected with it: the two shapes never contradict each other.
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync'> & S2View
 
 export interface Actions {
   choose(id: string): void
@@ -78,7 +82,8 @@ const NOT_BUILT_SEND = 'Send to Forge is not built yet in this version of the pl
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 const short = (c: string | null): string | null => (c ? c.slice(0, 7) : null)
 
-export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null): void {
+/** `notice`: the worker's refusal of the panel's last request, drawn as text whatever the focus (nothing is dropped). */
+export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null): void {
   const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: Kid[]): HTMLElementTagNameMap[K] => {
     const e = doc.createElement(tag)
     for (const [k, val] of Object.entries(attrs)) e.setAttribute(k, val)
@@ -151,6 +156,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const refresh = header.appendChild(h('button', { class: 'icon-btn', type: 'button', title: 'Check again', 'aria-label': 'Check again', 'data-action': 'refresh' }))
   refresh.appendChild(icon('refresh'))
   refresh.addEventListener('click', () => a.refresh())
+
+  // ---- the worker's refusal of the panel's last request ----
+  if (notice) root.appendChild(t('p', notice, { class: 'note bad', 'data-role': 'notice' }))
 
   // ---- the self-check, on top when anything fails ----
   if (failing.length > 0) {
@@ -337,8 +345,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
 
     if (v.consent) drawConsent(v.consent)
-    if (v.sync?.message) {
-      // craftar's words about the last run, whatever the phase; an error is said as one.
+    // craftar's words about the last run; a consent refusal is said once, in the consent card above.
+    if (v.sync?.message && !(v.sync.phase === 'consent' && v.consent)) {
+      // An error is said as one.
       const err = v.sync.phase === 'error'
       const box = root.appendChild(h('section', { class: err ? 'cta bad' : 'cta plain', 'data-role': err ? 'sync-error' : 'sync-note' }))
       if (err) box.appendChild(t('h2', 'The update did not finish'))
@@ -451,7 +460,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // A cached copy keeps Update disabled whatever the worker says (O10): the panel enforces it too.
     const allowed = u ? u.allowed && n > 0 && !running && !cached && typeof a.updateRun === 'function' : false
     const reason = cached
-      ? 'needs a fetch that works'
+      ? (u?.reason ?? 'needs a fetch that works')
       : u
         ? (u.reason ??
           (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet — check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
@@ -524,6 +533,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(t('pre', c.text, { class: 'words' }))
     if (c.terminal === 'offered') {
       box.appendChild(h('div', { class: 'row' }, button('Open a terminal to allow writes', { class: 'btn', 'data-action': 'consent-terminal' }, 'term', () => a.consentTerminal?.())))
+      if (c.note) box.appendChild(t('p', c.note, { class: 'note', 'data-role': 'consent-note' }))
     } else {
       const ol = box.appendChild(h('ol', { class: 'lines plain' }))
       for (const step of c.steps) ol.appendChild(t('li', step))
@@ -539,7 +549,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const ul = body.appendChild(h('ul', { class: 'lines plain' }))
       for (const i of items) ul.appendChild(t('li', i.text, { 'data-role': i.role, ...(i.cls ? { class: i.cls } : {}) }))
     }
+    list('Written', l.written.map((x) => ({ text: x, role: 'written' })))
     list('Staged', l.staged.map((x) => ({ text: x, role: 'staged' })))
+    list('Left out of the commit (ignored by git, or never tracked)', (l.leftOut ?? []).map((x) => ({ text: x, role: 'left-out' })))
     list('Removed', l.removed.map((x) => ({ text: `${x.path} · ${x.reason}`, role: 'removed' })))
     list('Kept', l.kept.map((x) => ({ text: `${x.path} · ${x.state}${x.reason ? ` · ${x.reason}` : ''}`, role: 'kept' })))
     list('Changed since the question', l.differences.map((x) => ({ text: x, role: 'difference', cls: 'warn' })))
