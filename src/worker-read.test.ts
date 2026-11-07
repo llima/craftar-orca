@@ -419,9 +419,9 @@ async function updateAndWait(worker: { request: (name: string, data?: unknown) =
   return (await worker.request('state.get')) as View
 }
 
-async function updateSetup(extra: Record<string, unknown>) {
+async function updateSetup(extra: Record<string, unknown>, settings: Record<string, unknown> = {}) {
   const ws = gitCraftarDir()
-  const r = await setup({ rows: [{ id: 'w1', kind: 'folder', name: 'web', path: ws, branch: 'main', hostId: 'local' }], extra })
+  const r = await setup({ rows: [{ id: 'w1', kind: 'folder', name: 'web', path: ws, branch: 'main', hostId: 'local' }], extra, settings })
   process.env.PATH = gitDirOnPath()
   return { ...r, ws }
 }
@@ -591,4 +591,28 @@ test('update.run answers at once with the update running; the panel follows on s
   await main.settled()
   const done = (await worker.request('state.get')) as View
   assert.equal(done.sync.phase, 'done')
+})
+
+test('with "Fetch a remote Forge" off, Update for a remote Forge stays off and says so', async () => {
+  const { worker } = await updateSetup({ 'status --json': remoteStatus(false) }, { fetch: false })
+  await main.periodic()
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /Fetch a remote Forge" is off/)
+})
+
+test('no notification after a periodic fetch that fell back to the cached copy', async () => {
+  const { h } = await updateSetup({ 'status --json': remoteStatus(false) })
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 0)
+})
+
+test('no notification for a craftar older than 0.35.0: Update could not run', async () => {
+  const doctor = JSON.parse(fixture('doctor.json'))
+  doctor.version = '0.34.0'
+  const { h, worker } = await updateSetup({ 'doctor --json': { stdout: JSON.stringify(doctor), code: 0 } })
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 0)
+  const v = (await worker.request('state.get')) as View
+  assert.match(String(v.update.reason), /0\.35\.0/)
 })

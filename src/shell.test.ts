@@ -42,3 +42,8 @@ test("PowerShell's typographic single quotes are doubled too: a path holding one
   assert.equal(quote('pwsh', 'C:\\acme\\Luiz\u2019s web'), `'C:\\acme\\Luiz\u2019\u2019s web'`)
   assert.equal(quote('pwsh', 'a\u2018b\u201Ac\u201Bd'), `'a\u2018\u2018b\u201A\u201Ac\u201B\u201Bd'`)
 })
+
+test('a value holding a control character gets no command at all', () => {
+  assert.equal(allowWritesCommand('bash', { bin: '/usr/bin/craftar', home: '' }, '/home/acme/we\nb'), null)
+  assert.equal(allowWritesCommand('pwsh', { bin: 'C:\\craftar.exe', home: 'C:\\h\r' }, 'C:\\web'), null)
+})

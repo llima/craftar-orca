@@ -37,6 +37,8 @@ export function quote(shell: 'bash' | 'zsh' | 'sh' | 'pwsh', value: string): str
  */
 export function allowWritesCommand(shell: Shell, craftar: { bin: string; home: string }, ws: string): string | null {
   if (shell === 'cmd' || shell === 'unknown') return null
+  // A line break or another control character has no place in a path: no command rather than a quoted one.
+  if ([craftar.bin, craftar.home, ws].some((v) => /[\u0000-\u001f\u007f]/.test(v))) return null
   const run = `${shell === 'pwsh' ? '& ' : ''}${quote(shell, craftar.bin)} mcp allow-writes --workspace ${quote(shell, ws)}`
   const home = craftar.home.trim()
   if (home === '') return run

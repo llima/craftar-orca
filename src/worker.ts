@@ -1,9 +1,10 @@
-// The craftar worker. S1, the read path: the self-check on enable (spec 60 §5), the reads of the focused
-// craftar workspace on every focus change (offline) and of every local one on the periodic check (the
-// only read that may fetch), the panel's requests, and the status bar item that keeps the worker alive
-// (§2.4, measured by the S0 probe — README). S0's probe and heartbeat stay until the terminal is measured;
-// the status bar item runs the probe, whose report goes to the panel and whose outcome goes to one
-// notification and the log. Nothing here writes a workspace or a Forge; only the probe opens a terminal.
+// The craftar worker. The read path (S1): the self-check on enable (spec 60 §5), the reads of the focused
+// craftar workspace on every focus change (offline) and of every local one on the periodic check (the only
+// read that may fetch), the panel's requests, and the status bar item that keeps the worker alive (§2.4).
+// The incoming path (S2, §7, O2): the periodic check notifies when the pending set grows; the panel's Update,
+// after a confirm, syncs through craftar mcp --allow-writes and stages exactly, never committing; a consent
+// refusal opens, on a click, the shell check and the allow-writes terminal where the person answers. Nothing
+// else writes a workspace or a Forge. S0's probe and heartbeat stay, in the palette.
 import type { OrcaWorkerApi } from 'orca/worker'
 import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
 import { DiffChild, DiffRefused } from './diff-child'
@@ -255,23 +256,31 @@ const IDLE: SyncView = { phase: 'idle', message: null }
 // The first craftar with the writing tools of craftar mcp (craftar-cli 0.35.0, spec 40).
 const WRITES_FLOOR = '0.35.0'
 
+/** Why Update could not run on this workspace whatever is pending, or null (O10) — shared by Update and the notification. */
+function blockedReason(s: State, ws: string, m: PanelModel | null): string | null {
+  if (s.failed.has(ws)) return 'craftar status gave no document for this workspace — nothing to update from'
+  if (!m) return 'no craftar workspace has the focus'
+  if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return `updating needs craftar ${WRITES_FLOOR} or later — upgrade craftar`
+  if (m.refused) return 'craftar refuses to sync this workspace — see its words above'
+  if (m.checkFailed) return 'craftar status failed for this workspace — see its lines above'
+  if (m.forge && m.forge.freshness !== 'local') {
+    const f = s.fetchState.get(ws)
+    if (f === 'off') return '"Fetch a remote Forge" is off: updating needs a fetched read — turn it on in the plugin settings'
+    if (f === 'failed') return 'the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works'
+    if (f !== 'fetched') return 'the Forge has not been fetched yet — the next periodic check fetches it'
+  }
+  return null
+}
+
 /** Whether Update may run for the focused workspace, and why not (spec 60 §7 step 1, O10). */
 function updateView(s: State): UpdateView {
   const ws = focusedPath(s)
   const m = ws ? (s.models.get(ws) ?? null) : null
   const files = m ? m.pending.map((f) => ({ path: f.path, state: f.state })) : []
   const no = (reason: string): UpdateView => ({ allowed: false, reason, files })
-  if (ws && s.failed.has(ws)) return no('craftar status gave no document for this workspace — nothing to update from')
-  if (!m || !ws) return no('no craftar workspace has the focus')
-  if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return no(`updating needs craftar ${WRITES_FLOOR} or later — upgrade craftar`)
-  if (m.refused) return no('craftar refuses to sync this workspace — see its words above')
-  if (m.checkFailed) return no('craftar status failed for this workspace — see its lines above')
-  if (m.forge && m.forge.freshness !== 'local') {
-    const f = s.fetchState.get(ws)
-    if (f === 'off') return no('"Fetch a remote Forge" is off: updating needs a fetched read — turn it on in the plugin settings')
-    if (f === 'failed') return no('the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works')
-    if (f !== 'fetched') return no('the Forge has not been fetched yet — the next periodic check fetches it')
-  }
+  if (!ws) return no('no craftar workspace has the focus')
+  const blocked = blockedReason(s, ws, m)
+  if (blocked) return no(blocked)
   if (files.length === 0) return no('nothing to update')
   if (s.sync.get(ws)?.phase === 'running') return no('an update is running')
   return { allowed: true, reason: null, files }
@@ -379,8 +388,7 @@ const NOTIFIED = 'notified'
 async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<void> {
   if (reason !== 'periodic') return
   // Not for a workspace Update could not run on: the notification's question would get a disabled button.
-  const f = s.fetchState.get(m.ws)
-  if (m.refused || m.checkFailed || f === 'failed' || f === 'off') return
+  if (blockedReason(s, m.ws, m) !== null) return
   const seen = ((await s.orca.storage.get(NOTIFIED).catch(() => null)) as Record<string, { count: number; at: number }> | null) ?? {}
   const before = typeof seen[m.ws]?.count === 'number' ? seen[m.ws].count : 0
   const now = m.pending.length
@@ -547,6 +555,8 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
   if (!ws || !row || !craftar) return
   s.sync.set(ws, { phase: 'running', message: null })
   s.consent.delete(ws)
+  // The last update shown belongs to this run only: an older one never sits under a new error.
+  s.lastSync.delete(ws)
   await publish(s)
   await s.queue.run(ws, async () => {
    try {
@@ -620,7 +630,20 @@ async function shellOf(s: State, workspaceId: string): Promise<Shell> {
  * quoted for its shell; the person reads what it allows and answers its [no] question. Never sendText. A
  * shell the probe does not recognise (or cmd, S4) gets no terminal: the steps stay in words.
  */
+let consentBusy = false
+
 async function openConsentTerminal(s: State): Promise<void> {
+  // One at a time: a double click opens one shell check and one allow-writes terminal, not two.
+  if (consentBusy) return
+  consentBusy = true
+  try {
+    await openConsentTerminalOnce(s)
+  } finally {
+    consentBusy = false
+  }
+}
+
+async function openConsentTerminalOnce(s: State): Promise<void> {
   const row = s.focus.kind === 'one' ? s.focus.row : null
   const craftar = s.craftar
   // The consent is the focused workspace's own: one asked for another workspace opens nothing here.
