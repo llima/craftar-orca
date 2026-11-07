@@ -1,8 +1,10 @@
 // The S1 worker: the self-check on enable, the reads of the focused craftar workspace, the periodic
 // read, the panel's requests and the status bar (spec 60 §4–§7.1, O9, O10). Every craftar is a stub.
 import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { psDoc, stubOrcaCli } from '../test-support/stub-orca-cli'
@@ -89,6 +91,10 @@ type View = {
   model: { ws: string; forge: { commit: string } | null; pending: { path: string }[] } | null
   ask: { id: string; name: string; path: string }[]
   remote: { name: string; path: string }[]
+  update: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
+  sync: { phase: string; message: string | null }
+  consent: { text: string; terminal: string; steps: string[] } | null
+  lastSync: { written: string[]; removed: { path: string; reason: string }[]; kept: { path: string; state: string; reason: string }[]; staged: string[]; leftOut: string[]; differences: string[]; warnings: string[]; rerun: boolean } | null
 }
 
 test('on enable: the self-check runs, the focused workspace is read offline, the bar and the panel follow', async () => {
@@ -369,4 +375,97 @@ test('an Orca CLI that does not answer within 5 s is no answer: no terminal list
   // Activation refreshes twice (Orca delivers the current context to a new subscriber); one call each.
   assert.ok(s.calls().length > 0)
   assert.ok(s.calls().every((c) => c === 'worktree ps --json'))
+})
+
+
+// S2, the incoming path (spec 60 §7, O2): Update in the panel syncs through craftar mcp --allow-writes and stages exactly.
+const ORIGINAL_PATH = savedOriginalPath()
+function savedOriginalPath(): string {
+  return process.env.PATH ?? ''
+}
+function gitDirOnPath(): string {
+  const git = findOnPath('git', ORIGINAL_PATH)
+  return git ? dirname(git) : ''
+}
+function gitCraftarDir(): string {
+  const dir = craftarDir()
+  const env = { ...process.env, PATH: ORIGINAL_PATH, GIT_AUTHOR_NAME: 'acme', GIT_AUTHOR_EMAIL: 'acme@example.com', GIT_COMMITTER_NAME: 'acme', GIT_COMMITTER_EMAIL: 'acme@example.com' }
+  const g = (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { env })
+  g('init', '-q', '-b', 'main')
+  mkdirSync(join(dir, '.claude', 'rules'), { recursive: true })
+  writeFileSync(join(dir, '.claude', 'rules', 'workflow.md'), 'old\n')
+  writeFileSync(join(dir, 'craftar.lock'), '{}\n')
+  g('add', '-A')
+  g('commit', '-q', '-m', 'init')
+  return dir
+}
+const SYNCED = {
+  profile: 'acme-web', recipes: ['base'], targets: ['claude-code'], forge: 'forge ../forge2 @ d2309dc',
+  written: ['.claude/rules/workflow.md'], removed: [],
+  skipped: [{ path: '.claude/rules/commit-conventions.md', state: 'drift', reason: 'edited by hand — kept' }],
+  warnings: ['agents-md: the rule is long'], registry: 'updated',
+}
+const synced = { content: [{ type: 'text', text: JSON.stringify(SYNCED) }], structuredContent: SYNCED }
+const toolError = (text: string) => ({ content: [{ type: 'text', text }], isError: true })
+
+async function updateSetup(extra: Record<string, unknown>) {
+  const ws = gitCraftarDir()
+  const r = await setup({ rows: [{ id: 'w1', kind: 'folder', name: 'web', path: ws, branch: 'main', hostId: 'local' }], extra })
+  process.env.PATH = gitDirOnPath()
+  return { ...r, ws }
+}
+
+test('Update is offered with the pending files, then syncs, stages exactly and shows what it did', { skip: !findOnPath('git', process.env.PATH ?? '') && !process.env.CI }, async () => {
+  const { s, h, worker, ws } = await updateSetup({ 'mcp call 0': synced })
+  const before = (await worker.request('state.get')) as View
+  assert.equal(before.update.allowed, true)
+  assert.deepEqual(before.update.files, [{ path: '.claude/rules/workflow.md', state: 'update' }])
+  writeFileSync(join(ws, '.claude', 'rules', 'workflow.md'), 'new\n')
+  const after = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  const mcp = s.calls().filter((c) => c.argv[0] === 'mcp')
+  assert.deepEqual(mcp.map((c) => c.argv), [['mcp', '--workspace', ws, '--allow-writes', '--fetch']])
+  assert.equal(after.sync.phase, 'done')
+  assert.deepEqual(after.lastSync?.staged, ['.claude/rules/workflow.md'])
+  assert.deepEqual(after.lastSync?.kept, SYNCED.skipped)
+  assert.deepEqual(after.lastSync?.warnings, SYNCED.warnings)
+  assert.deepEqual(after.lastSync?.differences, [])
+  assert.deepEqual(h.callsOf('commands.run'), [{ action: 'sidebar.sourceControl.toggle' }])
+  const staged = execFileSync('git', ['-C', ws, 'diff', '--cached', '--name-only'], { encoding: 'utf8', env: { ...process.env, PATH: ORIGINAL_PATH } }).trim()
+  assert.equal(staged, '.claude/rules/workflow.md')
+  const commits = execFileSync('git', ['-C', ws, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8', env: { ...process.env, PATH: ORIGINAL_PATH } }).trim()
+  assert.equal(commits, '1')
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+})
+
+test('Update refuses a list that is not the pending set: nothing is started', async () => {
+  const { s, worker } = await updateSetup({ 'mcp call 0': synced })
+  await assert.rejects(worker.request('update.run', { files: ['.claude/rules/other.md'] }), /the files changed since the panel showed them/)
+  assert.equal(s.calls().some((c) => c.argv.includes('--allow-writes')), false)
+})
+
+test("with no consent recorded, Update writes nothing and shows craftar's words and the way to allow writes", async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const after = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  assert.equal(after.sync.phase, 'consent')
+  assert.equal(after.consent?.text, text)
+  assert.equal(after.lastSync, null)
+  assert.equal(h.callsOf('commands.run').length, 0)
+})
+
+test('a refused sync in other words is an error shown verbatim, and nothing is staged', async () => {
+  const text = 'declared params with no value: acme.key — the sync is refused'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  const after = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  assert.deepEqual(after.sync, { phase: 'error', message: text })
+  assert.equal(h.callsOf('commands.run').length, 0)
+})
+
+test('Update is not offered on a cached copy of a remote Forge, and says why', async () => {
+  const status = JSON.parse(fixture('status.json'))
+  status.forge = { ...status.forge, kind: 'git', fetched: false }
+  const { worker } = await updateSetup({ 'status --json': { stdout: JSON.stringify(status), code: 0 } })
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /cached copy/)
 })

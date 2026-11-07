@@ -13,7 +13,10 @@ import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
 import { childEnv, run } from './run'
 import { intervalMs, readStatus, type Reason, Serial } from './scheduler'
-import { type Line, selfCheck } from './self-check'
+import { type Line, selfCheck, versionAtLeast } from './self-check'
+import { compareWithQuestion } from './compare'
+import { findGit, StageFailed, stagePaths } from './stage'
+import { syncOnce } from './sync-child'
 
 const ITEM = 'craftar'
 const HEARTBEAT = 'probe.heartbeat'
@@ -206,6 +209,62 @@ interface State {
   periodicTimer: ReturnType<typeof setTimeout> | null
   /** The last probe report, shown in the panel; kept in memory only, never stored. */
   probe: { at: number; lines: string[] } | null
+  /** craftar's version from the self-check (doctor --json), or null. */
+  version: string | null
+  /** S2: the sync's phase and craftar's words, the consent to give, and per workspace the last sync's outcome. */
+  sync: SyncView
+  consent: ConsentView | null
+  lastSync: Map<string, LastSync>
+}
+
+export interface SyncView {
+  phase: 'idle' | 'running' | 'consent' | 'done' | 'error'
+  message: string | null
+}
+
+export interface ConsentView {
+  /** craftar's refusal, verbatim. */
+  text: string
+  /** 'offered': the panel offers a terminal running craftar mcp allow-writes; 'words': the steps are shown as text only. */
+  terminal: 'offered' | 'words'
+  steps: string[]
+}
+
+export interface LastSync {
+  written: string[]
+  removed: { path: string; reason: string }[]
+  kept: { path: string; state: string; reason: string }[]
+  staged: string[]
+  leftOut: string[]
+  differences: string[]
+  warnings: string[]
+  rerun: boolean
+}
+
+export interface UpdateView {
+  allowed: boolean
+  reason: string | null
+  files: { path: string; state: string }[]
+}
+
+// The first craftar with the writing tools of craftar mcp (craftar-cli 0.35.0, spec 40).
+const WRITES_FLOOR = '0.35.0'
+
+/** Whether Update may run for the focused workspace, and why not (spec 60 §7 step 1, O10). */
+function updateView(s: State): UpdateView {
+  const ws = focusedPath(s)
+  const m = ws ? (s.models.get(ws) ?? null) : null
+  const files = m ? m.pending.map((f) => ({ path: f.path, state: f.state })) : []
+  const no = (reason: string): UpdateView => ({ allowed: false, reason, files })
+  if (!m || !ws) return no('no craftar workspace has the focus')
+  if (s.failed.has(ws)) return no('craftar status gave no document for this workspace')
+  if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return no(`updating needs craftar ${WRITES_FLOOR} or later — upgrade craftar`)
+  if (m.refused) return no('craftar refuses to sync this workspace — see its words above')
+  if (m.checkFailed) return no('craftar status failed for this workspace — see its lines above')
+  if (m.forge?.freshness === 'cached') return no('the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works')
+  if (files.length === 0) return no('nothing to update')
+  if (s.sync.phase === 'running') return no('an update is running')
+  return { allowed: true, reason: null, files }
 }
 
 let st: State | null = null
@@ -326,6 +385,10 @@ export interface View {
   ask: { id: string; name: string; path: string }[]
   remote: { name: string; path: string }[]
   probe: { at: number; lines: string[] } | null
+  update: UpdateView
+  sync: SyncView
+  consent: ConsentView | null
+  lastSync: LastSync | null
 }
 
 function view(s: State): View {
@@ -338,6 +401,10 @@ function view(s: State): View {
     ask: s.focus.kind === 'ask' ? s.focus.rows.map((r) => ({ id: r.id, name: r.name, path: r.path })) : [],
     remote: s.remote.map((r) => ({ name: r.name, path: r.path })),
     probe: s.probe,
+    update: updateView(s),
+    sync: s.sync,
+    consent: s.consent,
+    lastSync: ws ? (s.lastSync.get(ws) ?? null) : null,
   }
 }
 
@@ -408,6 +475,7 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   const r = ws === null ? await check() : await s.queue.run(ws, check)
   s.selfCheck = r.lines
   s.craftar = r.craftar
+  s.version = r.version ?? null
   s.usedKey = key
   s.checkedWs = ws
 }
@@ -449,6 +517,64 @@ function listed(m: PanelModel | null, path: string): boolean {
   return [...m.pending, ...m.edited, ...m.apart].some((f) => f.path === path)
 }
 
+/**
+ * Update (spec 60 §7 steps 3–6, O2): in the workspace's queue, the one sync through craftar mcp
+ * --allow-writes --fetch; on success exact staging, the source-control view shown, the result compared with
+ * the list the person agreed to; then the workspace is read again, offline. A consent or another refusal
+ * writes nothing and is shown in craftar's words.
+ */
+async function runUpdate(s: State, asked: { path: string; state: string }[]): Promise<void> {
+  const ws = focusedPath(s)
+  const row = s.focus.kind === 'one' ? s.focus.row : null
+  const craftar = s.craftar
+  if (!ws || !row || !craftar) return
+  s.sync = { phase: 'running', message: null }
+  s.consent = null
+  await publish(s)
+  await s.queue.run(ws, async () => {
+    const outcome = await syncOnce(craftar, ws)
+    if (outcome.kind === 'consent') {
+      s.sync = { phase: 'consent', message: outcome.text }
+      s.consent = { text: outcome.text, terminal: 'words', steps: consentSteps(ws) }
+      return
+    }
+    if (outcome.kind !== 'ok') {
+      s.sync = { phase: 'error', message: outcome.text }
+      return
+    }
+    const r = outcome.result
+    const cmp = compareWithQuestion(asked, r)
+    let staged: string[] = []
+    let leftOut: string[] = []
+    let stageError: string | null = null
+    const git = findGit(process.env.PATH ?? '')
+    if (!git) stageError = 'git was not found on an absolute PATH entry — nothing was staged'
+    else {
+      try {
+        ;({ staged, leftOut } = await stagePaths(git, ws, r))
+      } catch (e) {
+        stageError = e instanceof StageFailed ? `${e.message} — nothing more was staged` : 'staging did not run'
+      }
+    }
+    s.lastSync.set(ws, { written: r.written, removed: r.removed, kept: r.skipped, staged, leftOut, differences: cmp.differences, warnings: r.warnings, rerun: cmp.rerun })
+    s.sync = { phase: stageError ? 'error' : 'done', message: stageError }
+    if (staged.length > 0) await s.orca.host.call('commands.run', { action: 'sidebar.sourceControl.toggle' }).catch((e) => s.orca.log(failed('source control', e)))
+  })
+  const settings = await readSettings(s.orca)
+  await readWorkspace(s, row, 'focus', settings)
+  await publish(s)
+}
+
+/** The consent in words (O2): the person types it in a terminal; the plugin never types it. */
+function consentSteps(ws: string): string[] {
+  return [
+    'Open a terminal in this workspace.',
+    `Type: craftar mcp allow-writes --workspace ${ws}`,
+    'Read what it will allow and answer its question yourself.',
+    'Then click Update again.',
+  ]
+}
+
 export default function activate(orca: OrcaWorkerApi): void {
   const startedAt = Date.now()
   const tick = (): Promise<void> => beat(orca, startedAt).catch((e) => orca.log(failed('heartbeat', e)))
@@ -467,6 +593,10 @@ export default function activate(orca: OrcaWorkerApi): void {
     checkedWs: null,
     periodicTimer: null,
     probe: null,
+    version: null,
+    sync: { phase: 'idle', message: null },
+    consent: null,
+    lastSync: new Map(),
   }
   st = s
   orca.host
@@ -498,6 +628,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (typeof id !== 'string' || !ask.some((r) => r.id === id)) throw new Error('not one of the workspaces the panel offered')
     await orca.storage.set(FOCUS_CHOICE, id)
     await refresh()
+    return view(s) as never
+  })
+  orca.panels.handle('update.run', async (input) => {
+    const files = (input as { files?: unknown } | undefined)?.files
+    const u = updateView(s)
+    const asked = u.files.map((f) => f.path).sort()
+    const given = Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string').sort() : null
+    if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
+    if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them — look again and confirm')
+    await runUpdate(s, u.files)
     return view(s) as never
   })
   orca.panels.handle('diff.get', async (input) => {

@@ -53,7 +53,7 @@ export async function selfCheck(
   o: SelfCheckOptions,
   ws: string | null,
   opts: { listErrors: boolean } = { listErrors: true },
-): Promise<{ lines: Line[]; craftar: Craftar | null }> {
+): Promise<{ lines: Line[]; craftar: Craftar | null; version?: string | null }> {
   if (ws === null) return { lines: [{ level: 'ok', message: 'no craftar workspace in Orca on this machine — nothing to read' }], craftar: null }
   const lines: Line[] = []
   const found = findCraftar({ craftarPath: o.craftarPath, path: o.path, platform: o.platform })
@@ -81,6 +81,7 @@ export async function selfCheck(
     return { lines, craftar: null }
   }
   lines.push({ level: 'ok', message: `version ${version}` })
+  const checked = version
   for (const c of opts.listErrors ? d.checks.filter((x) => x.level === 'error') : []) {
     lines.push({ level: 'error', message: `doctor ${c.id}: ${c.message}${c.fix ? ` — ${c.fix}` : ''}` })
   }
@@ -95,5 +96,5 @@ export async function selfCheck(
       lines.push(readError('the registry', e))
     }
   }
-  return { lines, craftar }
+  return { lines, craftar, version: checked }
 }
