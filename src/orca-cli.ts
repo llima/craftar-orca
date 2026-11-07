@@ -67,3 +67,10 @@ export async function switchToTerminal(cli: OrcaCli, terminalId: string): Promis
   const r = await run(cli.bin, ['terminal', 'switch', '--terminal', terminalId, '--json'], cli.env, TIMEOUT_MS)
   return r.code === 0
 }
+
+/** Whether Orca still lists this terminal; null when its CLI cannot say. */
+export async function terminalListed(cli: OrcaCli, terminalId: string): Promise<boolean | null> {
+  const r = await rows(cli, ['terminal', 'list', '--json'], 'terminals')
+  if (!Array.isArray(r)) return null
+  return (r as { handle?: unknown }[]).some((t) => t.handle === terminalId)
+}

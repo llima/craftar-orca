@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
-import { psDoc, stubOrcaCli } from '../test-support/stub-orca-cli'
+import { psDoc, stubOrcaCli, terminalsDoc } from '../test-support/stub-orca-cli'
 import * as main from './worker'
 
 const CAPS = ['workspace:read', 'workspace:write', 'terminal:send', 'terminal:read', 'notifications:show', 'storage:own', 'settings:own']
@@ -700,10 +700,24 @@ test('a consent terminal that is gone (the switch fails) is opened again on the 
   const v = (await worker.request('consent.terminal', {})) as View
   const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
   assert.equal(created.length, 2)
-  // Not brought forward this time: the steps say where it is, without telling the person to open another.
-  assert.match(v.consent?.steps[0] ?? '', /in the background/)
-  assert.equal((v.consent?.steps ?? []).some((x) => x.startsWith('Open a terminal')), false)
+  // Not brought forward this time: the card's note says where it is.
+  assert.match(String((v.consent as { note?: string } | null)?.note), /in the background/)
   cli.setSwitchCode(0)
   const ok = (await worker.request('consent.terminal', {})) as View
-  assert.equal((ok.consent?.steps ?? []).some((x) => /in the background/.test(x)), false)
+  assert.equal((ok.consent as { note?: string | null } | null)?.note ?? null, null)
+})
+
+test('a switch that fails while Orca still lists the terminal opens no second one', { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker, ws } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(worker)
+  const cli = stubOrcaCli({ switchCode: 1, terminals: terminalsDoc([{ handle: 'term_allow', path: ws }]) })
+  process.env.PATH = `${gitDirOnPath()}:${cli.dir}`
+  h.respond('terminal.create', { terminalId: 'term_allow' })
+  h.respond('terminal.read', { lines: ['craftar-shell:bash'], truncated: false })
+  await worker.request('consent.terminal', {})
+  await worker.request('consent.terminal', {})
+  await worker.request('consent.terminal', {})
+  const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
+  assert.equal(created.length, 1)
 })

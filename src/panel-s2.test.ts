@@ -79,3 +79,11 @@ test("a consent refusal is said once, in the consent card — not again as the s
   assert.equal(said.length, 1)
   assert.equal(all(root).some((e) => e.attrs['data-role'] === 'sync-note' || e.attrs['data-role'] === 'sync-error'), false)
 })
+
+test("a consent terminal Orca could not bring forward: the card says where it is, beside the button", () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const note = 'A terminal titled "craftar allow writes" was opened in this workspace, in the background — switch to it in Orca\'s terminal tabs and answer its question.'
+  const { root } = draw(view({ sync: { phase: 'consent', message: text }, consent: { text, terminal: 'offered', steps: [], note } }))
+  assert.equal(byAction(root, 'consent-terminal').length, 1)
+  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'consent-note')?.textContent, note)
+})

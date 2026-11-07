@@ -9,7 +9,7 @@ import type { OrcaWorkerApi } from 'orca/worker'
 import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
 import { DiffChild, DiffRefused } from './diff-child'
 import { craftarWorkspaces, focusedBy, onThisMachine, type Context, type Focus, type FocusSource, type Row } from './focus'
-import { activeWorkspacePath, findOrcaCli, switchToTerminal, terminalWorkspacePaths } from './orca-cli'
+import { activeWorkspacePath, findOrcaCli, switchToTerminal, terminalListed, terminalWorkspacePaths } from './orca-cli'
 import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
 import { childEnv, run } from './run'
@@ -238,6 +238,8 @@ export interface ConsentView {
   text: string
   /** The allow-writes terminal already opened for this consent, brought forward again on the next click. */
   terminalId?: string
+  /** Where the terminal is when Orca's CLI could not bring it forward; drawn beside the button. */
+  note?: string | null
   /** 'offered': the panel offers a terminal running craftar mcp allow-writes; 'words': the steps are shown as text only. */
   terminal: 'offered' | 'words'
   steps: string[]
@@ -682,14 +684,14 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
     }
     let terminalId = consent.terminalId ?? (await open())
     let shown = cli ? await switchToTerminal(cli, terminalId) : false
-    if (!shown && consent.terminalId && cli) {
+    // Reopen only a terminal Orca no longer lists (the person closed it) — a switch that fails for another
+    // reason must not open one more terminal per click.
+    if (!shown && consent.terminalId && cli && (await terminalListed(cli, terminalId)) === false) {
       terminalId = await open()
-      shown = cli ? await switchToTerminal(cli, terminalId) : false
+      shown = await switchToTerminal(cli, terminalId)
     }
-    const steps = shown
-      ? consent.steps.filter((x) => !x.includes('in the background'))
-      : [`A terminal titled "craftar allow writes" was opened in this workspace, in the background — switch to it in Orca's terminal tabs and answer its question.`, 'Read what it will allow and answer its question yourself.', 'Then click Update again.']
-    s.consent.set(row.path, { ...consent, terminalId, steps })
+    const note = shown ? null : `A terminal titled "craftar allow writes" was opened in this workspace, in the background — switch to it in Orca's terminal tabs and answer its question.`
+    s.consent.set(row.path, { ...consent, terminalId, note })
   }
   await publish(s)
 }

@@ -15,7 +15,7 @@ const SVG = 'http://www.w3.org/2000/svg'
 export interface S2View {
   update?: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
   sync?: { phase: 'idle' | 'running' | 'consent' | 'done' | 'error'; message: string | null }
-  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[] } | null
+  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[]; note?: string | null } | null
   lastSync?: {
     written: string[]
     removed: { path: string; reason: string }[]
@@ -533,6 +533,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(t('pre', c.text, { class: 'words' }))
     if (c.terminal === 'offered') {
       box.appendChild(h('div', { class: 'row' }, button('Open a terminal to allow writes', { class: 'btn', 'data-action': 'consent-terminal' }, 'term', () => a.consentTerminal?.())))
+      if (c.note) box.appendChild(t('p', c.note, { class: 'note', 'data-role': 'consent-note' }))
     } else {
       const ol = box.appendChild(h('ol', { class: 'lines plain' }))
       for (const step of c.steps) ol.appendChild(t('li', step))
