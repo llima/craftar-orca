@@ -17,7 +17,7 @@ import { type Line, selfCheck, versionAtLeast } from './self-check'
 import { compareWithQuestion } from './compare'
 import { findGit, StageFailed, stagePaths } from './stage'
 import { syncOnce } from './sync-child'
-import { allowWritesCommand, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
+import { allowWritesCommand, answered, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
 
 const ITEM = 'craftar'
 const HEARTBEAT = 'probe.heartbeat'
@@ -212,9 +212,9 @@ interface State {
   probe: { at: number; lines: string[] } | null
   /** craftar's version from the self-check (doctor --json), or null. */
   version: string | null
-  /** S2: the sync's phase and craftar's words, the consent to give, and per workspace the last sync's outcome. */
-  sync: SyncView
-  consent: ConsentView | null
+  /** S2, per workspace path: the sync's phase and craftar's words, the consent to give, the last sync's outcome. */
+  sync: Map<string, SyncView>
+  consent: Map<string, ConsentView>
   lastSync: Map<string, LastSync>
 }
 
@@ -248,6 +248,8 @@ export interface UpdateView {
   files: { path: string; state: string }[]
 }
 
+const IDLE: SyncView = { phase: 'idle', message: null }
+
 // The first craftar with the writing tools of craftar mcp (craftar-cli 0.35.0, spec 40).
 const WRITES_FLOOR = '0.35.0'
 
@@ -264,7 +266,7 @@ function updateView(s: State): UpdateView {
   if (m.checkFailed) return no('craftar status failed for this workspace — see its lines above')
   if (m.forge?.freshness === 'cached') return no('the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works')
   if (files.length === 0) return no('nothing to update')
-  if (s.sync.phase === 'running') return no('an update is running')
+  if (s.sync.get(ws)?.phase === 'running') return no('an update is running')
   return { allowed: true, reason: null, files }
 }
 
@@ -403,8 +405,8 @@ function view(s: State): View {
     remote: s.remote.map((r) => ({ name: r.name, path: r.path })),
     probe: s.probe,
     update: updateView(s),
-    sync: s.sync,
-    consent: s.consent,
+    sync: (ws ? s.sync.get(ws) : undefined) ?? IDLE,
+    consent: ws ? (s.consent.get(ws) ?? null) : null,
     lastSync: ws ? (s.lastSync.get(ws) ?? null) : null,
   }
 }
@@ -529,19 +531,20 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
   const row = s.focus.kind === 'one' ? s.focus.row : null
   const craftar = s.craftar
   if (!ws || !row || !craftar) return
-  s.sync = { phase: 'running', message: null }
-  s.consent = null
+  s.sync.set(ws, { phase: 'running', message: null })
+  s.consent.delete(ws)
   await publish(s)
   await s.queue.run(ws, async () => {
+   try {
     const outcome = await syncOnce(craftar, ws)
     if (outcome.kind === 'consent') {
-      s.sync = { phase: 'consent', message: outcome.text }
+      s.sync.set(ws, { phase: 'consent', message: outcome.text })
       const known = (await s.orca.storage.get(SHELL_KEY).catch(() => null)) as Shell | null
-      s.consent = { text: outcome.text, terminal: known === 'cmd' || known === 'unknown' ? 'words' : 'offered', steps: consentSteps(ws) }
+      s.consent.set(ws, { text: outcome.text, terminal: known === 'cmd' || known === 'unknown' ? 'words' : 'offered', steps: consentSteps(ws) })
       return
     }
     if (outcome.kind !== 'ok') {
-      s.sync = { phase: 'error', message: outcome.text }
+      s.sync.set(ws, { phase: 'error', message: outcome.text })
       return
     }
     const r = outcome.result
@@ -559,8 +562,13 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
       }
     }
     s.lastSync.set(ws, { written: r.written, removed: r.removed, kept: r.skipped, staged, leftOut, differences: cmp.differences, warnings: r.warnings, rerun: cmp.rerun })
-    s.sync = { phase: stageError ? 'error' : 'done', message: stageError }
+    s.sync.set(ws, { phase: stageError ? 'error' : 'done', message: stageError })
     if (staged.length > 0) await s.orca.host.call('commands.run', { action: 'sidebar.sourceControl.toggle' }).catch((e) => s.orca.log(failed('source control', e)))
+   } catch (e) {
+    // Never left 'running': an unexpected failure is said in fixed words, and nothing more is done.
+    s.orca.log(failed('update', e))
+    s.sync.set(ws, { phase: 'error', message: 'the update stopped on an unexpected error — nothing more was done; see the plugin log' })
+   }
   })
   const settings = await readSettings(s.orca)
   await readWorkspace(s, row, 'focus', settings)
@@ -578,12 +586,15 @@ async function shellOf(s: State, workspaceId: string): Promise<Shell> {
     terminalId: string
   }
   let shell: Shell = 'unknown'
-  for (let i = 0; i < 20 && shell === 'unknown'; i++) {
+  let seen = false
+  for (let i = 0; i < 20 && !seen; i++) {
     const { lines } = (await s.orca.host.call('terminal.read', { terminalId, maxLines: 40 })) as { lines: string[] }
+    seen = answered(lines)
     shell = detectShell(lines)
-    if (shell === 'unknown') await new Promise((r) => setTimeout(r, 250))
+    if (!seen) await new Promise((r) => setTimeout(r, 250))
   }
-  await s.orca.storage.set(SHELL_KEY, shell).catch((e) => s.orca.log(failed('storage', e)))
+  // Only an answer is stored: a terminal that printed none yet (a slow shell start) is probed again next time.
+  if (seen) await s.orca.storage.set(SHELL_KEY, shell).catch((e) => s.orca.log(failed('storage', e)))
   return shell
 }
 
@@ -595,12 +606,14 @@ async function shellOf(s: State, workspaceId: string): Promise<Shell> {
 async function openConsentTerminal(s: State): Promise<void> {
   const row = s.focus.kind === 'one' ? s.focus.row : null
   const craftar = s.craftar
-  if (!s.consent || !row || !craftar) throw new Error('nothing to allow — run Update first')
+  // The consent is the focused workspace's own: one asked for another workspace opens nothing here.
+  const consent = row ? s.consent.get(row.path) : undefined
+  if (!consent || !row || !craftar) throw new Error('nothing to allow — run Update first')
   const shell = await shellOf(s, row.id)
   const settings = await readSettings(s.orca)
   const command = allowWritesCommand(shell, { bin: craftar.bin, home: settings.craftarHome }, row.path)
   if (command === null) {
-    s.consent = { ...s.consent, terminal: 'words' }
+    s.consent.set(row.path, { ...consent, terminal: 'words' })
   } else {
     await s.orca.host.call('terminal.create', { workspaceId: row.id, title: 'craftar allow writes', command })
   }
@@ -636,8 +649,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     periodicTimer: null,
     probe: null,
     version: null,
-    sync: { phase: 'idle', message: null },
-    consent: null,
+    sync: new Map(),
+    consent: new Map(),
     lastSync: new Map(),
   }
   st = s

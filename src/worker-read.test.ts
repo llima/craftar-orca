@@ -2,8 +2,8 @@
 // read, the panel's requests and the status bar (spec 60 §4–§7.1, O9, O10). Every craftar is a stub.
 import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
@@ -383,9 +383,14 @@ const ORIGINAL_PATH = savedOriginalPath()
 function savedOriginalPath(): string {
   return process.env.PATH ?? ''
 }
+// A directory holding only a link to git: git's own directory (often /usr/bin) can hold orca-ide too, and no
+// test may reach the person's own Orca.
 function gitDirOnPath(): string {
   const git = findOnPath('git', ORIGINAL_PATH)
-  return git ? dirname(git) : ''
+  if (!git) return ''
+  const dir = tempDir('craftar-orca-gitbin-')
+  symlinkSync(git, join(dir, 'git'))
+  return dir
 }
 function gitCraftarDir(): string {
   const dir = craftarDir()
@@ -506,4 +511,37 @@ test('a read that gave no document leaves Update off and says why (no cached cop
   const v = (await worker.request('state.get')) as View
   assert.equal(v.update.allowed, false)
   assert.match(String(v.update.reason), /gave no document/)
+})
+
+test("a consent belongs to the workspace that was refused: after a focus change, no terminal opens for another", { skip: process.platform === 'win32' }, async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const a = gitCraftarDir()
+  const b = gitCraftarDir()
+  const rows: Ws[] = [
+    { id: 'wa', kind: 'folder', name: 'web', path: a, branch: 'main', hostId: 'local' },
+    { id: 'wb', kind: 'folder', name: 'api', path: b, branch: 'dev', hostId: 'local' },
+  ]
+  const { h, worker } = await setup({ rows, extra: { 'mcp call 0': toolError(text) } })
+  process.env.PATH = gitDirOnPath()
+  const asked = (await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })) as View
+  assert.equal(asked.consent?.terminal, 'offered')
+  await worker.emit('workspace.changed', { context: { branch: 'dev', displayName: 'api', terminals: [] } })
+  await main.settled()
+  const onB = (await worker.request('state.get')) as View
+  assert.equal(onB.focus, 'one', JSON.stringify({ focus: onB.focus, ask: onB.ask.length }))
+  assert.equal(onB.model?.ws, b)
+  assert.equal(onB.consent, null)
+  assert.equal(onB.sync.phase, 'idle')
+  await assert.rejects(worker.request('consent.terminal', {}), /nothing to allow/)
+  assert.equal(h.callsOf('terminal.create').length, 0)
+})
+
+test('a shell probe that shows no answer is not stored: the next click probes again', async () => {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const { h, worker } = await updateSetup({ 'mcp call 0': toolError(text) })
+  await worker.request('update.run', { files: ['.claude/rules/workflow.md'] })
+  h.respond('terminal.create', { terminalId: 't1' })
+  h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ '], truncated: false })
+  await worker.request('consent.terminal', {})
+  assert.equal(h.data().storage['shell.local'], undefined)
 })

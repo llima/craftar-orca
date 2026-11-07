@@ -8,6 +8,11 @@ export type Shell = 'bash' | 'zsh' | 'sh' | 'pwsh' | 'cmd' | 'unknown'
 export const PROBE_SHELL_COMMAND = 'echo craftar-shell:$0'
 const MARK = 'craftar-shell:'
 
+/** Whether the probe's answer line is in these lines yet, whatever shell it names. */
+export function answered(lines: readonly string[]): boolean {
+  return lines.some((l) => l.trim().startsWith(MARK))
+}
+
 export function detectShell(lines: readonly string[]): Shell {
   const answer = lines.map((l) => l.trim()).find((l) => l.startsWith(MARK))
   if (answer === undefined) return 'unknown'
