@@ -36,7 +36,7 @@
         "description": "Absolute path to the craftar binary. Empty: look for it on the absolute entries of PATH only — never npx." },
       { "key": "craftarHome", "title": "CRAFTAR_HOME", "type": "string", "default": "",
         "description": "Passed to craftar as CRAFTAR_HOME (its registry and Forge cache). Empty: craftar's default." },
-      { "key": "intervalMinutes", "title": "Check the Forge every (minutes)", "type": "integer", "default": 15, "minimum": 5 },
+      { "key": "intervalMinutes", "title": "Check the Forge every (minutes)", "type": "integer", "default": 5, "minimum": 5 },
       { "key": "fetch", "title": "Fetch a remote Forge on the periodic check", "type": "boolean", "default": true }
     ]
   }

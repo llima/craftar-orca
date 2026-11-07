@@ -57,7 +57,7 @@ and its lines can be read back — the next run of the probe, from the status ba
   only, never through `npx`. Orca started from a dock or a menu often has a short `PATH`, so set it there. When the binary sits under a
   version manager's shim directory (asdf, volta, mise), a project's files can choose what runs; the self-check says so.
 - **CRAFTAR_HOME** (`craftarHome`) — passed to craftar, so it reads the registry and Forge cache your terminal uses.
-- **Check the Forge every** (`intervalMinutes`, default 15, minimum 5) and **Fetch a remote Forge** (`fetch`, default on) — the periodic check only.
+- **Check the Forge every** (`intervalMinutes`, default 5, minimum 5) and **Fetch a remote Forge** (`fetch`, default on) — the periodic check only.
 
 ## Development
 
