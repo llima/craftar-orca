@@ -23,7 +23,7 @@ function modelView(over: Partial<View> = {}, warnings: string[] = []): View {
     fetchedAt: null,
     readAt: 0,
   })
-  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], ...over }
+  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], probe: null, ...over }
 }
 
 function draw(v: View, diff: Parameters<typeof render>[4] = null) {
@@ -123,4 +123,14 @@ test('a failed check is boxed with what craftar said; a fetched Forge reads its 
   assert.match(root.textContent, /craftar status exits 1/)
   assert.doesNotMatch(root.textContent, /fetched now/)
   assert.match(root.textContent, /fetched /)
+})
+
+test('the probe report is drawn as text, line by line, and absent until the probe ran', () => {
+  const hostile = '<img src=x onerror=alert(1)>'
+  assert.equal(all(draw(modelView()).root).some((e) => e.attrs['data-role'] === 'probe'), false)
+  const { root } = draw(modelView({ probe: { at: 0, lines: ['craftar probe — S0 (spec 60 §12)', `  | ${hostile}`] } }))
+  const box = all(root).find((e) => e.attrs['data-role'] === 'probe')
+  assert.ok(box, 'a probe section')
+  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'probe-text')?.textContent, `craftar probe — S0 (spec 60 §12)\n  | ${hostile}`)
+  assert.equal(all(root).some((e) => e.tag === 'img'), false)
 })

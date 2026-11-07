@@ -29,7 +29,7 @@
     ],
     "events": [{ "on": "workspace.changed" }],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — reading" }
+      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — reading", "command": "craftar.probe" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",

@@ -81,6 +81,13 @@ export function render(doc: Doc, root: HTMLElement, v: View, a: Actions, diff: D
     }
   }
 
+  if (v.probe) {
+    // The probe's report, as the worker wrote it — its terminal lines included, which only this panel shows.
+    const box = root.appendChild(h('section', undefined, { class: 'probe', 'data-role': 'probe' }))
+    box.appendChild(h('h2', 'Probe report'))
+    box.appendChild(h('pre', v.probe.lines.join('\n'), { 'data-role': 'probe-text' }))
+  }
+
   if (v.remote.length > 0) {
     const box = root.appendChild(h('section'))
     box.appendChild(h('h2', 'On another host'))

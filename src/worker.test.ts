@@ -1,6 +1,7 @@
 // The S0 worker: its status bar item, its heartbeat and the probe command (spec 60 §12).
 import { afterEach, assert, mockHost, mountWorker, test } from 'orca/testing'
-import { chmodSync, copyFileSync, mkdirSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import * as main from './worker'
@@ -138,4 +139,92 @@ test('a craftar that cannot be found is reported and nothing is started', async 
   assert.match(report, /craftar: not found — craftarPath must be an absolute path/)
   assert.doesNotMatch(report, /version:/)
   await worker.deactivate()
+})
+
+// The probe made visible (2026-11-07, measured in Orca 1.4.250: a palette command's return value is shown
+// nowhere and a status bar item without `command` does nothing on a click).
+
+test('the status bar item runs the probe when pressed', () => {
+  const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../orca-plugin.json', import.meta.url)), 'utf8'))
+  const item = manifest.contributes.statusBarItems.find((i: { id: string }) => i.id === 'craftar')
+  assert.equal(item.command, 'craftar.probe')
+  assert.ok(manifest.contributes.commands.some((c: { id: string }) => c.id === 'craftar.probe'))
+})
+
+test('the probe report reaches the panel, terminal lines included', async () => {
+  const marker = 'acme-user@acme-host:/tmp/acme-portal$'
+  const h = host({ craftarPath: stubCraftar() }, [ACME], [marker + ' echo craftar-probe', 'craftar-probe'])
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  const report = String(await worker.command('craftar.probe'))
+  const posted = worker.posts.filter((p) => p.event === 'state.changed').map((p) => p.payload as { probe?: { lines: string[] } | null })
+  const last = posted[posted.length - 1]
+  assert.ok(last?.probe, 'a state.changed with the probe report')
+  assert.deepEqual(last.probe.lines, report.split('\n'))
+  assert.ok(last.probe.lines.some((l) => l.includes(marker)))
+  await worker.deactivate()
+})
+
+test('the probe shows one notification with the outcome and no terminal line', async () => {
+  const marker = 'acme-user@acme-host:/tmp/acme-portal$'
+  const h = host({ craftarPath: stubCraftar() }, [ACME], [marker + ' echo craftar-probe', 'craftar-probe'])
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  await worker.command('craftar.probe')
+  const shown = h.callsOf('notifications.show') as { title: string; body?: string }[]
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].title, 'craftar probe')
+  assert.match(String(shown[0].body), /craftar found/)
+  assert.match(String(shown[0].body), /terminal: craftar-probe seen/)
+  assert.match(String(shown[0].body), /craftar panel/)
+  assert.equal(String(shown[0].body).includes(marker), false)
+  assert.equal(String(shown[0].body).includes('/tmp/'), false)
+  await worker.deactivate()
+})
+
+test('the log carries the terminal outcome and the terminal id, never its lines or craftar path', async () => {
+  const marker = 'acme-user@acme-host:/tmp/acme-portal$'
+  const stub = stubCraftar()
+  const h = host({ craftarPath: stub }, [ACME], [marker + ' echo craftar-probe', 'craftar-probe'])
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  await worker.command('craftar.probe')
+  const log = worker.logs.join('\n')
+  assert.match(log, /terminal: craftar-probe seen \(terminal t1\)/)
+  assert.match(log, /craftar found/)
+  assert.equal(log.includes(marker), false)
+  assert.equal(log.includes(stub), false)
+  await worker.deactivate()
+})
+
+test('a terminal.create that fails is logged with its code', async () => {
+  const h = mockHost({
+    capabilities: CAPS,
+    settings: { craftarPath: stubCraftar() },
+    results: {
+      'workspace.list': { workspaces: [ACME], truncated: false },
+      'workspace.readContext': { branch: 'main', displayName: 'acme-portal', terminals: [] },
+    },
+    // No result configured for terminal.create: the mock host answers it with the error code `unavailable`.
+  })
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  await worker.command('craftar.probe')
+  assert.match(worker.logs.join('\n'), /terminal: failed \(unavailable\)/)
+  await worker.deactivate()
+})
+
+test('the Orca CLI is looked for as orca-ide; an `orca` on PATH is not taken for it', async () => {
+  const dir = tempDir('craftar-orca-path-')
+  const orca = join(dir, process.platform === 'win32' ? 'orca.exe' : 'orca')
+  copyFileSync(process.execPath, orca)
+  if (process.platform !== 'win32') chmodSync(orca, 0o755)
+  const before = process.env.PATH
+  process.env.PATH = dir
+  try {
+    const h = host({ craftarPath: stubCraftar() })
+    const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+    const report = String(await worker.command('craftar.probe'))
+    assert.match(report, /Orca CLI \(orca-ide\): not on an absolute PATH entry/)
+    assert.match(report, /an `orca` on PATH is another program/)
+    await worker.deactivate()
+  } finally {
+    process.env.PATH = before
+  }
 })
