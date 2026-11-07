@@ -3,7 +3,7 @@ import { afterEach, assert, test } from 'orca/testing'
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
-import { craftarWorkspaces, focused, type Row } from './focus'
+import { craftarWorkspaces, focused, focusedBy, type Row } from './focus'
 
 afterEach(removeTempDirs)
 
@@ -67,4 +67,31 @@ test('a row whose hostId is "local" is on this machine: read when it holds craft
   const r = craftarWorkspaces([row('a', yes, { hostId: 'local' }), row('b', no, { hostId: 'local' }), row('s', '/home/acme/x', { hostId: 'ssh-1' })])
   assert.deepEqual(r.local.map((x) => x.id), ['a'])
   assert.deepEqual(r.remote.map((x) => x.id), ['s'])
+})
+
+// Orca's CLI first (the user's ruling, 2026-11-07): the active workspace, then the context's terminals,
+// then name and branch with the person's answer. A tier falls through only when it has no answer — never
+// because its answer is not a craftar workspace.
+const W = row('w', '/home/acme/web', { name: 'main' })
+const A = row('a', '/home/acme/api', { name: 'main' })
+const CTX = { displayName: 'main', branch: 'main', terminals: [{ id: 'term_1' }] }
+
+test('the active workspace from Orca wins over a name-and-branch tie', () => {
+  assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/api' }, terminalPaths: null }, CTX, [W, A], null), { kind: 'one', row: A })
+})
+
+test('an active workspace that is not a craftar one is no focus — the tie does not come back', () => {
+  assert.deepEqual(focusedBy({ active: { kind: 'one', path: '/home/acme/docs' }, terminalPaths: ['/home/acme/web'] }, CTX, [W, A], 'w'), { kind: 'none' })
+})
+
+test("with no active workspace, the context's terminals decide when they all sit in one workspace", () => {
+  assert.deepEqual(focusedBy({ active: { kind: 'none' }, terminalPaths: ['/home/acme/web'] }, CTX, [W, A], null), { kind: 'one', row: W })
+  assert.deepEqual(focusedBy({ active: { kind: 'failed', reason: 'exit 1' }, terminalPaths: ['/home/acme/docs'] }, CTX, [W, A], null), { kind: 'none' })
+})
+
+test('with neither answer, name and branch decide, and a tie asks or takes the stored answer', () => {
+  for (const terminalPaths of [null, [], ['/home/acme/web', '/home/acme/api']]) {
+    assert.deepEqual(focusedBy({ active: { kind: 'failed', reason: 'not found' }, terminalPaths }, CTX, [W, A], null), { kind: 'ask', rows: [W, A] })
+    assert.deepEqual(focusedBy({ active: { kind: 'none' }, terminalPaths }, CTX, [W, A], 'a'), { kind: 'one', row: A })
+  }
 })

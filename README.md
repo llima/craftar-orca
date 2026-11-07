@@ -16,9 +16,12 @@ linked projects and the files coming and going between them — using the `craft
   is started), doctor's `error` lines for the focused workspace (listed, never fixed), and whether the registry is on. It runs again
   when `craftarPath` or `craftarHome` changes. When anything fails it is shown at the top of the panel and the status bar reads
   `craftar: error`.
-- **The focused workspace** is the Orca workspace on this machine whose folder holds `craftar.yaml` and whose name and branch match
-  the one you have open. When two match, the panel asks which; your answer is kept. A workspace on another host (SSH, WSL) is listed
-  and never read.
+- **The focused workspace** is the one Orca has active, asked of Orca's CLI (`orca-ide worktree ps --json`, run as a child from the
+  `orca-ide` found on an absolute `PATH` entry; only paths are kept), when its folder on this machine holds `craftar.yaml` — an active
+  workspace without one is no focus. When Orca's CLI cannot say, the workspace holding the open workspace's terminals
+  (`orca-ide terminal list --json`) decides, and then the name and branch of the one you have open: when several match (every `main`
+  worktree is named `main`), the panel asks which, and your answer is kept. A workspace on another host (SSH, WSL) is listed and
+  never read.
 - **Reads** are `craftar status`, `drift show`, `repos` and `workspaces`, each with `--json`. A focus change reads offline; the
   periodic check (every `intervalMinutes`) reads each craftar workspace on this machine, one after another, and is the only read that
   fetches a remote Forge — and only with `fetch` on.

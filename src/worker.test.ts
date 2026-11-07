@@ -1,10 +1,21 @@
 // The S0 worker: its status bar item, its heartbeat and the probe command (spec 60 §12).
-import { afterEach, assert, mockHost, mountWorker, test } from 'orca/testing'
+import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
 import { chmodSync, copyFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import * as main from './worker'
+
+// No test reaches the person's own Orca: PATH is an empty directory, so no `orca-ide` is found and the focus
+// falls back to name and branch, unless a test puts a stub orca-ide (test-support/stub-orca-cli.ts) there.
+let savedPath: string | undefined
+beforeEach(() => {
+  savedPath = process.env.PATH
+  process.env.PATH = tempDir('craftar-orca-path-')
+})
+afterEach(() => {
+  process.env.PATH = savedPath
+})
 
 afterEach(removeTempDirs)
 

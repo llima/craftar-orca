@@ -1,7 +1,8 @@
 // A stub `orca-ide` (Orca's CLI) for tests: a POSIX shell script that records its arguments and answers
 // `worktree ps --json` and `terminal list --json` from canned documents. No test reaches the person's own
 // Orca. POSIX only: the tests that use it are skipped on win32, and every other worker test puts an empty
-// directory on PATH, so no `orca-ide` is found there and the focus falls back as it did before.
+// directory on PATH, so no `orca-ide` is found there and the focus falls back as it did before. It calls
+// /bin/cat by its absolute path: a test puts the stub's directory alone on PATH.
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tempDir } from './tmp'
@@ -20,8 +21,8 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; terminals?: u
     '#!/bin/sh',
     `printf '%s\\n' "$*" >> ${q(join(dir, 'calls.log'))}`,
     'case "$*" in',
-    `  "worktree ps --json") cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
-    `  "terminal list --json") cat ${q(join(dir, 'tl.json'))} ;;`,
+    `  "worktree ps --json") /bin/cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
+    `  "terminal list --json") /bin/cat ${q(join(dir, 'tl.json'))} ;;`,
     '  *) exit 2 ;;',
     'esac',
     '',
