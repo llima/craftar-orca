@@ -41,7 +41,7 @@ function table(extra: Record<string, unknown> = {}) {
 
 type Ws = { id: string; kind: string; name: string; path: string; branch: string | null; hostId: string | null }
 
-async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: string } | null; settings?: Record<string, unknown>; extra?: Record<string, unknown> } = {}) {
+async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: string } | null; settings?: Record<string, unknown>; extra?: Record<string, unknown>; results?: Record<string, unknown> } = {}) {
   const s = stubCraftar(table(opts.extra))
   const web = craftarDir()
   const rows = opts.rows ?? [{ id: 'w1', kind: 'folder', name: 'web', path: web, branch: 'main', hostId: null }]
@@ -51,6 +51,7 @@ async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: s
     results: {
       'workspace.list': { workspaces: rows, truncated: false },
       'workspace.readContext': opts.ctx === undefined ? { branch: 'main', displayName: 'web', terminals: [] } : opts.ctx === null ? null : { ...opts.ctx, terminals: [] },
+      ...(opts.results ?? {}),
     },
   })
   // The worker's children inherit its environment: the stub's preload rides on NODE_OPTIONS.
@@ -244,4 +245,37 @@ test('a craftar workspace that appears after a check with none is read by the ne
   h.respond('workspace.list', { workspaces: [{ id: 'w9', kind: 'folder', name: 'web', path: later, branch: 'main', hostId: null }], truncated: false })
   await main.periodic()
   assert.ok(s.calls().some((c) => c.argv.join(' ') === `status --json --workspace ${later}`))
+})
+
+// Measured in Orca 1.4.250 (2026-11-07): workspace.readContext names a workspace by its display name and
+// branch only, and every `main` worktree there is named `main` — so name and branch tie, the panel asks,
+// and the probe must open its terminal in the workspace the person chose, not deduce one of its own.
+test('after a tie is answered, the probe opens its terminal in the chosen workspace', async () => {
+  const one = craftarDir()
+  const two = craftarDir()
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: one, branch: 'main', hostId: 'local' },
+    { id: 'b', kind: 'worktree', name: 'main', path: two, branch: 'main', hostId: 'local' },
+  ]
+  const { h, worker } = await setup({
+    rows,
+    ctx: { branch: 'main', displayName: 'main' },
+    results: { 'terminal.create': { terminalId: 't1' }, 'terminal.read': { lines: ['craftar-probe'], truncated: false } },
+  })
+  assert.equal(((await worker.request('state.get')) as View).focus, 'ask')
+  await worker.request('focus.choose', { id: 'b' })
+  const report = String(await worker.command('craftar.probe'))
+  assert.match(report, /terminal: craftar-probe seen/)
+  assert.deepEqual(h.callsOf('terminal.create').map((c) => (c as { workspaceId: string }).workspaceId), ['b'])
+})
+
+test('with a tie not yet answered, the probe opens no terminal and says to pick one in the panel', async () => {
+  const rows: Ws[] = [
+    { id: 'a', kind: 'worktree', name: 'main', path: craftarDir(), branch: 'main', hostId: 'local' },
+    { id: 'b', kind: 'worktree', name: 'main', path: craftarDir(), branch: 'main', hostId: 'local' },
+  ]
+  const { h, worker } = await setup({ rows, ctx: { branch: 'main', displayName: 'main' } })
+  const report = String(await worker.command('craftar.probe'))
+  assert.match(report, /terminal: not opened — several workspaces match the focused one: pick it in the craftar panel/)
+  assert.equal(h.callsOf('terminal.create').length, 0)
 })

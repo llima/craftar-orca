@@ -24,9 +24,18 @@ function holdsCraftarYaml(dir: string): boolean {
   }
 }
 
+/**
+ * Whether a workspace.list row is on this machine. Orca 1.4.250 gives this machine's rows the host id
+ * `local` (`orca-ide host list`: `local  this machine`), and null on hosts that record no host
+ * (host-api: "The execution host; null for this machine on hosts that do not record one").
+ */
+export function onThisMachine(hostId: string | null): boolean {
+  return hostId === null || hostId === 'local'
+}
+
 export function craftarWorkspaces(rows: Row[]): { local: Row[]; remote: Row[] } {
-  const remote = rows.filter((r) => r.hostId !== null)
-  const local = rows.filter((r) => r.hostId === null && holdsCraftarYaml(r.path))
+  const remote = rows.filter((r) => !onThisMachine(r.hostId))
+  const local = rows.filter((r) => onThisMachine(r.hostId) && holdsCraftarYaml(r.path))
   return { local, remote }
 }
 

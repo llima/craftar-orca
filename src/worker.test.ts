@@ -247,3 +247,12 @@ test('the status bar tooltip says a click runs the probe', async () => {
   assert.ok(updates.length > 0 && updates.every((u) => String(u.tooltip).endsWith(' · click: run the probe')))
   await worker.deactivate()
 })
+
+test('the probe opens its terminal in a workspace whose hostId is "local"', async () => {
+  const h = host({ craftarPath: stubCraftar() }, [{ ...ACME, hostId: 'local' }])
+  const worker = await mountWorker(main, { host: h, commands: ['craftar.probe'] })
+  const report = String(await worker.command('craftar.probe'))
+  assert.match(report, /terminal: craftar-probe seen/)
+  assert.deepEqual((h.callsOf('terminal.create')[0] as { workspaceId: string }).workspaceId, 'w1')
+  await worker.deactivate()
+})
