@@ -108,14 +108,29 @@ test('on enable: the self-check runs, the focused workspace is read offline, the
   assert.deepEqual(worker.refusals, [])
 })
 
-test('S1 writes nothing: no terminal, no typing into one, no notification, no sync child', async () => {
+test('a read writes nothing: no terminal, no typing into one, no sync child', async () => {
   const { s, h, worker } = await setup()
   await worker.request('state.refresh')
   await main.periodic()
   assert.equal(h.callsOf('terminal.create').length, 0)
   assert.equal(h.callsOf('terminal.sendText').length, 0)
-  assert.equal(h.callsOf('notifications.show').length, 0)
   assert.equal(s.calls().some((c) => c.argv.includes('--allow-writes') || c.argv[0] === 'sync'), false)
+})
+
+// O3/O4: the timer only reads and notifies — one notification when the pending set grows, names and counts.
+test('a periodic read whose pending set grew notifies once, with the Forge, the count and the workspace only', async () => {
+  const { h, worker } = await setup()
+  await worker.request('state.refresh')
+  assert.equal(h.callsOf('notifications.show').length, 0, 'a focus read does not notify')
+  await main.periodic()
+  const shown = h.callsOf('notifications.show') as { title: string; body?: string }[]
+  assert.equal(shown.length, 1)
+  assert.equal(shown[0].title, 'craftar')
+  assert.equal(shown[0].body, 'Forge ../forge2 changed 1 file for web — update 1 file and add it to the commit? Open the craftar panel.')
+  await main.periodic()
+  assert.equal(h.callsOf('notifications.show').length, 1, 'the same count again does not notify')
+  const stored = h.data().storage['notified'] as Record<string, Record<string, unknown>>
+  for (const v of Object.values(stored)) assert.deepEqual(Object.keys(v).sort(), ['at', 'count'])
 })
 
 test('the periodic read fetches every local craftar workspace; with fetch off it stays offline', async () => {

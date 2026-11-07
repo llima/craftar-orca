@@ -289,11 +289,33 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     const drift: DriftDoc | null = await optional('drift show', driftShow(craftar, row.path), errors)
     const rp: ReposDoc | null = await optional('repos', repos(craftar, row.path), errors)
     const registry: WorkspacesDoc | null = await optional('workspaces', registryRead(craftar), errors)
-    s.models.set(
-      row.path,
-      buildModel({ ws: row.path, name: row.name, status, drift, repos: rp, registry, fetchedAt: fetched[row.path] ?? null, readAt: Date.now(), errors }),
-    )
+    const model = buildModel({ ws: row.path, name: row.name, status, drift, repos: rp, registry, fetchedAt: fetched[row.path] ?? null, readAt: Date.now(), errors })
+    s.models.set(row.path, model)
+    await notifyGrowth(s, model, reason)
   })
+}
+
+const NOTIFIED = 'notified'
+
+/**
+ * O3/O4: one notification when a workspace's pending set grows past the count the periodic check last saw.
+ * Only the periodic check counts and notifies (a focus read changes neither). Names and counts only; storage
+ * holds, per workspace path, the count and a timestamp. A smaller count is stored too, so the next growth
+ * notifies again.
+ */
+async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<void> {
+  if (reason !== 'periodic') return
+  const seen = ((await s.orca.storage.get(NOTIFIED).catch(() => null)) as Record<string, { count: number; at: number }> | null) ?? {}
+  const before = typeof seen[m.ws]?.count === 'number' ? seen[m.ws].count : 0
+  const now = m.pending.length
+  if (now === before) return
+  seen[m.ws] = { count: now, at: Date.now() }
+  await s.orca.storage.set(NOTIFIED, seen).catch((e) => s.orca.log(failed('storage', e)))
+  if (now < before) return
+  const files = now === 1 ? '1 file' : `${now} files`
+  const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'The Forge'
+  const body = `${forge} changed ${files} for ${m.name} — update ${files} and add ${now === 1 ? 'it' : 'them'} to the commit? Open the craftar panel.`
+  await s.orca.host.call('notifications.show', { title: 'craftar', body }).catch((e) => s.orca.log(failed('notification', e)))
 }
 
 export interface View {
