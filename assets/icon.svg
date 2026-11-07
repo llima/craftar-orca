@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="craftar">
+  <!-- The source of assets/icon.png (rendered at 256 px): craftar-cli-site favicon.svg's three squares, larger in the tile (A2). -->
+  <rect width="64" height="64" rx="10" fill="#0A0E13"/>
+  <rect x="7.124" y="34.268" width="22.62" height="22.62" rx="3.393" fill="#E9915A"/>
+  <rect x="34.268" y="34.268" width="22.62" height="22.62" rx="3.393" fill="#7FB4D6"/>
+  <rect x="20.696" y="7.124" width="22.62" height="22.62" rx="3.393" fill="#E7ECF1"/>
+</svg>

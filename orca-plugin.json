@@ -11,6 +11,7 @@
   "execution": "trusted-worker",
   "pluginApi": 1,
   "main": "src/worker.ts",
+  "icon": "assets/icon.png",
   "capabilities": [
     { "kind": "workspace:read" },
     { "kind": "workspace:write" },
@@ -22,14 +23,14 @@
   ],
   "contributes": {
     "panels": [
-      { "id": "craftar", "title": "craftar", "icon": "layers", "entry": "src/panel.ts", "ui": "html" }
+      { "id": "craftar", "title": "craftar", "icon": "blocks", "entry": "src/panel.ts", "ui": "html" }
     ],
     "commands": [
       { "id": "craftar.probe", "title": "craftar: run the probe (measures what the plugin needs from Orca)" }
     ],
     "events": [{ "on": "workspace.changed" }],
     "statusBarItems": [
-      { "id": "craftar", "text": "craftar", "icon": "layers", "tooltip": "craftar — reading · click: run the probe", "command": "craftar.probe" }
+      { "id": "craftar", "text": "craftar", "icon": "blocks", "tooltip": "craftar — reading · click: run the probe", "command": "craftar.probe" }
     ],
     "settings": [
       { "key": "craftarPath", "title": "craftar binary", "type": "string", "default": "", "placeholder": "/usr/local/bin/craftar",

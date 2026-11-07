@@ -319,7 +319,7 @@ async function publish(s: State): Promise<void> {
   const m = ws ? (s.models.get(ws) ?? null) : null
   const bar = barFor(broken || (ws !== null && s.failed.has(ws)) ? 'error' : m)
   const tooltip = `${ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'}${CLICK_HINT}`
-  await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'layers' }).catch((e) => s.orca.log(failed('status bar', e)))
+  await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'blocks' }).catch((e) => s.orca.log(failed('status bar', e)))
   s.orca.panels.post('state.changed', view(s) as never)
 }
 
@@ -431,7 +431,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
   st = s
   orca.host
-    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'layers' })
+    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'blocks' })
     .catch((e) => orca.log(failed('status bar', e)))
   firstBeat = tick()
   timer = setInterval(() => void tick(), HEARTBEAT_MS)
