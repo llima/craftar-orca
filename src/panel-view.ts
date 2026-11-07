@@ -28,7 +28,9 @@ export interface S2View {
   } | null
 }
 
-export type PanelView = View & S2View
+// The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
+// worker's View rather than intersected with it: the two shapes never contradict each other.
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync'> & S2View
 
 export interface Actions {
   choose(id: string): void
@@ -457,7 +459,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // A cached copy keeps Update disabled whatever the worker says (O10): the panel enforces it too.
     const allowed = u ? u.allowed && n > 0 && !running && !cached && typeof a.updateRun === 'function' : false
     const reason = cached
-      ? 'needs a fetch that works'
+      ? (u?.reason ?? 'needs a fetch that works')
       : u
         ? (u.reason ??
           (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet — check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))

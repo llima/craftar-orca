@@ -223,6 +223,7 @@ function draw(): void {
 
 const actions = {
   choose(id: string): void {
+    notice = null
     // The worker reads the chosen workspace before it answers: the buttons stay drawn meanwhile, so they
     // are disabled at once and a second click sends nothing. A refusal redraws from the worker's view.
     for (const b of Array.from(root.querySelectorAll<HTMLButtonElement>('.ask button'))) {
@@ -253,6 +254,7 @@ const actions = {
       )
   },
   refresh(): void {
+    notice = null
     void orca.plugin.request('state.refresh', undefined, { timeoutMs: 120_000 }).then((v) => {
       view = v as PanelView
       draw()

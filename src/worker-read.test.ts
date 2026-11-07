@@ -2,7 +2,7 @@
 // read, the panel's requests and the status bar (spec 60 §4–§7.1, O9, O10). Every craftar is a stub.
 import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
@@ -616,4 +616,20 @@ test('no notification for a craftar older than 0.35.0: Update could not run', as
   assert.equal(h.callsOf('notifications.show').length, 0)
   const v = (await worker.request('state.get')) as View
   assert.match(String(v.update.reason), /0\.35\.0/)
+})
+
+test('a fetch that worked, then a periodic fallback: the offline focus read is the cached copy again, Update off', async () => {
+  const { s, worker } = await updateSetup({ 'status --json --offline': remoteStatus(false), 'status --json --workspace': remoteStatus(true) })
+  await main.periodic()
+  // The next periodic fetch falls back to the cached copy: the stub reads its table on every call.
+  const tableFile = String(s.env.CRAFTAR_STUB_TABLE)
+  const t = JSON.parse(readFileSync(tableFile, 'utf8'))
+  t['status --json --workspace'] = remoteStatus(false)
+  writeFileSync(tableFile, JSON.stringify(t))
+  await main.periodic()
+  await worker.request('state.refresh')
+  const v = (await worker.request('state.get')) as View
+  assert.equal((v.model as unknown as { forge: { freshness: string } }).forge.freshness, 'cached')
+  assert.equal(v.update.allowed, false)
+  assert.match(String(v.update.reason), /cached copy/)
 })

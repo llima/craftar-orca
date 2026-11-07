@@ -11,7 +11,7 @@ const CHANGED_WHILE_WRITING = 'changed while craftar was writing'
 
 export function compareWithQuestion(
   asked: readonly Asked[],
-  result: { written: string[]; removed: { path: string }[]; skipped: { path: string; state: string; reason: string }[] },
+  result: { written: string[]; removed: { path: string; reason?: string }[]; skipped: { path: string; state: string; reason: string }[] },
 ): { differences: string[]; rerun: boolean } {
   const want = new Set(asked.map((a) => a.path))
   const removed = result.removed.map((r) => r.path)
