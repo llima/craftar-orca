@@ -20,12 +20,17 @@ import { findGit, StageFailed, stagePaths } from './stage'
 import { syncOnce } from './sync-child'
 import { promote, PromoteRefused, type PromoteResult } from './promote'
 import { isAbsolute } from 'node:path'
+import { createHash } from 'node:crypto'
 import { allowWritesCommand, answered, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
 
 const ITEM = 'craftar'
 const HEARTBEAT = 'probe.heartbeat'
 const FOCUS_CHOICE = 'focus.choice'
 const FETCHED_AT = 'fetchedAt'
+// Per workspace path: a digest of craftar's messages the person cleared from the bell — never their text.
+const CLEARED = 'messages.cleared'
+// At most this many dismissed cards are remembered (memory only): an old one is forgotten first.
+const DISMISSED_MAX = 200
 // The queue key of the focus refresh; a workspace's key is its absolute path, which this cannot be.
 const FOCUS_QUEUE = ' focus'
 const HEARTBEAT_MS = 60_000
@@ -129,7 +134,7 @@ function versionShaped(line: string): string | null {
   return m ? m[0] : null
 }
 
-export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<string> {
+export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { notify?: boolean } = {}): Promise<string> {
   const { settings } = (await orca.host.call('settings.get', {})) as { settings: Record<string, unknown> }
   const craftarPath = text(settings.craftarPath)
   const craftarHome = text(settings.craftarHome)
@@ -179,15 +184,18 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   // lines — a prompt can carry a host name, a user name or a directory (spec 60 O11) — are shown in the
   // panel, to the person who ran it, and never logged or notified.
   orca.log(['probe ran', ...summary.slice(0, -1), terminal.id ? `${terminal.outcome} (terminal ${terminal.id})` : terminal.outcome].join('\n'))
-  const shown = (await orca.host
-    .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
-    .catch((e) => {
-      orca.log(failed('notification', e))
-      return null
-    })) as { delivered?: unknown } | null
-  out.push(
-    `notifications.show: ${shown?.delivered === true ? 'delivered' : 'not delivered'} (host-api 1.3: a notification has no action — the panel holds the one click)`,
-  )
+  // From the palette the report is announced; from Validate the person is looking at the panel already.
+  if (opts.notify !== false) {
+    const shown = (await orca.host
+      .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
+      .catch((e) => {
+        orca.log(failed('notification', e))
+        return null
+      })) as { delivered?: unknown } | null
+    out.push(
+      `notifications.show: ${shown?.delivered === true ? 'delivered' : 'not delivered'} (host-api 1.3: a notification has no action — the panel holds the one click)`,
+    )
+  }
   const report = [
     ...out,
     terminal.outcome,
@@ -196,8 +204,12 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number): Promise<str
   ]
   const s = st
   if (s) {
-    s.probe = { at: Date.now(), lines: report }
+    // The self-check's every line (ok included) heads the report, so Validate shows both in one place.
+    const checked = s.selfCheck.map((l) => `${l.level === 'ok' ? 'ok   ' : l.level === 'warn' ? 'warn ' : 'error'} ${l.message}`)
+    const lines = checked.length > 0 ? ['self-check', ...checked.map((l) => `  ${l}`), '', ...report] : report
+    s.probe = { at: Date.now(), lines }
     await publish(s).catch((e) => orca.log(failed('probe publish', e)))
+    return lines.join('\n')
   }
   return report.join('\n')
 }
@@ -245,6 +257,12 @@ interface State {
   rowsById: Map<string, Row>
   /** A read the save hook asked for, debounced. */
   saveTimer: ReturnType<typeof setTimeout> | null
+  /** The cards the person closed with ×, by the panel's key (workspace, card, craftar's words): memory only, never stored. */
+  dismissed: Set<string>
+  /** Per workspace path: the digest of the messages cleared from the bell (stored: digests only). */
+  cleared: Record<string, string>
+  /** Validate in flight: the forced self-check, then the probe. */
+  validating: boolean
 }
 
 export interface SendView {
@@ -638,6 +656,35 @@ export interface View {
   marked: string[]
   /** The files craftar refused to send, in its words: the panel shows them kept here, with no Send. */
   sendRefused: { path: string; message: string }[]
+  /** The keys of the cards closed with × (this run of the worker only). */
+  dismissed: string[]
+  /** The bell's messages were cleared and craftar has said nothing different since. */
+  messagesCleared: boolean
+  /** Validate is running (the self-check, then the probe). */
+  validating: boolean
+}
+
+/** craftar's words for this workspace, as the bell lists them: its warnings, its errors and its refusals to send. */
+function craftarWords(s: State, ws: string): string[] {
+  const m = s.models.get(ws)
+  const refused = [...(s.sendRefused.get(ws) ?? new Map<string, string>())].map(([p, msg]) => `${p}: ${msg}`)
+  // Every line the bell lists, so a different refusal, self-check failure or failed update brings them back.
+  const unset = (m?.unset ?? []).map((u) => `unset ${u.key} ${u.declaredBy.join(',')} ${u.citedBy.join(',')}`)
+  const checks = s.selfCheck.filter((l) => l.level !== 'ok').map((l) => `${l.level} ${l.message}`)
+  const sync = s.sync.get(ws)
+  const failedSync = sync?.phase === 'error' && sync.message ? [sync.message] : []
+  return [...(m?.warnings ?? []), ...(m?.errors ?? []), ...refused, ...unset, ...checks, ...failedSync]
+}
+
+/** A digest of the bell's messages for a workspace: what is stored when the person clears them, never the text. */
+export function messagesDigest(ws: string, words: string[]): string {
+  return createHash('sha256').update([ws, ...[...words].sort()].join('\0')).digest('hex')
+}
+
+function cleared(s: State, ws: string | null): boolean {
+  if (!ws) return false
+  const words = craftarWords(s, ws)
+  return words.length > 0 && s.cleared[ws] === messagesDigest(ws, words)
 }
 
 function view(s: State): View {
@@ -658,6 +705,9 @@ function view(s: State): View {
     forgeDir: { needed: forgeIsRemote(s, ws), dir: ws ? (s.forgeDirs[ws] ?? null) : null },
     marked: ws ? [...(s.marked.get(ws) ?? [])].sort() : [],
     sendRefused: ws ? [...(s.sendRefused.get(ws) ?? new Map<string, string>())].map(([path, message]) => ({ path, message })).sort((a, b) => a.path.localeCompare(b.path)) : [],
+    dismissed: [...s.dismissed],
+    messagesCleared: cleared(s, ws),
+    validating: s.validating,
   }
 }
 
@@ -970,6 +1020,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     forgeDirs: {},
     rowsById: new Map(),
     saveTimer: null,
+    dismissed: new Set(),
+    cleared: {},
+    validating: false,
   }
   st = s
   orca.host
@@ -1105,6 +1158,54 @@ export default function activate(orca: OrcaWorkerApi): void {
       return { refused: e instanceof DiffRefused ? e.message : 'craftar mcp did not answer' } as never
     }
   })
+  // A card closed with ×: hidden until craftar says something else (the key holds craftar's words) or the worker restarts.
+  orca.panels.handle('card.dismiss', async (input) => {
+    const key = (input as { key?: unknown } | undefined)?.key
+    if (typeof key !== 'string' || key === '' || key.length > 8192) throw new Error('not a card the panel shows')
+    s.dismissed.delete(key)
+    s.dismissed.add(key)
+    while (s.dismissed.size > DISMISSED_MAX) s.dismissed.delete(s.dismissed.values().next().value as string)
+    await publish(s)
+    return view(s) as never
+  })
+  // Clear: the bell's messages for the focused workspace are hidden until they change; only their digest is stored.
+  orca.panels.handle('messages.clear', async () => {
+    const ws = focusedPath(s)
+    const words = ws ? craftarWords(s, ws) : []
+    if (!ws || words.length === 0) throw new Error('craftar has no message to clear here')
+    s.cleared = { ...s.cleared, [ws]: messagesDigest(ws, words) }
+    await orca.storage.set(CLEARED, s.cleared).catch((e) => orca.log(failed('storage', e)))
+    await publish(s)
+    return view(s) as never
+  })
+  // Validate: the self-check run again and the probe, on demand; the report is shown in the panel, kept in memory only.
+  orca.panels.handle('validate.run', async () => {
+    if (!s.validating) {
+      s.validating = true
+      await publish(s)
+      void track(s, (async () => {
+        try {
+          const settings = await readSettings(orca)
+          const { local } = await listRows(orca)
+          await s.queue.run(FOCUS_QUEUE, () => ensureCheck(s, settings, local, true))
+          if (!probing) probing = probe(orca, startedAt, { notify: false }).finally(() => (probing = null))
+          await probing
+        } catch (e) {
+          orca.log(failed('validate', e))
+        } finally {
+          s.validating = false
+          await publish(s).catch((e) => orca.log(failed('validate publish', e)))
+        }
+      })())
+    }
+    return view(s) as never
+  })
+  void orca.storage
+    .get(CLEARED)
+    .then((v) => {
+      if (v && typeof v === 'object') for (const [k, d] of Object.entries(v as Record<string, unknown>)) if (typeof d === 'string' && /^[0-9a-f]{64}$/.test(d)) s.cleared[k] = d
+    })
+    .catch(() => undefined)
   void orca.storage
     .get(FORGE_DIRS)
     .then((v) => {

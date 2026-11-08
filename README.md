@@ -40,8 +40,16 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   services — with its state: up to date, outdated, drift or kept apart) and the workspace below with its profile; then the files coming
   from the Forge and the files edited here; and the actions in a fixed toolbar at the bottom, Bring (from the Forge) and Send (to the
   Forge). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
-  read gave an error, the sync is refused, a check fails or the Forge could not be fetched; the registry's lines about other workspaces stay out of its panel). A refused sync and a failed check are
-  shown in craftar's words. With no craftar workspace in focus the panel shows the logo, animated (still when the system asks for
+  read gave an error, the sync is refused, a check fails or the Forge could not be fetched; the registry's lines about other workspaces stay out of its panel). Each message is marked
+  *error*, *to look at* or *info* (`--offline`'s note, or the age of a cached copy, which the plugin adds as its own line); where the plugin
+  knows a fix it adds one under craftar's words, never in their place — for a target that skips an ingredient type it says what else the
+  workspace writes for, never that another target writes the ingredient. The bell also holds a refused sync's lines, the self-check's
+  failures and a failed update's words, so closing their cards drops nothing. The badge counts what is not information. *Clear* hides the messages until
+  craftar says something different: only a digest of them is stored, per workspace, never their text. A refused sync and a failed check are
+  shown in craftar's words. Every error card has a × that hides that card, with those words, until craftar says something else or the plugin
+  restarts — kept in memory, never stored; closing it changes nothing craftar refused (a refused file stays "kept here", its words on its row and
+  behind the bell). *Validate*, the shield beside the bell, runs the self-check again and the probe below on demand, with no notification (each click opens
+  a new "craftar probe" terminal), and shows both in a card at the top of the panel. With no craftar workspace in focus the panel shows the logo, animated (still when the system asks for
   reduced motion). Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
   `--allow-writes`.
 - **Send to Forge** (spec 60 §8) is offered for a file you edited by hand that craftar can carry up (`drift show --json`'s
@@ -83,7 +91,7 @@ select the craftar tab: Orca 1.4.250 gives a plugin no way to open or select its
 `commands.run` only toggles the side bars), so it stays this way until Orca offers that action. The palette command `craftar: show
 or hide the craftar panel` does the same.
 
-The probe `craftar: run the probe` (S0) stays, in the palette (Orca's default Ctrl+Shift+J on Linux, typing `craftar`), and opens its
+The probe — *Validate* in the panel, or `craftar: run the probe` (S0) in the palette (Orca's default Ctrl+Shift+J on Linux, typing `craftar`), and opens its
 terminal in the workspace Orca has active (asked of `orca-ide worktree ps --json`, as the focus is): it says which `craftar` it found and which environment variables the worker has (present or absent,
 never a value), and opens a terminal named "craftar probe" running `echo craftar-probe`. Its report appears in the **craftar panel**,
 the terminal's last lines included — your prompt, so possibly your host name, user name and directory, shown there only. A
@@ -102,6 +110,38 @@ Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 Measured on 2026-11-07 too: the probe's terminal opens, backed by a pty, in the workspace in focus, and `terminal.read` gives its
 lines back. Not measured yet: that Orca's CLI answers from inside the worker (the probe's `active workspace` line says so), and that
 a click on the status bar item shows or hides the side bar.
+
+## Install
+
+**You need** Orca **1.4.248** or later and your own `craftar`, installed apart (`npm install -g craftar`): **0.33.0** or later for the
+panel to read, **0.35.0** or later for **Update** (*Bring N from the Forge*; it uses the writing tools of `craftar mcp`). The plugin never installs or updates
+craftar, and never starts it through `npx`.
+
+**From a release — not measured yet.** Orca installs a plugin from its repository's `v<version>` tags, under the key
+`<owner>.<id>` — here `llima.craftar`, from `https://github.com/llima/craftar-orca` (Orca's plugin documentation, spec 60 §2.1). No tag
+has been published yet, so the exact steps in Orca have not been run; this section will name them once they have. Until then, use a
+clone (below). Tagging is the maintainer's; the tags will be listed at `https://github.com/llima/craftar-orca/tags`.
+
+**From a clone** (what the maintainer does today) — load a copy of a commit, not the clone itself:
+
+```bash
+git clone https://github.com/llima/craftar-orca.git
+mkdir craftar-orca-build && git -C craftar-orca archive HEAD | tar -x -C craftar-orca-build
+orca-ide plugin dev load ./craftar-orca-build
+```
+
+A development folder runs later edits to its code without asking again (Orca 1.4.250, `orca-ide plugin dev load --help`): a `git pull`
+in a loaded clone would run new code you never approved. Load each update from a new folder the same way, and unload the old one
+(`orca-ide plugin dev unload local.craftar`).
+
+**What you approve.** Orca loads nothing that runs code until you approve it: the first load fails with `approval_required`, listing
+what it grants and a fingerprint; read it, then load again with `--approve <fingerprint>` (or approve it on Orca's plugin page). You
+grant a `trusted-worker` — its worker runs with your user account's access (see the box at the top) — and exactly these capabilities:
+`workspace:read`, `workspace:write`, `terminal:send`, `terminal:read`, `notifications:show`, `storage:own`, `settings:own`
+(`orca-ide plugin inspect <dir>` shows them). New access asks again; for a development folder, a code edit does not (above).
+
+**After it loads**, set *craftar binary* in the plugin's settings when Orca was started from a dock or a menu (a short `PATH`), and
+open the right side bar and select the craftar tab (the status bar item *craftar* shows or hides the side bar).
 
 ## Settings
 
