@@ -29,7 +29,7 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked'> & S2View & S3View
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused'> & S2View & S3View
 
 export interface Actions {
   choose(id: string): void
@@ -57,6 +57,8 @@ export interface S3View {
   } | null
   forgeDir?: { needed: boolean; dir: string | null }
   marked?: string[]
+  /** The files craftar refused to send, in its words: kept here, no Send, until the file is saved again. */
+  sendRefused?: { path: string; message: string }[]
 }
 
 export interface PromotePlan {
@@ -171,7 +173,12 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   root.replaceChildren()
   root.setAttribute('class', 'shell')
 
-  const m = v.focus === 'one' ? v.model : null
+  // A file craftar refused to send stays here in craftar's words, with no Send, until it is saved again.
+  const refusedSend = new Map((v.sendRefused ?? []).map((r) => [r.path, r.message]))
+  const shown = v.focus === 'one' ? v.model : null
+  const m = shown && refusedSend.size > 0
+    ? { ...shown, edited: shown.edited.map((e) => (refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here — craftar will not send it' } : e)) }
+    : shown
   const failing = v.selfCheck.filter((l) => l.level !== 'ok')
   const broken = !v.model && failing.some((l) => l.level === 'error')
   const promotable = m ? m.edited.filter((e) => e.promotable).length : 0
@@ -375,6 +382,17 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           ? t('span', row.reason, { class: 'why' })
           : t('span', row.state, { class: 'st' }),
     )
+    // craftar's refusal, in its words, under the files it concerns.
+    const refusals = m.edited.filter((e) => refusedSend.has(e.path))
+    if (refusals.length > 0) {
+      const box = body.appendChild(h('section', { class: 'card bad', 'data-role': 'send-refused' }))
+      box.appendChild(t('h2', 'craftar will not send'))
+      for (const e of refusals) {
+        box.appendChild(t('p', e.path, { class: 'muted' }))
+        box.appendChild(t('pre', refusedSend.get(e.path) ?? '', { class: 'words', 'data-role': 'send-refused-message' }))
+      }
+      box.appendChild(t('p', 'Kept here as you edited it. Save the file again to ask craftar once more.', { class: 'muted' }))
+    }
     fileList('Kept apart', 'apart', m.apart, (row) => t('span', row.state, { class: 'st' }))
     if (v.lastSync) drawLastSync(v.lastSync)
     tail()
@@ -566,6 +584,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (sd.phase === 'error') {
       box.appendChild(t('h2', `craftar did not send ${sd.path}`))
       if (sd.message) box.appendChild(t('pre', sd.message, { class: 'words', 'data-role': 'send-message' }))
+      // A way out on the card itself as well as in the toolbar: a refusal never leaves the panel without one.
+      box.appendChild(h('div', { class: 'row' }, button('Back to the workspace', { class: 'btn', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.())))
       row.appendChild(back())
       tail()
       return

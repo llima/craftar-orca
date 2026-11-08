@@ -136,3 +136,22 @@ test('the send screen takes the body over: its steps, and its own toolbar per ph
   click(byAction(done.root, 'send-cancel')[0])
   assert.deepEqual(done.calls, ['cancel'])
 })
+
+test("a file craftar refused to send is kept here in craftar's words, with no Send, and the panel is not stuck", () => {
+  const { root } = draw(view({ sendRefused: [{ path: EDITED, message: 'error: D17: reaches agent/x, local to this profile' }] }))
+  assert.equal(byAction(root, 'send-file').length, 0)
+  assert.equal(byAction(root, 'send').length, 0)
+  assert.match(root.textContent, /kept here — craftar will not send it/)
+  const words = all(root).filter((e) => e.attrs['data-role'] === 'send-refused-message').map((e) => e.textContent)
+  assert.deepEqual(words, ['error: D17: reaches agent/x, local to this profile'])
+})
+
+test('the error screen of a send always has a way back, on the card and in the toolbar', () => {
+  const { root, calls } = draw(view({ send: { path: EDITED, phase: 'error', plan: null, result: null, message: 'error: D16: promote refused' } }))
+  const backs = byAction(root, 'send-cancel')
+  assert.equal(backs.length, 2)
+  const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
+  assert.ok(all(bar).some((e) => e.attrs['data-action'] === 'send-cancel'))
+  click(backs[0])
+  assert.deepEqual(calls, ['cancel'])
+})

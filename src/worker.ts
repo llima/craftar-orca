@@ -230,6 +230,8 @@ interface State {
   fetchState: Map<string, 'fetched' | 'failed' | 'off'>
   /** S3a, per workspace path: the Send to Forge in progress (the dry run's plan, then the write's result). */
   send: Map<string, SendView>
+  /** Per workspace path: the files craftar refused to send, with its words — kept here, no Send, until the file is saved again. */
+  sendRefused: Map<string, Map<string, string>>
   /** Per workspace path: every path craftar's status lists — what the save hook may mark (O7). */
   known: Map<string, Set<string>>
   /** Per workspace path: files saved since the last read, marked "edited — not yet in the Forge" (O7). */
@@ -422,6 +424,9 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     s.known.set(row.path, new Set(status.statuses.filter((x) => x.state !== 'new').map((x) => x.path)))
     // drift show is the source of truth: a read replaces what the save hook marked.
     s.marked.delete(row.path)
+    // A refusal of a file no longer edited by hand is no longer a question.
+    const refused = s.sendRefused.get(row.path)
+    if (refused) for (const p of [...refused.keys()]) if (!model.edited.some((x) => x.path === p)) refused.delete(p)
     await notifyEdited(s, model)
     // Nothing left to update: a consent asked for an earlier Update is no longer the question.
     if (model.pending.length === 0 && s.consent.has(row.path)) {
@@ -543,6 +548,13 @@ async function sendPreview(s: State, path: unknown): Promise<() => Promise<void>
   return () => sendPreviewRun(s, t, craftar, forge, token)
 }
 
+/** Records craftar's refusal of one file: the panel keeps it here, in craftar's words, with no Send. */
+function refuseSend(s: State, ws: string, path: string, message: string): void {
+  const m = s.sendRefused.get(ws) ?? new Map<string, string>()
+  m.set(path, message)
+  s.sendRefused.set(ws, m)
+}
+
 /** Sets a send's state only while it is still the run that started it (a Cancel or a newer run wins). */
 function setIfCurrent(s: State, ws: string, token: number, next: SendView): void {
   if (s.send.get(ws)?.token === token) s.send.set(ws, next)
@@ -554,7 +566,11 @@ async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar
       const plan = await promote(craftar, t.ws, t.path, { dryRun: true, forge })
       setIfCurrent(s, t.ws, token, { path: t.path, phase: 'preview', plan, result: null, message: null, forge, token })
     } catch (e) {
-      setIfCurrent(s, t.ws, token, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run', forge, token })
+      if (e instanceof PromoteRefused && s.send.get(t.ws)?.token === token) {
+        // craftar's refusal is an answer, not a screen to be stuck on: back to the workspace, the file kept here with craftar's words.
+        refuseSend(s, t.ws, t.path, e.message)
+        s.send.delete(t.ws)
+      } else setIfCurrent(s, t.ws, token, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run', forge, token })
     }
   })
   await publish(s)
@@ -577,6 +593,7 @@ async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendVi
       const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: prev.forge ?? null })
       setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'done', result, message: null })
     } catch (e) {
+      if (e instanceof PromoteRefused) refuseSend(s, t.ws, t.path, e.message)
       setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'error', result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
     }
   })
@@ -602,6 +619,8 @@ export interface View {
   /** A URL Forge needs a local clone named once per workspace (O5); a local Forge needs nothing. */
   forgeDir: { needed: boolean; dir: string | null }
   marked: string[]
+  /** The files craftar refused to send, in its words: the panel shows them kept here, with no Send. */
+  sendRefused: { path: string; message: string }[]
 }
 
 function view(s: State): View {
@@ -621,6 +640,7 @@ function view(s: State): View {
     send: ws ? (s.send.get(ws) ?? null) : null,
     forgeDir: { needed: forgeIsRemote(s, ws), dir: ws ? (s.forgeDirs[ws] ?? null) : null },
     marked: ws ? [...(s.marked.get(ws) ?? [])].sort() : [],
+    sendRefused: ws ? [...(s.sendRefused.get(ws) ?? new Map<string, string>())].map(([path, message]) => ({ path, message })).sort((a, b) => a.path.localeCompare(b.path)) : [],
   }
 }
 
@@ -907,6 +927,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     lastSync: new Map(),
     fetchState: new Map(),
     send: new Map(),
+    sendRefused: new Map(),
     known: new Map(),
     marked: new Map(),
     forgeDirs: {},
@@ -1019,6 +1040,8 @@ export default function activate(orca: OrcaWorkerApi): void {
       const set = s.marked.get(row.path) ?? new Set<string>()
       set.add(rel)
       s.marked.set(row.path, set)
+      // A new save is a new edit: craftar may answer otherwise, so its refusal of this file is asked again.
+      s.sendRefused.get(row.path)?.delete(rel)
       scheduleRead(s, () => refresh())
     }
     return undefined
