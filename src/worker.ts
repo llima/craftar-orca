@@ -276,8 +276,8 @@ interface State {
   periodicReading: string | null
   /** The periodic check in flight: what it read and notified, for its one log line (counts only), or null. */
   tally: Tally | null
-  /** The local Forge clone and ref pairs the clone holds as a tag (asked offline; a no is asked again). */
-  tagRefs: Map<string, true>
+  /** Per local Forge clone and ref: whether the clone holds it as a tag (asked offline; forgotten at each periodic check and when a clone is named). */
+  tagRefs: Map<string, boolean>
 }
 
 /** What one periodic check did, said in one log line: counts only, never a path or a name. */
@@ -615,18 +615,20 @@ async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<vo
 
 /**
  * Whether the person's named local clone of the Forge holds `ref` as a tag: `git show-ref --verify --quiet refs/tags/<ref>`,
- * an argument array, offline. Only a yes is kept: the clone may fetch the tag later, so a no (or no git, or any other
- * outcome, which says nothing) is asked again on the next read.
+ * an argument array, offline. A clear answer (exit 0 or 1) is kept until the next periodic check or a clone named again,
+ * so a focus read starts no git and a tag the clone fetches later shows within one interval; no git, or any other outcome,
+ * says nothing and is not kept.
  */
 async function holdsTag(s: State, clone: string, ref: string): Promise<boolean> {
   const key = `${clone}\0${ref}`
-  if (s.tagRefs.has(key)) return true
+  const known = s.tagRefs.get(key)
+  if (known !== undefined) return known
   const git = findGit(process.env.PATH ?? '')
   if (!git) return false
   const r = await run(git.bin, ['-C', clone, 'show-ref', '--verify', '--quiet', `refs/tags/${ref}`], git.env, 10_000).catch(() => null)
-  if (r?.code !== 0) return false
-  s.tagRefs.set(key, true)
-  return true
+  if (!r || (r.code !== 0 && r.code !== 1)) return false
+  s.tagRefs.set(key, r.code === 0)
+  return r.code === 0
 }
 
 function forgeIsRemote(s: State, ws: string | null): boolean {
@@ -1099,8 +1101,24 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   return true
 }
 
-/** The periodic check: every local craftar workspace, the only read that may fetch (spec 60 §7.1). */
-export async function periodic(): Promise<void> {
+/** The periodic check in flight, whichever path started it (the timer or Try again): a second start joins it. */
+let periodicRun: Promise<void> | null = null
+
+/**
+ * The periodic check: every local craftar workspace, the only read that may fetch (spec 60 §7.1). One at a time,
+ * whichever path starts it: a start while one runs joins that one, so no two loops read side by side, share the
+ * tally or the slot a Discard checks.
+ */
+export function periodic(): Promise<void> {
+  if (periodicRun) return periodicRun
+  const p = periodicOnce().finally(() => {
+    if (periodicRun === p) periodicRun = null
+  })
+  periodicRun = p
+  return p
+}
+
+async function periodicOnce(): Promise<void> {
   const s = st
   if (!s) return
   const settings = await readSettings(s.orca)
@@ -1112,6 +1130,7 @@ export async function periodic(): Promise<void> {
     return publish(s)
   }
   // One workspace after another: a periodic check never starts several craftar processes at once.
+  s.tagRefs.clear()
   const tally: Tally = { read: 0, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0 }
   s.tally = tally
   const all = (async () => {
@@ -1308,9 +1327,6 @@ function consentSteps(ws: string, craftar: Craftar, home: string, why: string | 
   ]
 }
 
-/** A Try again's periodic check in flight (one at a time). */
-let checkingNow = false
-
 export default function activate(orca: OrcaWorkerApi): void {
   const startedAt = Date.now()
   const tick = (): Promise<void> => beat(orca, startedAt).catch((e) => orca.log(failed('heartbeat', e)))
@@ -1374,16 +1390,9 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.events.on('workspace.changed', (payload) => refresh((payload as { context: Context | null }).context))
   orca.panels.handle('state.get', async () => view(s) as never)
   // The fetch-failed card's Try again: the periodic check, run now and tracked (it fetches, and may take longer than a
-  // panel request may wait), answered at once. One at a time: a click while one runs starts nothing more.
+  // panel request may wait), answered at once. A click while a check runs, the timer's included, joins it.
   orca.panels.handle('check.now', async () => {
-    if (!checkingNow) {
-      checkingNow = true
-      void track(s, periodic())
-        .catch((e) => orca.log(failed('periodic check', e)))
-        .finally(() => {
-          checkingNow = false
-        })
-    }
+    void track(s, periodic()).catch((e) => orca.log(failed('periodic check', e)))
     return view(s) as never
   })
   orca.panels.handle('state.refresh', async () => {
@@ -1717,6 +1726,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     // Stored first: a folder storage refused is not used either.
     await orca.storage.set(FORGE_DIRS, { ...s.forgeDirs, [ws]: dir })
     s.forgeDirs[ws] = dir
+    s.tagRefs.clear()
     // A plan made against another folder is not this one's.
     s.send.delete(ws)
     return view(s) as never
@@ -1832,6 +1842,7 @@ export function deactivate(): void {
   if (timer) clearInterval(timer)
   timer = null
   probing = null
+  periodicRun = null
   const s = st
   st = null
   if (s?.periodicTimer) clearTimeout(s.periodicTimer)

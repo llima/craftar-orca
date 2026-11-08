@@ -847,7 +847,7 @@ test('files to bring where Update cannot run (a failed fetch) are counted apart,
   assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /1 workspace read, 1 with files to bring, 1 where Update cannot run, no notification sent$/)
 })
 
-test('a named clone that is not a git repository gives no pinned line, and is asked again on the next read', { skip: !findOnPath('git', ORIGINAL_PATH) }, async () => {
+test('a named clone that is not a git repository gives no pinned line; the next periodic check asks again', { skip: !findOnPath('git', ORIGINAL_PATH) }, async () => {
   const notRepo = tempDir('craftar-orca-clone-')
   const st = JSON.parse(fixture('status.json'))
   st.forge = { ...st.forge, kind: 'git', source: 'https://example.com/acme/forge.git', ref: 'v1.2.0', fetched: true }
@@ -858,13 +858,13 @@ test('a named clone that is not a git repository gives no pinned line, and is as
   await main.settled()
   let v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
   assert.equal(v.model.forge.pinned, null)
-  // The folder becomes the clone and gets the tag: the next read sees it (a no was not kept).
+  // The folder becomes the clone and gets the tag: the next periodic check asks again (an answer lasts one interval).
   const env = { ...process.env, PATH: ORIGINAL_PATH, GIT_AUTHOR_NAME: 'acme', GIT_AUTHOR_EMAIL: 'acme@example.com', GIT_COMMITTER_NAME: 'acme', GIT_COMMITTER_EMAIL: 'acme@example.com' }
   const g = (...a: string[]) => execFileSync('git', ['-C', notRepo, ...a], { env })
   g('init', '-q', '-b', 'main')
   g('commit', '-q', '--allow-empty', '-m', 'init')
   g('tag', 'v1.2.0')
-  await worker.request('state.refresh')
+  await main.periodic()
   await main.settled()
   v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
   assert.equal(v.model.forge.pinned, 'tag')
@@ -879,4 +879,20 @@ test("the fetch-failed card's Try again runs the periodic check now: it fetches,
   const fetching = s.calls().slice(before).filter((c) => c.argv[0] === 'status' && !c.argv.includes('--offline'))
   assert.deepEqual(fetching.map((c) => c.argv), [['status', '--json', '--workspace', web]])
   assert.ok(worker.logs.some((l) => l.includes('periodic check: 1 workspace read')))
+})
+
+test('Try again while the timer\'s periodic check runs joins it: one loop, one fetch per workspace, one log line', async () => {
+  const { s, worker, web } = await setup()
+  const before = s.calls().length
+  const timerRun = main.periodic()
+  await worker.request('check.now')
+  assert.equal(main.periodic(), main.periodic(), 'a start while one runs gets the same run')
+  await timerRun
+  await main.settled()
+  const fetching = s.calls().slice(before).filter((c) => c.argv[0] === 'status' && !c.argv.includes('--offline'))
+  assert.deepEqual(fetching.map((c) => c.argv), [['status', '--json', '--workspace', web]])
+  assert.equal(worker.logs.filter((l) => l.includes('periodic check:')).length, 1)
+  // Once it ended, the next start is a new check.
+  await main.periodic()
+  assert.equal(worker.logs.filter((l) => l.includes('periodic check:')).length, 2)
 })
