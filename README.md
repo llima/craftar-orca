@@ -109,6 +109,33 @@ Measured on 2026-11-07 too: the probe's terminal opens, backed by a pty, in the 
 lines back. Not measured yet: that Orca's CLI answers from inside the worker (the probe's `active workspace` line says so), and that
 a click on the status bar item shows or hides the side bar.
 
+## Install
+
+**You need** Orca **1.4.248** or later and your own `craftar`, installed apart (`npm install -g craftar`): **0.33.0** or later for the
+panel to read, **0.35.0** or later for *Bring* (it uses the writing tools of `craftar mcp`). The plugin never installs or updates
+craftar, and never starts it through `npx`.
+
+**From a release.** Orca installs a plugin from its repository's `v<version>` tags; this one's key is `llima.craftar` (the repository's
+owner and the manifest's id), from `https://github.com/llima/craftar-orca`. No tag has been published yet — until the first one, use a
+clone (below). Tagging is the maintainer's; the tags list will be at `https://github.com/llima/craftar-orca/tags`.
+
+**From a clone** (what the maintainer does today):
+
+```bash
+git clone https://github.com/llima/craftar-orca.git
+orca-ide plugin dev load ./craftar-orca
+```
+
+**What you approve.** Orca loads nothing that runs code until you approve it: the first load fails with `approval_required`, listing
+what it grants and a fingerprint; read it, then load again with `--approve <fingerprint>` (or approve it on Orca's plugin page). You
+grant a `trusted-worker` — its worker runs with your user account's access (see the box at the top) — and exactly these capabilities:
+`workspace:read`, `workspace:write`, `terminal:send`, `terminal:read`, `notifications:show`, `storage:own`, `settings:own`
+(`orca-ide plugin inspect <dir>` shows them). The fingerprint is bound to that version, its files and that access: a new capability or
+a changed command asks again.
+
+**After it loads**, set *craftar binary* in the plugin's settings when Orca was started from a dock or a menu (a short `PATH`), and
+open the panel from the status bar item *craftar*.
+
 ## Settings
 
 - **craftar binary** (`craftarPath`) — the absolute path to `craftar`. Empty: the plugin looks for it on the absolute entries of `PATH`
