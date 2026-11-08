@@ -73,7 +73,7 @@ test('× on the refusal card hides that card only: the file stays kept here, its
   assert.ok(key.includes(message))
   const closed = draw({ ...v, dismissed: [key] })
   assert.equal(role(closed.root, 'send-refused').length, 0)
-  assert.match(closed.root.textContent, /kept here — craftar will not send it/)
+  assert.match(closed.root.textContent, /kept here: craftar will not send it/)
   assert.equal(role(closed.root, 'send-refused-why')[0].attrs.title, message)
   assert.deepEqual(role(closed.root, 'error').map((e) => e.textContent), [`${EDITED}: ${message}`])
   assert.equal(byAction(closed.root, 'send-file').length, 0)
@@ -110,7 +110,7 @@ test('Validate sits beside the bell, asks the worker, is busy while it runs, and
   const busy = draw(view(() => {}, { validating: true }))
   assert.equal(byAction(busy.root, 'validate')[0].attrs['aria-busy'], 'true')
   assert.equal(byAction(busy.root, 'validate')[0].attrs.disabled, '')
-  const probe = { at: 1, lines: ['self-check', '  ok    version 1.7.0', '', 'craftar probe — S0 (spec 60 §12)'] }
+  const probe = { at: 1, lines: ['self-check', '  ok    version 1.7.0', '', 'craftar probe, S0 (spec 60 §12)'] }
   const shown = draw(view(() => {}, { probe }))
   const card = role(shown.root, 'probe')[0]
   assert.match(role(card, 'probe-text')[0].textContent, /ok {4}version 1\.7\.0/)
@@ -125,7 +125,7 @@ test("a refused path whose row craftar already says it will not promote keeps cr
   const v = view((m) => { m.edited = [{ path: '.kiro/steering/x.md', state: 'drift', promotable: false, reason: 'kiro file — edit its .claude/ twin' }] }, { sendRefused: [{ path: '.kiro/steering/x.md', message: 'error: D5' }] })
   const { root } = draw(v)
   assert.match(root.textContent, /kiro file — edit its \.claude\/ twin/)
-  assert.doesNotMatch(root.textContent, /kept here — craftar will not send it/)
+  assert.doesNotMatch(root.textContent, /kept here: craftar will not send it/)
   assert.equal(role(root, 'send-refused').length, 0)
 })
 

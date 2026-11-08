@@ -131,7 +131,7 @@ const STATE_ICON: Record<string, [string, string]> = {
   'orphan-drift': ['apart', '!'],
 }
 
-const NOT_BUILT_UPDATE = 'Update and stage is not built yet in this version of the plugin — until then, run craftar sync in a terminal.'
+const NOT_BUILT_UPDATE = 'Update and stage is not built yet in this version of the plugin. Until then, run craftar sync in a terminal.'
 const NOT_BUILT_SEND = 'Send to Forge is not built yet in this version of the plugin.'
 const NEEDS_CLONE = 'name a local clone of the Forge first'
 
@@ -204,7 +204,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const refusedSend = new Map((v.sendRefused ?? []).map((r) => [r.path, r.message]))
   const shown = v.focus === 'one' ? v.model : null
   const m = shown && refusedSend.size > 0
-    ? { ...shown, edited: shown.edited.map((e) => (e.promotable && refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here — craftar will not send it' } : e)) }
+    ? { ...shown, edited: shown.edited.map((e) => (e.promotable && refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here: craftar will not send it' } : e)) }
     : shown
   const failing = v.selfCheck.filter((l) => l.level !== 'ok')
   const broken = !v.model && failing.some((l) => l.level === 'error')
@@ -267,7 +267,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     h('button', {
       class: 'icon-btn',
       type: 'button',
-      title: validating ? 'Validating…' : 'Validate — run the self-check and the probe again',
+      title: validating ? 'Validating…' : 'Validate: run the self-check and the probe again',
       'aria-label': validating ? 'Validating' : 'Validate: run the self-check and the probe again',
       'data-action': 'validate',
       ...(validating || typeof a.validate !== 'function' ? { disabled: '', 'aria-busy': validating ? 'true' : 'false' } : {}),
@@ -287,7 +287,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
   if (messages.length === 0) pop.appendChild(t('p', 'No message from craftar.', { class: 'muted' }))
   else {
-    if (cleared) pop.appendChild(t('p', 'Cleared — they come back when craftar says something different.', { class: 'muted', 'data-role': 'messages-cleared' }))
+    if (cleared) pop.appendChild(t('p', 'Cleared. They come back when craftar says something different.', { class: 'muted', 'data-role': 'messages-cleared' }))
     const ul = pop.appendChild(h('ul', { class: cleared ? 'msgs cleared' : 'msgs' }))
     for (const x of messages) {
       const li = ul.appendChild(h('li', { class: x.level === 'error' ? 'err error' : x.level === 'info' ? 'info' : 'act', 'data-level': x.level, 'data-from': x.from }))
@@ -318,7 +318,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   if (v.probe && !dismissed.has(cardKey('probe', String(v.probe.at)))) {
     const box = body.appendChild(h('section', { class: 'card', 'data-role': 'probe' }))
     box.appendChild(cardHead('Validation', cardKey('probe', String(v.probe.at))))
-    box.appendChild(t('p', `run ${new Date(v.probe.at).toLocaleTimeString()} — no file content; the terminal's last lines included`, { class: 'muted' }))
+    box.appendChild(t('p', `run ${new Date(v.probe.at).toLocaleTimeString()}: no file content; the terminal's last lines included`, { class: 'muted' }))
     box.appendChild(t('pre', v.probe.lines.join('\n'), { class: 'words', 'data-role': 'probe-text' }))
   }
 
@@ -338,10 +338,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     body.appendChild(empty(true, 'craftar cannot be used', "The self-check above says why, in its own words. Install a craftar the self-check accepts, or set craftar binary in the plugin's settings to its absolute path."))
   } else if (v.readFailed) {
     const box = body.appendChild(h('section', { class: 'cta bad' }))
-    box.appendChild(t('p', 'craftar status gave no document for this workspace — see the self-check, or run craftar status in a terminal.', { class: 'error' }))
+    box.appendChild(t('p', 'craftar status gave no document for this workspace. See the self-check, or run craftar status in a terminal.', { class: 'error' }))
     box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'refresh' }, 'refresh', () => a.refresh())))
   } else if (!m) {
-    if (v.focus === 'none') body.appendChild(empty(false, 'No craftar workspace has the focus', 'A workspace follows a Forge once it holds craftar.yaml — start one in a terminal with craftar init.'))
+    if (v.focus === 'none') body.appendChild(empty(false, 'No craftar workspace has the focus', 'A workspace follows a Forge once it holds craftar.yaml. Start one in a terminal with craftar init.'))
     else body.appendChild(t('p', 'Reading…', { class: 'muted' }))
   }
 
@@ -375,7 +375,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
     if (v.remote.length > 0) {
       const ul = h('ul', { class: 'lst' })
-      for (const r of v.remote) ul.appendChild(h('li', {}, t('span', r.name, { class: 'x' }), t('span', `${r.path} (on another host — not read)`, { class: 'a' })))
+      for (const r of v.remote) ul.appendChild(h('li', {}, t('span', r.name, { class: 'x' }), t('span', `${r.path} (on another host, not read)`, { class: 'a' })))
       body.appendChild(sec('On another host', v.remote.length, ul))
     }
   }
@@ -432,7 +432,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (!dismissed.has(checkFailedKey)) {
         const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'check-failed' }))
         box.appendChild(cardHead('A check fails', checkFailedKey))
-        box.appendChild(t('p', "craftar status exits 1 — a check fails; craftar's messages (the bell) say why."))
+        box.appendChild(t('p', "craftar status exits 1: a check fails; craftar's messages (the bell) say why."))
       }
     } else if (cached && !dismissed.has(fetchKey)) {
       const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'fetch-failed' }))
@@ -455,7 +455,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (v.marked && v.marked.length > 0) {
       const box = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'marked-box' }))
       const ul = box.appendChild(h('ul', { class: 'lines plain' }))
-      for (const p of v.marked) ul.appendChild(t('li', `${p} — edited, not yet in the Forge`, { 'data-role': 'marked' }))
+      for (const p of v.marked) ul.appendChild(t('li', `${p}: edited, not yet in the Forge`, { 'data-role': 'marked' }))
     }
 
     // ---- the files, both directions (item 6) ----
@@ -533,8 +533,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const lock = short(f?.lockCommit ?? null)
       const now = short(f?.commit ?? null)
       if (down > 0) flow('e', '↓', counted(down, ' coming down from the Forge'), lock && now && lock !== now ? `commit ${lock} → ${now}` : null)
-      if (promotable > 0) flow('s', '↑', counted(promotable, ' can go up to the Forge'), blocked > 0 ? `${blocked} more edited here that craftar will not send — see why below` : 'edited here by hand · kept on every sync')
-      else if (blocked > 0) flow('off', '↑', 'nothing to send up', `${blocked} edited here that craftar will not send — see why below`)
+      if (promotable > 0) flow('s', '↑', counted(promotable, ' can go up to the Forge'), blocked > 0 ? `${blocked} more edited here that craftar will not send (see why below)` : 'edited here by hand · kept on every sync')
+      else if (blocked > 0) flow('off', '↑', 'nothing to send up', `${blocked} edited here that craftar will not send (see why below)`)
       if (down === 0 && m.edited.length === 0) flow('off', '!', `${plural(m.apart.length, 'file', 'files')} kept apart`, null)
     }
 
@@ -597,11 +597,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // A cached copy keeps Update disabled whatever the worker says (O10): the panel enforces it too.
     const allowed = u ? u.allowed && n > 0 && !running && !cached && !m.refused && !m.checkFailed && typeof a.updateRun === 'function' : false
     const reason = m.refused || m.checkFailed
-      ? 'craftar refuses this workspace — see above'
+      ? 'craftar refuses this workspace (see above)'
       : cached
         ? (u?.reason ?? 'needs a fetch that works')
         : u
-          ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet — check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
+          ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet: check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
           : NOT_BUILT_UPDATE
     // A URL Forge needs a local clone before Send: asked for, or shown with Change, in the toolbar itself (the user's ask of 2026-11-08).
     if (promotable > 0 && v.forgeDir?.needed === true) drawForgeDir(v.forgeDir.dir)
@@ -683,7 +683,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (sd.phase === 'done') {
       box.setAttribute('class', 'ok-banner')
       box.appendChild(icon('check'))
-      box.appendChild(h('div', {}, t('strong', "Written to the Forge's working tree"), t('div', `${sd.path}${plan ? ` is now ${plan.promoted}` : ''} — nothing was committed.`, { class: 'muted' })))
+      box.appendChild(h('div', {}, t('strong', "Written to the Forge's working tree"), t('div', `${sd.path}${plan ? ` is now ${plan.promoted}` : ''}. Nothing was committed.`, { class: 'muted' })))
     } else {
       box.appendChild(t('h2', sd.phase === 'writing' ? `Writing ${sd.path} to the Forge…` : sd.phase === 'checking' ? `craftar is checking ${sd.path}…` : `Send ${sd.path} to the Forge?`))
       if (plan) {
@@ -722,7 +722,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (plan.warnings.length === 0) says.appendChild(t('li', 'no warnings', { class: 'quiet' }))
       body.appendChild(sec('craftar says', plan.warnings.length, says))
     }
-    if (sd.phase === 'done') body.appendChild(h('section', { class: 'card' }, t('p', 'Next: commit and open a PR in the Forge — a later step, in a terminal you see, one click each. Until then, use git in the Forge.', { class: 'muted' })))
+    if (sd.phase === 'done') body.appendChild(h('section', { class: 'card' }, t('p', 'Next: commit and open a PR in the Forge, a later step, in a terminal you see, one click each. Until then, use git in the Forge.', { class: 'muted' })))
     if (sd.phase === 'preview') {
       row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.()))
       row.appendChild(button('Write to the Forge', { class: 'btn ember', 'data-action': 'send-confirm' }, 'up', () => a.sendRun?.(sd.path)))
@@ -745,7 +745,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       return
     }
     const box = toolbar.appendChild(h('div', { class: 'tb-clone', 'data-role': 'forge-dir' }))
-    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it — craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
+    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it: craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
     const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' })
     box.appendChild(h('div', { class: 'tb' }, input, button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.((input as HTMLInputElement).value.trim()))))
   }
@@ -786,7 +786,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     list('Kept', l.kept.map((x) => ({ text: `${x.path} · ${x.state}${x.reason ? ` · ${x.reason}` : ''}`, role: 'kept' })))
     list('Changed since the question', l.differences.map((x) => ({ text: x, role: 'difference', cls: 'warn' })))
     list('craftar says', l.warnings.map((x) => ({ text: x, role: 'warning', cls: 'warn' })))
-    if (l.rerun) box.appendChild(t('p', 'craftar kept a file that changed while it was writing — bring the files again.', { class: 'note', 'data-role': 'rerun' }))
+    if (l.rerun) box.appendChild(t('p', 'craftar kept a file that changed while it was writing. Bring the files again.', { class: 'note', 'data-role': 'rerun' }))
     body.appendChild(sec('Last update', null, box, { 'data-role': 'last-sync' }))
   }
 

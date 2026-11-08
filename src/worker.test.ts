@@ -147,7 +147,7 @@ test('a craftar that cannot be found is reported and nothing is started', async 
   const h = host({ craftarPath: 'not/absolute' })
   const worker = await mountWorker(main, { host: h, commands: ['craftar.probe', 'craftar.open'] })
   const report = String(await worker.command('craftar.probe'))
-  assert.match(report, /craftar: not found — craftarPath must be an absolute path/)
+  assert.match(report, /craftar: not found \(craftarPath must be an absolute path/)
   assert.doesNotMatch(report, /version:/)
   await worker.deactivate()
 })

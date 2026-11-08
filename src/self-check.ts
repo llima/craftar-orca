@@ -54,7 +54,7 @@ export async function selfCheck(
   ws: string | null,
   opts: { listErrors: boolean } = { listErrors: true },
 ): Promise<{ lines: Line[]; craftar: Craftar | null; version?: string | null }> {
-  if (ws === null) return { lines: [{ level: 'ok', message: 'no craftar workspace in Orca on this machine — nothing to read' }], craftar: null }
+  if (ws === null) return { lines: [{ level: 'ok', message: 'no craftar workspace in Orca on this machine: nothing to read' }], craftar: null }
   const lines: Line[] = []
   const found = findCraftar({ craftarPath: o.craftarPath, path: o.path, platform: o.platform })
   if (found.found === null) return { lines: [{ level: 'error', message: `craftar: ${found.reason}` }], craftar: null }
@@ -77,13 +77,13 @@ export async function selfCheck(
   const version = typeof d.version === 'string' ? d.version : ''
   if (!versionAtLeast(version, FLOOR)) {
     const shown = SEMVER.test(version) ? version : 'its version'
-    lines.push({ level: 'error', message: `craftar ${shown} is older than ${FLOOR}, the oldest with every surface this plugin reads — upgrade craftar` })
+    lines.push({ level: 'error', message: `craftar ${shown} is older than ${FLOOR}, the oldest with every surface this plugin reads: upgrade craftar` })
     return { lines, craftar: null }
   }
   lines.push({ level: 'ok', message: `version ${version}` })
   const checked = version
   for (const c of opts.listErrors ? d.checks.filter((x) => x.level === 'error') : []) {
-    lines.push({ level: 'error', message: `doctor ${c.id}: ${c.message}${c.fix ? ` — ${c.fix}` : ''}` })
+    lines.push({ level: 'error', message: `doctor ${c.id}: ${c.message}${c.fix ? ` (fix: ${c.fix})` : ''}` })
   }
 
   if ((craftar.env.CRAFTAR_NO_REGISTRY ?? '') !== '') {

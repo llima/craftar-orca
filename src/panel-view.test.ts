@@ -100,7 +100,7 @@ test('a diff is shown as text, a refused diff in craftar words; remote workspace
   assert.equal(all(shown.root).some((e) => e.tag === 'b'), false)
   const refused = draw(modelView({ remote: [{ name: 'web', path: '/home/acme/elsewhere' }] }), { path: 'x', refused: 'not produced by this workspace: x' })
   assert.match(refused.root.textContent, /not produced by this workspace: x/)
-  assert.match(refused.root.textContent, /on another host — not read/)
+  assert.match(refused.root.textContent, /on another host, not read/)
 })
 
 test('no source of the panel inserts markup', () => {
@@ -128,10 +128,10 @@ test('a failed check is boxed with what craftar said; a fetched Forge reads its 
 test('the probe report is drawn as text, line by line, and absent until the probe ran', () => {
   const hostile = '<img src=x onerror=alert(1)>'
   assert.equal(all(draw(modelView()).root).some((e) => e.attrs['data-role'] === 'probe'), false)
-  const { root } = draw(modelView({ probe: { at: 0, lines: ['craftar probe — S0 (spec 60 §12)', `  | ${hostile}`] } }))
+  const { root } = draw(modelView({ probe: { at: 0, lines: ['craftar probe, S0 (spec 60 §12)', `  | ${hostile}`] } }))
   const box = all(root).find((e) => e.attrs['data-role'] === 'probe')
   assert.ok(box, 'a probe section')
-  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'probe-text')?.textContent, `craftar probe — S0 (spec 60 §12)\n  | ${hostile}`)
+  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'probe-text')?.textContent, `craftar probe, S0 (spec 60 §12)\n  | ${hostile}`)
   assert.equal(all(root).some((e) => e.tag === 'img'), false)
 })
 

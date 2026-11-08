@@ -60,7 +60,7 @@ test("doctor's error lines are listed with their fix, its warnings are not, and 
   })
   const r = await selfCheck(opts(s.bin, s.env), WS)
   const errors = r.lines.filter((l) => l.level === 'error').map((l) => l.message)
-  assert.deepEqual(errors, ['doctor params: acme.key is declared and has no value — set it in the profile'])
+  assert.deepEqual(errors, ['doctor params: acme.key is declared and has no value (fix: set it in the profile)'])
   assert.equal(r.lines.some((l) => /ACME_TOKEN/.test(l.message)), false)
   assert.equal(s.calls().filter((c) => c.argv[0] === 'doctor').length, 1)
 })

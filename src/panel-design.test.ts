@@ -89,7 +89,7 @@ test('edited files craftar will not send offer no Send and say how many were hel
     }),
   )
   assert.equal(byAction(root, 'send').length, 0)
-  assert.match(root.textContent, /1 edited here that craftar will not send — see why below/)
+  assert.match(root.textContent, /1 edited here that craftar will not send \(see why below\)/)
   assert.match(root.textContent, /kiro file — edit its \.claude\/ twin/)
 })
 

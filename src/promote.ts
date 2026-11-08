@@ -50,7 +50,7 @@ export async function promote(craftar: Craftar, ws: string, path: string, opts: 
     }
   }
   // A write stopped before it finished may have written some Forge files and not others.
-  if (r.code === null && !opts.dryRun) throw new PromoteRefused("craftar drift promote did not finish in time — the Forge's working tree may be partly written — look at git status in the Forge before sending again")
+  if (r.code === null && !opts.dryRun) throw new PromoteRefused("craftar drift promote did not finish in time. The Forge's working tree may be partly written: look at git status in the Forge before sending again")
   const words = r.stderr.trim()
   throw new PromoteRefused(words !== '' ? words : `craftar drift promote failed (exit ${r.code ?? 'none'})`)
 }
