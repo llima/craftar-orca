@@ -1356,6 +1356,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const ws = focusedPath(s)
     const f = ws ? s.forgePr.get(ws) : undefined
     if (!ws || !f) throw new Error('no Forge PR is being prepared here')
+    if (forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is starting: wait for its terminal')
     const open = (input as { open?: unknown } | null)?.open === true
     // Back from a PR that is open on the Forge: nothing is left to do here.
     if (!open && f.phase === 'opened') s.forgePr.delete(ws)
@@ -1366,6 +1367,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   // Drop the steps that are left: what is already done in the Forge (a branch, a commit) stays as it is.
   orca.panels.handle('forgepr.drop', async () => {
     const ws = focusedPath(s)
+    if (ws && forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is starting: wait for its terminal')
     if (ws) s.forgePr.delete(ws)
     await publish(s)
     return view(s) as never

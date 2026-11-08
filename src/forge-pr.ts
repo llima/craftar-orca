@@ -66,7 +66,8 @@ export interface StepRead {
 }
 
 const IDENT = /^(.+ <[^<>]*>) \d+ [+-]\d{4}$/
-const BRANCH_LINE = /^craftar-branch:(.+)$/
+// What git prints for a branch: no space, no `$(` (a wrapped row of the prepare command itself never reads as one).
+const BRANCH_LINE = /^craftar-branch:([^\s$()]+)$/
 
 /**
  * Reads a step's terminal lines. A marker counts only as a whole line (the echoed command line holds it inside a longer one).

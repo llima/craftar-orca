@@ -190,7 +190,7 @@ test('with an origin on a host, the PR URL of that host is kept and attached wit
     await run
     await main.settled()
   }
-  h.respond('terminal.read', { lines: ['https://evil.example/acme/forge2/pull/9', 'https://github.com/acme/forge2/pull/3', marker('pr', 'n1', true)], truncated: false })
+  h.respond('terminal.read', { lines: ['https://github.com/acme/forge2/pull/3', 'https://evil.example/acme/forge2/pull/9', marker('pr', 'n1', true)], truncated: false })
   await worker.request('forgepr.step', { step: 'pr' })
   await main.settled()
   const f = await get(worker)

@@ -67,6 +67,9 @@ test('a marker counts only as a whole line with its nonce; the identity, the bra
   const p = readStep(['Acme Dev <dev@acme.example> 1794150445 -0300', 'craftar-branch:main', marker('prepare', 'n1', true)], 'prepare', 'n1', null)
   assert.equal(p.identity, 'Acme Dev <dev@acme.example>')
   assert.equal(p.branch, 'main')
+  // The prepare command wrapped at any width never gives a branch.
+  const prep = `$ ${stepCommand('bash', 'prepare', I)}`
+  for (let w = 10; w < 200; w++) assert.equal(readStep(prep.match(new RegExp(`.{1,${w}}`, 'g')) ?? [], 'prepare', 'n1', null).branch, null, String(w))
 })
 
 test("the Forge remote's host, from https or ssh", () => {
