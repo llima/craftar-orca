@@ -41,7 +41,9 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   services, with its state: up to date, outdated, drift or kept apart) and the workspace below with its profile; then the files coming
   from the Forge and the files edited here; and the actions in a fixed toolbar at the bottom, Bring (from the Forge) and Send (to the
   Forge). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
-  read gave an error, the sync is refused, a check fails or the Forge could not be fetched; the registry's lines about other workspaces stay out of its panel). Each message is marked
+  read gave an error, the sync is refused or a check fails; the registry's lines about other workspaces stay out of its panel). A cached
+  copy does not open it: its card says so, and its *Try again* runs the periodic check now, the one read that fetches. Once you open or
+  close the bell, a redraw keeps it so for the same messages, and a press anywhere outside it, or Esc, closes it. Each message is marked
   *error*, *to look at* or *info* (`--offline`'s note, or the age of a cached copy, which the plugin adds as its own line); where the plugin
   knows a fix it adds one under craftar's words, never in their place; for a target that skips an ingredient type it says what else the
   workspace writes for, never that another target writes the ingredient. The bell also holds a refused sync's lines, the self-check's
@@ -93,6 +95,16 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   workspace was listed, the file inside it, focused and recorded in the lock, never the path or the text.
 - **The periodic check notifies** once when the files coming from the Forge grow, for a workspace Update can run on: "Forge <name> changed N files for <workspace>:
   update N files and add them to the commit? Open the craftar panel." Names and counts only (an Orca notification takes no click).
+  Each check writes one line to the plugin log, counts and fixed words only: the workspaces read, and when there are any, the reads
+  that failed and the workspaces a running Discard held; how many have files to bring, and of those how many Update cannot run on (a
+  failed fetch, fetch off, a refused sync, an older craftar) and how many were already notified at that count; then the
+  notifications sent and how many Orca says it delivered ("no notification sent" otherwise). With no craftar found the line reads
+  "periodic check: craftar not found, nothing read". A workspace pinned to a ref that does not move never has files to bring when the
+  Forge merges a change: craftar reads the ref `craftar.yaml` names and does not look for a newer tag. The Forge card says so. Under a
+  tag of the local clone of the Forge named for Send (`git show-ref --verify --quiet refs/tags/<ref>` in that clone, offline) a line
+  reads "tag <ref> does not move: a change merged in the Forge comes here once a newer tag is set as ref in craftar.yaml"; under a ref
+  that is a full commit id, "a commit does not move: a change merged in the Forge comes here once a newer ref is set in craftar.yaml".
+  Without a named clone a tag is not told from a branch, and no line is shown.
 - **Bring** (the toolbar's *Bring N from the Forge*, the update) is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
   and, for a remote Forge, the last periodic check fetched it (a focus read is offline and changes nothing here; with **Fetch a
   remote Forge** off, Update stays off for a remote Forge); otherwise it says why. Its confirm lists every file

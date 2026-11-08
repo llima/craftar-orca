@@ -79,6 +79,7 @@ ul.msgs.cleared { opacity: .6; }
 .node .fresh { font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--orca-muted-foreground); display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; overflow-wrap: anywhere; }
 .node .s { font-family: var(--mono); font-size: 11px; color: var(--orca-muted-foreground); margin-top: 2px; overflow-wrap: anywhere; }
 .node .s.src { font-size: 10.5px; opacity: .85; }
+.node .s.pin { font-family: inherit; font-size: 11px; line-height: 1.4; margin-top: 4px; }
 .em { color: var(--ember); }
 .stc { color: var(--steel); }
 .stem { width: 1px; height: 12px; background: color-mix(in srgb, var(--ember) 70%, var(--line)); }
@@ -265,6 +266,8 @@ let prDraft: { branch?: string; title?: string } | null = null
 let diff: DiffShown = null
 // The worker's refusal of the panel's last request, shown until the next request (nothing is dropped).
 let notice: string | null = null
+// The bell as the person last left it, for the message set it was left on: memory only, so a redraw keeps it.
+let bellLeft: { key: string; open: boolean } | null = null
 
 function draw(): void {
   if (!view) {
@@ -305,6 +308,24 @@ const actions = {
             }
           }),
       )
+  },
+  bellState(): { key: string; open: boolean } | null {
+    return bellLeft
+  },
+  bellSet(key: string, open: boolean): void {
+    bellLeft = { key, open }
+  },
+  checkNow(): void {
+    // The fetch-failed card's Try again: the worker runs the periodic check now and answers at once; the result comes
+    // on state.changed. A refusal is shown in its words.
+    notice = null
+    void orca.plugin
+      .request('check.now', undefined, { timeoutMs: 60_000 })
+      .then((v) => {
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
   },
   refresh(): void {
     notice = null

@@ -92,6 +92,14 @@ export interface Actions {
   messagesClear?(): void
   validate?(): void
   clearNotice?(): void
+  /** The fetch-failed card's Try again: the periodic check, run now (the one read that fetches). */
+  checkNow?(): void
+  /**
+   * The bell's open or closed state as the person last left it, for the message set it was left on, kept by the panel
+   * across redraws (memory only): a redraw never reopens a bell the person closed, and a new message set may.
+   */
+  bellState?(): { key: string; open: boolean } | null
+  bellSet?(key: string, open: boolean): void
 }
 
 /** S3a's additions to the view (spec 60 §8, O5, O7): optional, as S2's. */
@@ -279,8 +287,12 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   h1.appendChild(t('span', 'craftar', { class: 'brand' }))
   if (m) h1.appendChild(t('span', m.name, { class: 'ws-name' }))
   header.appendChild(h('span', { class: 'spacer' }))
-  // Item 8: craftar's warnings and errors behind a bell; opened at once when craftar reports an error.
-  const openAtStart = !!m && !cleared && (m.errors.length > 0 || m.refused || m.checkFailed || cached)
+  // Item 8: craftar's warnings and errors behind a bell; opened at once when craftar reports an error. A cached copy
+  // does not open it: its card says so and holds Try again, which an open bell would cover. Once the person opened or
+  // closed it, a redraw keeps that for the same messages (Try again redrew it open, the user's report of 2026-11-08).
+  const bellKey = (m?.ws ?? '') + '\u0002' + messages.map((x) => `${x.level}\u0000${x.text}`).join('\u0001')
+  const left = a.bellState?.() ?? null
+  const openAtStart = left && left.key === bellKey ? left.open : !!m && !cleared && (m.errors.length > 0 || m.refused || m.checkFailed)
   const bell = header.appendChild(
     h('button', {
       class: `icon-btn bell${openAtStart ? ' on' : ''}${hasError ? ' bad' : ''}`,
@@ -329,16 +341,32 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (x.fix) li.appendChild(t('span', `fix: ${x.fix}`, { class: 'fix', 'data-role': 'message-fix' }))
     }
   }
-  bell.addEventListener('click', () => {
-    const open = pop.getAttribute('class') === 'pop open'
-    pop.setAttribute('class', open ? 'pop' : 'pop open')
-    bell.setAttribute('aria-expanded', open ? 'false' : 'true')
+  const setBell = (open: boolean): void => {
+    pop.setAttribute('class', open ? 'pop open' : 'pop')
+    bell.setAttribute('aria-expanded', open ? 'true' : 'false')
     const c = (bell.getAttribute('class') ?? '').split(' ').filter((x) => x && x !== 'on')
-    bell.setAttribute('class', (open ? c : [...c, 'on']).join(' '))
-  })
+    bell.setAttribute('class', (open ? [...c, 'on'] : c).join(' '))
+    a.bellSet?.(bellKey, open)
+  }
+  bell.addEventListener('click', () => setBell(pop.getAttribute('class') !== 'pop open'))
+  // The bell never stays over the panel's buttons: a press anywhere outside it, or Esc, closes it, and the press goes on
+  // to what it was on (a pointerdown, so the click still reaches Try again).
+  const closeOutside = (): void => {
+    if (pop.getAttribute('class') === 'pop open') setBell(false)
+  }
+  const onKey = (e?: unknown): void => {
+    if ((e as { key?: string } | undefined)?.key === 'Escape') closeOutside()
+  }
+  pop.addEventListener('keydown', onKey as () => void)
+  bell.addEventListener('keydown', onKey as () => void)
 
   const body = root.appendChild(h('div', { class: 'body' }))
   const toolbar = h('footer', { class: 'toolbar', 'data-role': 'toolbar' })
+  for (const el of [body, toolbar]) {
+    el.addEventListener('pointerdown', closeOutside)
+    el.addEventListener('keydown', onKey as () => void)
+  }
+  for (const b of [validate, refresh, logo]) b.addEventListener('pointerdown', closeOutside)
 
   // ---- the worker's refusal of the panel's last request ----
   if (notice) {
@@ -479,7 +507,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       box.appendChild(cardHead('The Forge could not be reached', fetchKey))
       const when = f?.fetchedAt ? new Date(f.fetchedAt).toLocaleString() : null
       box.appendChild(t('p', `What you see comes from the cached copy${when ? ` fetched ${when}` : ''}. Bringing files waits for a fetch that works; craftar's words are behind the bell.`))
-      box.appendChild(h('div', { class: 'row' }, button('Try again', { class: 'btn', 'data-action': 'refresh' }, 'refresh', () => a.refresh())))
+      // Try again fetches: the periodic check, run now. A focus read is offline and could never clear this card.
+      box.appendChild(h('div', { class: 'row' }, button('Try again', { class: 'btn', 'data-action': a.checkNow ? 'check-now' : 'refresh' }, 'refresh', () => (a.checkNow ? a.checkNow() : a.refresh()))))
     }
     if (v.consent) drawConsent(v.consent)
     // craftar's words about the last run; a consent refusal is said once, in the consent card above.
@@ -564,6 +593,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (source) forge.appendChild(t('div', source, { class: 's src' }))
     // Where the Forge was read from, on a line of its own under its path (the user's ask of 2026-11-08).
     forge.appendChild(h('div', { class: 'fresh', 'data-role': 'freshness' }, h('span', { class: `dot ${fresh[0]}` }), t('span', fresh[1])))
+    // A ref that does not move: a change merged in the Forge comes here only with a new ref (the user's ask of 2026-11-08).
+    const pin = pinnedLine(f?.pinned ?? null, f?.ref ?? null)
+    if (pin) forge.appendChild(t('div', pin, { class: 's pin', 'data-role': 'pinned' }))
 
     dia.appendChild(h('div', { class: linkBroken ? 'stem broken' : 'stem' }))
 
@@ -1025,4 +1057,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
     body.appendChild(sec(title, rows.length, ul, { 'data-role': `list-${dir}` }))
   }
+}
+
+/** The Forge card's line for a ref that does not move, or null. Fixed words and craftar's ref only. */
+export function pinnedLine(pinned: 'tag' | 'commit' | null, ref: string | null): string | null {
+  if (pinned === 'tag' && ref) return `tag ${ref} does not move: a change merged in the Forge comes here once a newer tag is set as ref in craftar.yaml`
+  if (pinned === 'commit') return 'a commit does not move: a change merged in the Forge comes here once a newer ref is set in craftar.yaml'
+  return null
 }

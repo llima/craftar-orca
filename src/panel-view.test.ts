@@ -150,3 +150,20 @@ test('the header draws the logo as an inline SVG of three squares, decorative, b
   assert.deepEqual(fills, ['#0A0E13', '#E7ECF1', '#E9915A', '#7FB4D6'])
   assert.equal(all(header).some((e) => e.tag === 'image' || e.tag === 'img' || e.tag === 'use'), false)
 })
+
+test('the Forge card says when the ref does not move: a tag by name, a commit in fixed words, nothing otherwise', () => {
+  const at = (pinned: 'tag' | 'commit' | null, ref: string | null) => {
+    const v = modelView()
+    v.model!.forge = { ...v.model!.forge!, freshness: 'fetched', fetchedAt: 0, ref, pinned }
+    return all(draw(v).root).find((e) => e.attrs['data-role'] === 'pinned')?.textContent ?? null
+  }
+  assert.equal(at('tag', 'v1.2.0'), 'tag v1.2.0 does not move: a change merged in the Forge comes here once a newer tag is set as ref in craftar.yaml')
+  assert.equal(at('commit', 'd2309dc201c9a5127285a83092fb3853b8926101'), 'a commit does not move: a change merged in the Forge comes here once a newer ref is set in craftar.yaml')
+  assert.equal(at(null, 'main'), null)
+  const hostile = '<b>v1</b>'
+  const v = modelView()
+  v.model!.forge = { ...v.model!.forge!, ref: hostile, pinned: 'tag' }
+  const { root } = draw(v)
+  assert.match(root.textContent, /tag <b>v1<\/b> does not move/)
+  assert.equal(all(root).some((e) => e.tag === 'b'), false, 'the ref is text, never markup')
+})

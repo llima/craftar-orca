@@ -24,6 +24,7 @@ test('the Forge box: source, ref, commit and the profile from drift show; a path
     profile: 'acme-web',
     freshness: 'local',
     fetchedAt: null,
+    pinned: null,
   })
 })
 
@@ -33,6 +34,7 @@ test('a remote Forge reads "fetched" when this read fetched and "cached copy" ot
   const cached = model({ status: remote(false), fetchedAt: 1234 })
   assert.equal(cached.forge?.freshness, 'cached')
   assert.equal(cached.forge?.fetchedAt, 1234)
+  assert.equal(cached.forge?.pinned, null)
 })
 
 test('the flow: pending files go Forge → workspace, a drift goes back with promotable and reason verbatim', () => {
@@ -133,4 +135,13 @@ test("this workspace's plan warning, said again by the registry with its path, i
   const r = { ...registry(), warnings: [`${WS}: agents-md: the rule is long`] }
   const m = model({ status: { ...status(), warnings: ['agents-md: the rule is long'] }, registry: r })
   assert.deepEqual(m.warnings.filter((w) => w.includes('the rule is long')), ['agents-md: the rule is long'])
+})
+
+test('a remote Forge whose ref is a full commit id is pinned; a named ref is left for the worker to ask', () => {
+  const at = (ref: string, kind = 'git'): StatusDoc => ({ ...status(), forge: { ...status().forge, kind, ref, fetched: true } })
+  assert.equal(model({ status: at('d2309dc201c9a5127285a83092fb3853b8926101') }).forge?.pinned, 'commit')
+  assert.equal(model({ status: at('D2309DC201C9A5127285A83092FB3853B8926101D2309DC201C9A5127285A830') }).forge?.pinned, 'commit')
+  assert.equal(model({ status: at('v1.2.0') }).forge?.pinned, null)
+  assert.equal(model({ status: at('d2309dc') }).forge?.pinned, null, 'a short id may be a branch name')
+  assert.equal(model({ status: at('d2309dc201c9a5127285a83092fb3853b8926101', 'path') }).forge?.pinned, null, 'a path Forge is read as it is on disk')
 })
