@@ -7,6 +7,7 @@
 import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
+import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
 
 const SVG = 'http://www.w3.org/2000/svg'
 
@@ -29,7 +30,17 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused'> & S2View & S3View
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating'> & S2View & S3View & BellView
+
+/** The bell's additions (the user's request of 2026-11-08): optional, as S2's and S3a's. */
+export interface BellView {
+  /** The keys of the cards closed with ×, kept by the worker in memory only. */
+  dismissed?: string[]
+  /** The bell's messages were cleared and nothing changed since. */
+  messagesCleared?: boolean
+  /** Validate is running. */
+  validating?: boolean
+}
 
 export interface Actions {
   choose(id: string): void
@@ -44,6 +55,11 @@ export interface Actions {
   sendRun?(path: string): void
   sendCancel?(): void
   forgeDirSet?(dir: string): void
+  /** The bell: `card.dismiss` (a card closed with ×), `messages.clear`, `validate.run`; the panel's own notice closed. */
+  dismiss?(key: string): void
+  messagesClear?(): void
+  validate?(): void
+  clearNotice?(): void
 }
 
 /** S3a's additions to the view (spec 60 §8, O5, O7): optional, as S2's. */
@@ -94,6 +110,8 @@ export function refusalLines(unset: UnsetParam[]): string[] {
 const ICON: Record<string, string> = {
   refresh: 'M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3',
   bell: 'M4 11.5V7.5a4 4 0 0 1 8 0v4l1.2 1.3H2.8zM6.5 14h3',
+  shield: 'M8 1.8 13 3.6v4.1c0 3-2.1 5.4-5 6.5-2.9-1.1-5-3.5-5-6.5V3.6zM5.8 8l1.6 1.6L10.4 6.5',
+  close: 'M4 4l8 8M12 4l-8 8',
   down: 'M8 2.5v9M4 8l4 4 4-4M3 14h10',
   up: 'M8 13.5v-9M4 8l4-4 4 4M3 2h10',
   check: 'M5 8.2l2 2 4-4.2',
@@ -170,6 +188,15 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(body)
     return box
   }
+  // × on a card: it hides that card, with these words, until craftar says something else; nothing it refused changes.
+  const closer = (label: string, onClick: () => void): HTMLButtonElement => {
+    const b = h('button', { class: 'x-btn', type: 'button', title: label, 'aria-label': label, 'data-action': 'dismiss' })
+    b.appendChild(icon('close'))
+    b.addEventListener('click', onClick)
+    return b
+  }
+  const cardHead = (title: string, key: string): HTMLElement =>
+    h('div', { class: 'card-h' }, t('h2', title), typeof a.dismiss === 'function' ? closer(`Close: ${title}`, () => a.dismiss?.(key)) : null)
   root.replaceChildren()
   root.setAttribute('class', 'shell')
 
@@ -184,7 +211,23 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const promotable = m ? m.edited.filter((e) => e.promotable).length : 0
   const cached = m?.forge?.freshness === 'cached'
   const version = v.selfCheck.map((l) => /^version (\S+)$/.exec(l.message)?.[1]).find((x) => x !== undefined) ?? null
-  const messages: { text: string; err: boolean }[] = m ? [...m.warnings.map((w) => ({ text: w, err: false })), ...m.errors.map((e) => ({ text: e, err: true }))] : []
+  const dismissed = new Set(v.dismissed ?? [])
+  // A card's key: the card, the workspace, and craftar's words — a different message is a different card.
+  const cardKey = (role: string, ...words: string[]): string => [role, m?.ws ?? '', ...words].join('\u0000')
+  const owners = m ? m.outputs.map((o) => o.owner) : []
+  // The bell: craftar's warnings and errors, its refusals to send (so a closed card's words stay reachable), and the
+  // plugin's own line for a cached copy's age. Each keeps craftar's words; a fix is a line of its own.
+  const messages: Message[] = m
+    ? [
+        ...(cached ? [cachedAgeLine(m.forge?.fetchedAt ?? null, Date.now())] : []),
+        ...m.errors.map((e) => classify(e, true, owners)),
+        ...(v.sendRefused ?? []).map((r) => ({ ...classify(`${r.path}: ${r.message}`, true, owners) })),
+        ...m.warnings.map((w) => classify(w, false, owners)),
+      ]
+    : []
+  const cleared = v.messagesCleared === true
+  const badge = cleared ? 0 : needsLook(messages)
+  const hasError = !cleared && messages.some((x) => x.level === 'error')
 
   // ---- header: the logo, the workspace, the bell, Check again ----
   const header = root.appendChild(h('header'))
@@ -200,30 +243,53 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   if (m) h1.appendChild(t('span', m.name, { class: 'ws-name' }))
   header.appendChild(h('span', { class: 'spacer' }))
   // Item 8: craftar's warnings and errors behind a bell; opened at once when craftar reports an error.
-  const openAtStart = !!m && (m.errors.length > 0 || m.refused || m.checkFailed || cached)
+  const openAtStart = !!m && !cleared && (m.errors.length > 0 || m.refused || m.checkFailed || cached)
   const bell = header.appendChild(
     h('button', {
-      class: messages.length > 0 ? `icon-btn bell${openAtStart ? ' on' : ''}${m && m.errors.length > 0 ? ' bad' : ''}` : 'icon-btn bell',
+      class: `icon-btn bell${openAtStart ? ' on' : ''}${hasError ? ' bad' : ''}`,
       type: 'button',
-      title: messages.length > 0 ? `craftar says: ${plural(messages.length, 'message', 'messages')}` : 'No message from craftar',
-      'aria-label': messages.length > 0 ? `Messages from craftar, ${messages.length}` : 'Messages from craftar, none',
+      title: messages.length === 0 ? 'No message from craftar' : cleared ? 'craftar says nothing new since you cleared it' : `craftar says: ${plural(messages.length, 'message', 'messages')}`,
+      'aria-label': badge > 0 ? `Messages from craftar, ${badge} to look at` : messages.length > 0 ? `Messages from craftar, ${messages.length}, nothing to look at` : 'Messages from craftar, none',
       'aria-expanded': openAtStart ? 'true' : 'false',
       'data-action': 'messages',
       'aria-controls': 'craftar-messages',
     }),
   )
   bell.appendChild(icon('bell'))
-  if (messages.length > 0) bell.appendChild(t('span', String(messages.length), { class: 'badge', 'data-role': 'messages-count' }))
+  if (badge > 0) bell.appendChild(t('span', String(badge), { class: 'badge', 'data-role': 'messages-count' }))
+  // Validate, beside the bell: the self-check and the probe run again on demand, their report shown in the body.
+  const validating = v.validating === true
+  const validate = header.appendChild(
+    h('button', {
+      class: 'icon-btn',
+      type: 'button',
+      title: validating ? 'Validating…' : 'Validate — run the self-check and the probe again',
+      'aria-label': validating ? 'Validating' : 'Validate: run the self-check and the probe again',
+      'data-action': 'validate',
+      ...(validating || typeof a.validate !== 'function' ? { disabled: '', 'aria-busy': validating ? 'true' : 'false' } : {}),
+    }),
+  )
+  validate.appendChild(icon('shield'))
+  validate.addEventListener('click', () => a.validate?.())
   const refresh = header.appendChild(h('button', { class: 'icon-btn', type: 'button', title: 'Check again', 'aria-label': 'Check again', 'data-action': 'refresh' }))
   refresh.appendChild(icon('refresh'))
   refresh.addEventListener('click', () => a.refresh())
 
   const pop = root.appendChild(h('div', { id: 'craftar-messages', class: openAtStart ? 'pop open' : 'pop', role: 'region', 'aria-label': 'Messages from craftar', 'data-role': 'messages' }))
-  pop.appendChild(h('div', { class: 'pop-h' }, t('span', 'craftar says'), t('span', String(messages.length), { class: 'n' })))
+  const popHead = pop.appendChild(h('div', { class: 'pop-h' }, t('span', 'craftar says'), t('span', String(messages.length), { class: 'n' })))
+  if (messages.length > 0 && !cleared && typeof a.messagesClear === 'function') {
+    popHead.appendChild(button('Clear', { class: 'btn ghost clear', 'data-action': 'messages-clear', title: 'Hide these messages until craftar says something different' }, null, () => a.messagesClear?.()))
+  }
   if (messages.length === 0) pop.appendChild(t('p', 'No message from craftar.', { class: 'muted' }))
   else {
-    const ul = pop.appendChild(h('ul', { class: 'msgs' }))
-    for (const x of messages) ul.appendChild(t('li', x.text, x.err ? { 'data-role': 'error', class: 'err error' } : { 'data-role': 'warning' }))
+    if (cleared) pop.appendChild(t('p', 'Cleared — they come back when craftar says something different.', { class: 'muted', 'data-role': 'messages-cleared' }))
+    const ul = pop.appendChild(h('ul', { class: cleared ? 'msgs cleared' : 'msgs' }))
+    for (const x of messages) {
+      const li = ul.appendChild(h('li', { class: x.level === 'error' ? 'err error' : x.level === 'info' ? 'info' : 'act', 'data-level': x.level, 'data-from': x.from }))
+      li.appendChild(t('span', x.level === 'error' ? 'error' : x.level === 'info' ? 'info' : 'to look at', { class: 'lvl' }))
+      li.appendChild(t('span', x.text, { class: 'say', 'data-role': x.level === 'error' ? 'error' : x.from === 'plugin' ? 'plugin-line' : 'warning' }))
+      if (x.fix) li.appendChild(t('span', `fix: ${x.fix}`, { class: 'fix', 'data-role': 'message-fix' }))
+    }
   }
   bell.addEventListener('click', () => {
     const open = pop.getAttribute('class') === 'pop open'
@@ -237,13 +303,26 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const toolbar = h('footer', { class: 'toolbar', 'data-role': 'toolbar' })
 
   // ---- the worker's refusal of the panel's last request ----
-  if (notice) body.appendChild(t('p', notice, { class: 'note bad', 'data-role': 'notice' }))
+  if (notice) {
+    const n = body.appendChild(h('div', { class: 'notice' }))
+    n.appendChild(t('p', notice, { class: 'note bad', 'data-role': 'notice' }))
+    n.appendChild(closer('Close this message', () => a.clearNotice?.()))
+  }
+
+  // ---- Validate's report: the self-check's every line, then the probe's, as the worker wrote them ----
+  if (v.probe && !dismissed.has(cardKey('probe', String(v.probe.at)))) {
+    const box = body.appendChild(h('section', { class: 'card', 'data-role': 'probe' }))
+    box.appendChild(cardHead('Validation', cardKey('probe', String(v.probe.at))))
+    box.appendChild(t('p', `run ${new Date(v.probe.at).toLocaleTimeString()} — paths and outcomes only, no file content`, { class: 'muted' }))
+    box.appendChild(t('pre', v.probe.lines.join('\n'), { class: 'words', 'data-role': 'probe-text' }))
+  }
 
   // ---- the self-check, on top when anything fails ----
-  if (failing.length > 0) {
+  const checkKey = cardKey('self-check', ...failing.map((l) => l.message))
+  if (failing.length > 0 && !dismissed.has(checkKey)) {
     const bad = failing.some((l) => l.level === 'error')
     const box = body.appendChild(h('section', { class: `cta ${bad ? 'bad' : 'warn'}`, 'data-role': 'self-check' }))
-    box.appendChild(t('h2', 'Self-check'))
+    box.appendChild(cardHead('Self-check', checkKey))
     const ul = box.appendChild(h('ul', { class: 'lines' }))
     for (const l of failing) ul.appendChild(t('li', l.message, { class: l.level === 'error' ? 'err' : 'warn', 'data-role': 'check' }))
   }
@@ -288,10 +367,6 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         }
       }
       body.appendChild(sec(diff.path, null, box, { 'data-role': 'diff' }))
-    }
-    if (v.probe) {
-      // The probe's report, as the worker wrote it — its terminal lines included, which only this panel shows.
-      body.appendChild(sec('Probe report', null, t('pre', v.probe.lines.join('\n'), { class: 'words', 'data-role': 'probe-text' }), { 'data-role': 'probe' }))
     }
     if (v.remote.length > 0) {
       const ul = h('ul', { class: 'lst' })
@@ -338,27 +413,37 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
 
     // ---- what craftar refuses, and what it asks ----
     const f = m.forge
+    const refusedKey = cardKey('refused', ...refusalLines(m.unset))
+    const checkFailedKey = cardKey('check-failed', ...m.errors, ...m.warnings)
+    const fetchKey = cardKey('fetch-failed', String(f?.fetchedAt ?? ''), ...m.warnings)
     if (m.refused) {
-      const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'refused' }))
-      box.appendChild(t('h2', 'craftar will not sync this workspace'))
-      box.appendChild(t('pre', refusalLines(m.unset).join('\n'), { class: 'words' }))
+      if (!dismissed.has(refusedKey)) {
+        const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'refused' }))
+        box.appendChild(cardHead('craftar will not sync this workspace', refusedKey))
+        box.appendChild(t('pre', refusalLines(m.unset).join('\n'), { class: 'words' }))
+      }
     } else if (m.checkFailed) {
+      if (dismissed.has(checkFailedKey)) {
+        // closed: the diagram still says "check failed"
+      } else {
       const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'check-failed' }))
-      box.appendChild(t('h2', 'A check fails'))
+      box.appendChild(cardHead('A check fails', checkFailedKey))
       box.appendChild(t('p', "craftar status exits 1 — a check fails; craftar's messages (the bell) say why."))
-    } else if (cached) {
+      }
+    } else if (cached && !dismissed.has(fetchKey)) {
       const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'fetch-failed' }))
-      box.appendChild(t('h2', 'The Forge could not be reached'))
+      box.appendChild(cardHead('The Forge could not be reached', fetchKey))
       const when = f?.fetchedAt ? new Date(f.fetchedAt).toLocaleString() : null
       box.appendChild(t('p', `What you see comes from the cached copy${when ? ` fetched ${when}` : ''}. Bringing files waits for a fetch that works; craftar's words are behind the bell.`))
       box.appendChild(h('div', { class: 'row' }, button('Try again', { class: 'btn', 'data-action': 'refresh' }, 'refresh', () => a.refresh())))
     }
     if (v.consent) drawConsent(v.consent)
     // craftar's words about the last run; a consent refusal is said once, in the consent card above.
-    if (v.sync?.message && !(v.sync.phase === 'consent' && v.consent)) {
+    const syncKey = cardKey('sync', v.sync?.phase ?? '', v.sync?.message ?? '')
+    if (v.sync?.message && !(v.sync.phase === 'consent' && v.consent) && !dismissed.has(syncKey)) {
       const err = v.sync.phase === 'error'
       const box = body.appendChild(h('section', { class: err ? 'cta bad' : 'cta plain', 'data-role': err ? 'sync-error' : 'sync-note' }))
-      if (err) box.appendChild(t('h2', 'The update did not finish'))
+      if (err) box.appendChild(cardHead('The update did not finish', syncKey))
       box.appendChild(t('pre', v.sync.message, { class: 'words', 'data-role': 'sync-message' }))
     }
 
@@ -379,14 +464,15 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           ? button('Send', { class: 'btn ember act', 'data-action': 'send-file', 'data-path': row.path }, 'up', () => a.sendPreview?.(row.path))
           : button('Send', { class: 'btn ember act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: sendWhy(m) ?? 'craftar is working on a send' }, 'up', null)
         : row.reason
-          ? t('span', row.reason, { class: 'why' })
+          ? t('span', row.reason, { class: 'why', ...(refusedSend.has(row.path) ? { title: refusedSend.get(row.path) ?? '', 'data-role': 'send-refused-why' } : {}) })
           : t('span', row.state, { class: 'st' }),
     )
     // craftar's refusal, in its words, under the files it concerns.
     const refusals = (shown?.edited ?? []).filter((e) => e.promotable && refusedSend.has(e.path))
-    if (refusals.length > 0) {
+    const refusalKey = cardKey('send-refused', ...refusals.map((e) => `${e.path}\u0000${refusedSend.get(e.path) ?? ''}`))
+    if (refusals.length > 0 && !dismissed.has(refusalKey)) {
       const box = body.appendChild(h('section', { class: 'card bad', 'data-role': 'send-refused' }))
-      box.appendChild(t('h2', 'craftar will not send'))
+      box.appendChild(cardHead('craftar will not send', refusalKey))
       for (const e of refusals) {
         box.appendChild(t('p', e.path, { class: 'muted' }))
         box.appendChild(t('pre', refusedSend.get(e.path) ?? '', { class: 'words', 'data-role': 'send-refused-message' }))
@@ -582,7 +668,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
     const back = (): HTMLButtonElement => button('Back to the workspace', { class: 'btn', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.())
     if (sd.phase === 'error') {
-      box.appendChild(t('h2', `craftar did not send ${sd.path}`))
+      box.appendChild(h('div', { class: 'card-h' }, t('h2', `craftar did not send ${sd.path}`), closer('Close and go back to the workspace', () => a.sendCancel?.())))
       if (sd.message) box.appendChild(t('pre', sd.message, { class: 'words', 'data-role': 'send-message' }))
       // A way out on the card itself as well as in the toolbar: a refusal never leaves the panel without one.
       box.appendChild(h('div', { class: 'row' }, button('Back to the workspace', { class: 'btn', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.())))

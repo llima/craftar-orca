@@ -49,6 +49,24 @@ h1.title { margin: 0; display: flex; align-items: baseline; gap: 8px; min-width:
 ul.msgs { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
 ul.msgs li { font: 11.5px/1.45 var(--mono); padding-left: 10px; border-left: 2px solid var(--warn); overflow-wrap: anywhere; }
 ul.msgs li.err { border-left-color: var(--orca-destructive); }
+ul.msgs li.info { border-left-color: var(--line); }
+ul.msgs li { display: grid; gap: 3px; }
+ul.msgs li .lvl { font: 600 9.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--warn); }
+ul.msgs li.err .lvl { color: var(--orca-destructive); }
+ul.msgs li.info .lvl { color: var(--orca-muted-foreground); }
+ul.msgs li .fix { color: var(--orca-muted-foreground); font-size: 11px; }
+ul.msgs.cleared { opacity: .6; }
+.pop-h .btn.clear { min-height: 0; padding: 2px 8px; font: 500 10.5px/1.4 var(--mono); letter-spacing: 0; text-transform: none; }
+/* × on a card: a small ghost button at the top right of its title row. */
+.card-h { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.card-h h2 { flex: 1; min-width: 0; }
+.x-btn { flex: none; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--orca-muted-foreground); }
+.x-btn:hover { background: var(--orca-accent); color: var(--orca-foreground); }
+.x-btn svg { width: 12px; height: 12px; }
+.notice { display: flex; align-items: flex-start; gap: 8px; }
+.notice p { flex: 1; min-width: 0; }
+.icon-btn[aria-busy='true'] { cursor: progress; opacity: .7; }
+.icon-btn[disabled] { cursor: not-allowed; }
 
 .body { overflow: auto; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; }
 
@@ -323,6 +341,21 @@ const actions = {
         draw()
       })
       .catch((e) => refused(e))
+  },
+  dismiss(key: string): void {
+    call('card.dismiss', { key }, 30_000)
+  },
+  messagesClear(): void {
+    notice = null
+    call('messages.clear', {}, 30_000)
+  },
+  validate(): void {
+    notice = null
+    call('validate.run', {}, 30_000)
+  },
+  clearNotice(): void {
+    notice = null
+    draw()
   },
   showDiff(path: string): void {
     void orca.plugin.request('diff.get', { path }, { timeoutMs: 60_000 }).then((r) => {
