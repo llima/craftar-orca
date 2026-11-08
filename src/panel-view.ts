@@ -71,6 +71,9 @@ export interface PromotePlan {
   sections: { key: string; name: string }[]
   impact: { registry: string; workspaces: unknown[] }
   warnings: string[]
+  flattened?: unknown[]
+  dependents?: unknown[]
+  nextSync?: { counts: Record<string, number> }
 }
 
 export type DiffShown = { path: string; text: string; warnings?: string[] } | { path: string; refused: string } | null
@@ -401,7 +404,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       row.promotable
         ? typeof a.sendPreview === 'function' && !(v.forgeDir?.needed && !v.forgeDir.dir) && v.send?.phase !== 'writing' && v.send?.phase !== 'checking'
           ? button('Send', { class: 'btn steel act', 'data-action': 'send-file', 'data-path': row.path }, 'up', () => a.sendPreview?.(row.path))
-          : button('Send', { class: 'btn steel act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: typeof a.sendPreview === 'function' ? 'name a local clone of the Forge first' : NOT_BUILT_SEND }, 'up', null)
+          : button('Send', { class: 'btn steel act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: typeof a.sendPreview !== 'function' ? NOT_BUILT_SEND : v.forgeDir?.needed && !v.forgeDir.dir ? 'name a local clone of the Forge first' : 'craftar is working on a send' }, 'up', null)
         : row.reason
           ? t('span', row.reason, { class: 'why' })
           : t('span', row.state, { class: 'st' }),
@@ -579,6 +582,16 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     row.appendChild(button('Review edits', { class: 'btn', 'data-action': 'review-up' }, 'diff', first ? () => a.showDiff(first.path) : null))
     if (n > 0 && why) card.appendChild(t('p', why, { class: 'note' }))
     if (needsClone && n > 0) drawForgeDir(card)
+    else if (v.forgeDir?.needed && v.forgeDir.dir && n > 0) {
+      card.appendChild(
+        h(
+          'div',
+          { class: 'row', 'data-role': 'forge-dir-stored' },
+          t('span', `Forge clone: ${v.forgeDir.dir}`, { class: 'muted' }),
+          button('Change', { class: 'btn', 'data-action': 'forge-dir-change' }, null, () => a.forgeDirSet?.('')),
+        ),
+      )
+    }
     if (v.send) drawSend(card, v.send)
   }
 
@@ -607,7 +620,12 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         for (const i of items) ul.appendChild(t('li', i, { 'data-role': role }))
       }
       lines(sd.phase === 'done' ? 'Written in the Forge' : 'craftar would write in the Forge', plan.written.map((w) => `${w.path} · ${w.action}`), 'send-written')
-      lines('Values', plan.params.map((p) => `${p.key}: ${String(p.old)} → ${String(p.value)}`), 'send-param')
+      const shown = (x: unknown): string => (typeof x === 'string' ? x : JSON.stringify(x))
+      lines('Values', plan.params.map((p) => `${p.key}: ${shown(p.old)} → ${shown(p.value)}`), 'send-param')
+      lines('Written as plain text in the variant', (plan.flattened ?? []).map(shown), 'send-flattened')
+      lines('Depends on it', (plan.dependents ?? []).map((d) => (d && typeof d === 'object' && 'ref' in d ? String((d as { ref: unknown }).ref) : shown(d))), 'send-dependent')
+      const counts = Object.entries(plan.nextSync?.counts ?? {}).map(([k, n]) => `${k} ${n}`)
+      if (counts.length > 0) box.appendChild(t('p', `This workspace's next sync: ${counts.join(', ')}`, { class: 'muted', 'data-role': 'send-next-sync' }))
       lines('Sections', plan.sections.map((x) => `${x.key} · ${x.name}`), 'send-section')
       if (plan.impact.workspaces.length > 0) box.appendChild(t('p', `${plural(plan.impact.workspaces.length, 'other registered workspace', 'other registered workspaces')} will see this on their next sync.`, { class: 'muted' }))
       lines('craftar says', plan.warnings, 'warning')

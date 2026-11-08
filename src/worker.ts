@@ -251,7 +251,13 @@ export interface SendView {
   result: PromoteResult | null
   /** craftar's refusal, verbatim, or the plugin's own reason. */
   message: string | null
+  /** The Forge clone the dry run used (null for a local Forge): the write uses the same one. */
+  forge?: string | null
+  /** Which run this is: a late result of an older run is dropped. */
+  token?: number
 }
+
+let sendToken = 0
 
 export interface SyncView {
   phase: 'idle' | 'running' | 'consent' | 'done' | 'error'
@@ -412,7 +418,8 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
     if (model.forge && model.forge.freshness === 'cached' && s.fetchState.get(row.path) === 'fetched') model.forge.freshness = 'fetched'
     s.models.set(row.path, model)
-    s.known.set(row.path, new Set(status.statuses.map((x) => x.path)))
+    // The lock records every file but a `new` one (spec 60 §8 step 1: a path the lock records).
+    s.known.set(row.path, new Set(status.statuses.filter((x) => x.state !== 'new').map((x) => x.path)))
     // drift show is the source of truth: a read replaces what the save hook marked.
     s.marked.delete(row.path)
     await notifyEdited(s, model)
@@ -457,6 +464,14 @@ function forgeIsRemote(s: State, ws: string | null): boolean {
 
 const FORGE_DIRS = 'forge.dir'
 
+/** A path from Orca's save event, as craftar names it: relative POSIX under `root`, or null outside it. */
+function relativeTo(root: string, path: string): string | null {
+  const p = path.replace(/\\/g, '/')
+  if (!isAbsolute(path)) return p.replace(/^\.\//, '')
+  const r = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  return p.startsWith(`${r}/`) ? p.slice(r.length + 1) : null
+}
+
 /** One read a second after the last save the hook marked: a burst of saves asks once. */
 function scheduleRead(s: State, read: () => unknown): void {
   if (s.saveTimer) clearTimeout(s.saveTimer)
@@ -474,7 +489,12 @@ const NOTIFIED_EDITED = 'notified.edited'
  * workspace path, the edited paths already notified — paths only; a file no longer edited leaves the list.
  */
 async function notifyEdited(s: State, m: PanelModel): Promise<void> {
-  const all = ((await s.orca.storage.get(NOTIFIED_EDITED).catch(() => null)) as Record<string, string[]> | null) ?? {}
+  let all: Record<string, string[]>
+  try {
+    all = ((await s.orca.storage.get(NOTIFIED_EDITED)) as Record<string, string[]> | null) ?? {}
+  } catch {
+    return // a storage that does not read: no notification rather than every one again
+  }
   const before = new Set(Array.isArray(all[m.ws]) ? all[m.ws] : [])
   const now = m.edited.filter((e) => e.promotable).map((e) => e.path)
   const fresh = now.filter((p) => !before.has(p))
@@ -498,24 +518,38 @@ function sendable(s: State, path: unknown): { ws: string; path: string } {
   }
   if (forgeIsRemote(s, ws) && !s.forgeDirs[ws]) throw new Error('this Forge is a git URL: name a local clone of the Forge in the panel first')
   if (!s.craftar) throw new Error('craftar is not ready — see the self-check')
+  const now = s.send.get(ws)?.phase
+  if (now === 'checking' || now === 'writing') throw new Error('craftar is already working on a send for this workspace — wait for it')
   return { ws, path }
+}
+
+/** --forge only for a URL Forge (O5): a Forge on this machine needs nothing. */
+function forgeFor(s: State, ws: string): string | null {
+  return forgeIsRemote(s, ws) ? (s.forgeDirs[ws] ?? null) : null
 }
 
 /** The dry run (spec 60 §8 step 3): craftar proves the change and shows the plan; nothing is written. */
 async function sendPreview(s: State, path: unknown): Promise<() => Promise<void>> {
   const t = sendable(s, path)
   const craftar = s.craftar as Craftar
-  s.send.set(t.ws, { path: t.path, phase: 'checking', plan: null, result: null, message: null })
-  return () => sendPreviewRun(s, t, craftar)
+  const token = ++sendToken
+  const forge = forgeFor(s, t.ws)
+  s.send.set(t.ws, { path: t.path, phase: 'checking', plan: null, result: null, message: null, forge, token })
+  return () => sendPreviewRun(s, t, craftar, forge, token)
 }
 
-async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar: Craftar): Promise<void> {
+/** Sets a send's state only while it is still the run that started it (a Cancel or a newer run wins). */
+function setIfCurrent(s: State, ws: string, token: number, next: SendView): void {
+  if (s.send.get(ws)?.token === token) s.send.set(ws, next)
+}
+
+async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar: Craftar, forge: string | null, token: number): Promise<void> {
   await s.queue.run(t.ws, async () => {
     try {
-      const plan = await promote(craftar, t.ws, t.path, { dryRun: true, forge: s.forgeDirs[t.ws] ?? null })
-      s.send.set(t.ws, { path: t.path, phase: 'preview', plan, result: null, message: null })
+      const plan = await promote(craftar, t.ws, t.path, { dryRun: true, forge })
+      setIfCurrent(s, t.ws, token, { path: t.path, phase: 'preview', plan, result: null, message: null, forge, token })
     } catch (e) {
-      s.send.set(t.ws, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
+      setIfCurrent(s, t.ws, token, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run', forge, token })
     }
   })
   await publish(s)
@@ -534,13 +568,15 @@ async function sendRun(s: State, path: unknown): Promise<() => Promise<void>> {
 async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendView, craftar: Craftar): Promise<void> {
   await s.queue.run(t.ws, async () => {
     try {
-      const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: s.forgeDirs[t.ws] ?? null })
-      s.send.set(t.ws, { path: t.path, phase: 'done', plan: prev.plan, result, message: null })
+      // The Forge the dry run used, whatever was named since (a changed folder drops the plan anyway).
+      const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: prev.forge ?? null })
+      s.send.set(t.ws, { ...prev, phase: 'done', result, message: null })
     } catch (e) {
-      s.send.set(t.ws, { path: t.path, phase: 'error', plan: prev.plan, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
+      s.send.set(t.ws, { ...prev, phase: 'error', result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
     }
   })
-  const row = s.focus.kind === 'one' ? s.focus.row : null
+  // Read again the workspace that was written, whichever has the focus now.
+  const row = [...s.rowsById.values()].find((r) => r.path === t.ws)
   if (row) await readWorkspace(s, row, 'focus', await readSettings(s.orca))
   await publish(s)
 }
@@ -937,8 +973,18 @@ export default function activate(orca: OrcaWorkerApi): void {
     const dir = (input as { dir?: unknown } | undefined)?.dir
     const ws = focusedPath(s)
     if (!ws) throw new Error('no craftar workspace has the focus')
+    if (!forgeIsRemote(s, ws)) throw new Error('this Forge is on this machine: craftar finds it by itself, no clone to name')
+    // An empty folder forgets the stored one: the panel asks for it again ("Change").
+    if (dir === '') {
+      delete s.forgeDirs[ws]
+      s.send.delete(ws)
+      await orca.storage.set(FORGE_DIRS, s.forgeDirs)
+      return view(s) as never
+    }
     if (typeof dir !== 'string' || !isAbsolute(dir) || /[\u0000-\u001f\u007f]/.test(dir)) throw new Error('give the absolute path of a folder that holds a clone of the Forge')
     s.forgeDirs[ws] = dir
+    // A plan made against another folder is not this one's.
+    s.send.delete(ws)
     await orca.storage.set(FORGE_DIRS, s.forgeDirs)
     return view(s) as never
   })
@@ -947,9 +993,12 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.hooks.on('editor.save.before', (event) => {
     const e = event as { workspaceId?: unknown; path?: unknown }
     const row = typeof e.workspaceId === 'string' ? s.rowsById.get(e.workspaceId) : undefined
-    if (row && typeof e.path === 'string' && s.known.get(row.path)?.has(e.path)) {
+    // Orca gives a path relative to the workspace root (absolute outside one); an absolute one under the root
+    // is turned relative too, backslashes read as slashes — craftar's paths are relative POSIX.
+    const rel = row && typeof e.path === 'string' ? relativeTo(row.path, e.path) : null
+    if (row && rel !== null && s.known.get(row.path)?.has(rel)) {
       const set = s.marked.get(row.path) ?? new Set<string>()
-      set.add(e.path)
+      set.add(rel)
       s.marked.set(row.path, set)
       scheduleRead(s, () => refresh())
     }

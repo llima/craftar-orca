@@ -137,3 +137,42 @@ test('the save hook passes the save at once, keeps nothing of the text, and only
   await worker.hooks.fire('editor.save.before', { workspaceId: 'w1', path: 'src/not-from-the-forge.ts', text: 'x' })
   assert.deepEqual(((await worker.request('state.get')) as View).marked, [EDITED])
 })
+
+test('the save hook also marks a Forge file given as an absolute path under the workspace (Orca: relative inside one)', async () => {
+  const { worker, web } = await setup()
+  await worker.hooks.fire('editor.save.before', { workspaceId: 'w1', path: join(web, EDITED), text: 'x' })
+  assert.deepEqual(((await worker.request('state.get')) as View).marked, [EDITED])
+})
+
+test('a local Forge never gets --forge, and naming a clone is refused for it', async () => {
+  const { s, worker } = await setup({ extra: { 'drift promote': { stdout: JSON.stringify(PLAN), code: 0 } } })
+  await assert.rejects(worker.request('forge.dir.set', { dir: tempDir('craftar-orca-clone-') }), /on this machine/)
+  await sendAndWait(worker, 'send.preview', { path: EDITED })
+  assert.equal(s.calls().some((c) => c.argv.includes('--forge')), false)
+})
+
+test('the write uses the Forge the dry run used; changing the clone folder drops the plan', async () => {
+  const { s, worker } = await setup({ remote: true, extra: { 'drift promote': { stdout: JSON.stringify(PLAN), code: 0 } } })
+  const one = tempDir('craftar-orca-clone-')
+  await worker.request('forge.dir.set', { dir: one })
+  await sendAndWait(worker, 'send.preview', { path: EDITED })
+  const two = tempDir('craftar-orca-clone-')
+  const v = (await worker.request('forge.dir.set', { dir: two })) as View
+  assert.equal(v.send, null)
+  await assert.rejects(worker.request('send.run', { path: EDITED }), /look at the plan first/)
+  assert.equal(s.calls().filter((c) => c.argv[1] === 'promote').length, 1)
+})
+
+test('while a send is checking or writing, another Send or Write is refused', async () => {
+  const { worker } = await setup({ extra: { 'drift promote': { stdout: JSON.stringify(PLAN), code: 0, delayMs: 300 } } })
+  await worker.request('send.preview', { path: EDITED })
+  await assert.rejects(worker.request('send.preview', { path: EDITED }), /craftar is already/)
+  await main.settled()
+})
+
+test('Change forgets the stored clone folder, and the panel asks for it again', async () => {
+  const { worker } = await setup({ remote: true })
+  await worker.request('forge.dir.set', { dir: tempDir('craftar-orca-clone-') })
+  const v = (await worker.request('forge.dir.set', { dir: '' })) as View
+  assert.deepEqual(v.forgeDir, { needed: true, dir: null })
+})

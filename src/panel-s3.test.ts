@@ -85,3 +85,19 @@ test('a file the save hook marked reads as edited — not yet in the Forge', () 
   const m = all(root).filter((e) => e.attrs['data-role'] === 'marked').map((e) => e.textContent)
   assert.deepEqual(m, ['.claude/rules/workflow.md — edited, not yet in the Forge'])
 })
+
+test("the plan also lists what craftar flattens and depends on, and this workspace's next sync", () => {
+  const plan = { ...PLAN, flattened: ['rule/commit-conventions#intro'], dependents: [{ ref: 'agent/reviewer' }], nextSync: { counts: { unchanged: 4, update: 1 } } }
+  const { root } = draw(view({ send: { path: EDITED, phase: 'preview', plan: plan as never, result: null, message: null } }))
+  const text = root.textContent
+  assert.match(text, /rule\/commit-conventions#intro/)
+  assert.match(text, /agent\/reviewer/)
+  assert.match(text, /unchanged 4/)
+})
+
+test('a stored clone folder is shown with a way to change it', () => {
+  const { root, calls } = draw(view({ forgeDir: { needed: true, dir: '/home/acme/forge-clone' } }))
+  assert.match(root.textContent, /\/home\/acme\/forge-clone/)
+  click(byAction(root, 'forge-dir-change')[0])
+  assert.deepEqual(calls, ['dir '])
+})

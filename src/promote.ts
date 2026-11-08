@@ -36,11 +36,11 @@ export class PromoteRefused extends Error {
   }
 }
 
-export async function promote(craftar: Craftar, ws: string, path: string, opts: { dryRun: boolean; forge: string | null }): Promise<PromoteResult> {
+export async function promote(craftar: Craftar, ws: string, path: string, opts: { dryRun: boolean; forge: string | null; timeoutMs?: number }): Promise<PromoteResult> {
   if (!isAbsolute(ws)) throw new Error('craftar is given an absolute workspace directory only')
   if (path.startsWith('-') || isAbsolute(path) || path.trim() === '') throw new Error('not a workspace path')
   const args = ['drift', 'promote', path, '--workspace', ws, ...(opts.forge ? ['--forge', opts.forge] : []), ...(opts.dryRun ? ['--dry-run'] : []), '--json']
-  const r = await run(craftar.bin, args, craftar.env, PROMOTE_TIMEOUT_MS)
+  const r = await run(craftar.bin, args, craftar.env, opts.timeoutMs ?? PROMOTE_TIMEOUT_MS)
   if (r.code === 0) {
     try {
       return JSON.parse(r.stdout) as PromoteResult
@@ -48,6 +48,8 @@ export async function promote(craftar: Craftar, ws: string, path: string, opts: 
       throw new PromoteRefused('craftar drift promote gave no readable document')
     }
   }
+  // A write stopped before it finished may have written some Forge files and not others.
+  if (r.code === null && !opts.dryRun) throw new PromoteRefused("craftar drift promote did not finish in time — the Forge's working tree may be partly written — look at git status in the Forge before sending again")
   const words = r.stderr.trim()
   throw new PromoteRefused(words !== '' ? words : `craftar drift promote failed (exit ${r.code ?? 'none'})`)
 }

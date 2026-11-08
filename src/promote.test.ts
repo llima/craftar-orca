@@ -46,3 +46,11 @@ test('a path that starts with a dash or is absolute is refused before anything s
   await assert.rejects(promote({ bin: s.bin, env: s.env }, WS, '/etc/passwd', { dryRun: true, forge: null }), /not a workspace path/)
   assert.equal(s.calls().length, 0)
 })
+
+test('a write that does not finish says the Forge may be partly written', async () => {
+  const s = stubCraftar({ 'drift promote': { stdout: '', code: 0, delayMs: 2000 } })
+  await assert.rejects(
+    promote({ bin: s.bin, env: s.env }, WS, '.claude/rules/workflow.md', { dryRun: false, forge: null, timeoutMs: 300 }),
+    /may be partly written — look at git status in the Forge/,
+  )
+})
