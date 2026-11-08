@@ -64,6 +64,12 @@ async function setup(opts: { extra?: Record<string, unknown>; remote?: boolean }
   return { s, h, worker, web }
 }
 
+async function sendAndWait(worker: { request: (n: string, d?: unknown) => Promise<unknown> }, name: string, data: unknown): Promise<View> {
+  await worker.request(name, data)
+  await main.settled()
+  return (await worker.request('state.get')) as View
+}
+
 type View = {
   send: { path: string; phase: string; plan: { outcome: string; written: unknown[] } | null; result: { dryRun: boolean } | null; message: string | null } | null
   forgeDir: { needed: boolean; dir: string | null }
@@ -72,12 +78,12 @@ type View = {
 
 test('Send runs the dry run first; Write to the Forge runs the write; nothing is written before the second click', async () => {
   const { s, worker, web } = await setup({ extra: { 'drift promote': { stdout: JSON.stringify(PLAN), code: 0 } } })
-  const previewed = (await worker.request('send.preview', { path: EDITED })) as View
+  const previewed = (await sendAndWait(worker, 'send.preview', { path: EDITED }))
   assert.equal(previewed.send?.phase, 'preview')
   assert.equal(previewed.send?.plan?.outcome, 'variant')
   const promotes = () => s.calls().filter((c) => c.argv[0] === 'drift' && c.argv[1] === 'promote').map((c) => c.argv)
   assert.deepEqual(promotes(), [['drift', 'promote', EDITED, '--workspace', web, '--dry-run', '--json']])
-  const done = (await worker.request('send.run', { path: EDITED })) as View
+  const done = (await sendAndWait(worker, 'send.run', { path: EDITED }))
   assert.equal(done.send?.phase, 'done')
   assert.deepEqual(promotes()[1], ['drift', 'promote', EDITED, '--workspace', web, '--json'])
 })
@@ -91,7 +97,7 @@ test('Write to the Forge without a dry run of that file first is refused, and no
 test("a file the workspace does not list as promotable is refused; craftar's refusal of a dry run is shown in its words", async () => {
   const { worker } = await setup({ extra: { 'drift promote': { stdout: '', code: 1, stderr: 'error: D16: promote refused\n' } } })
   await assert.rejects(worker.request('send.preview', { path: '.claude/rules/other.md' }), /not a file this workspace can send/)
-  const v = (await worker.request('send.preview', { path: EDITED })) as View
+  const v = (await sendAndWait(worker, 'send.preview', { path: EDITED }))
   assert.deepEqual([v.send?.phase, v.send?.message], ['error', 'error: D16: promote refused'])
 })
 
@@ -103,7 +109,7 @@ test('a URL Forge needs a local clone named once: before it, Send says so; after
   const clone = tempDir('craftar-orca-clone-')
   v = (await worker.request('forge.dir.set', { dir: clone })) as View
   assert.deepEqual(v.forgeDir, { needed: true, dir: clone })
-  await worker.request('send.preview', { path: EDITED })
+  await sendAndWait(worker, 'send.preview', { path: EDITED })
   assert.ok(s.calls().some((c) => c.argv.join(' ') === `drift promote ${EDITED} --workspace ${web} --forge ${clone} --dry-run --json`))
   const stored = h.data().storage['forge.dir'] as Record<string, string>
   assert.deepEqual(stored, { [web]: clone })

@@ -244,7 +244,7 @@ interface State {
 
 export interface SendView {
   path: string
-  phase: 'preview' | 'writing' | 'done' | 'error'
+  phase: 'checking' | 'preview' | 'writing' | 'done' | 'error'
   /** The dry run's plan: what craftar would write in the Forge. */
   plan: PromoteResult | null
   /** The write's result. */
@@ -502,9 +502,14 @@ function sendable(s: State, path: unknown): { ws: string; path: string } {
 }
 
 /** The dry run (spec 60 §8 step 3): craftar proves the change and shows the plan; nothing is written. */
-async function sendPreview(s: State, path: unknown): Promise<void> {
+async function sendPreview(s: State, path: unknown): Promise<() => Promise<void>> {
   const t = sendable(s, path)
   const craftar = s.craftar as Craftar
+  s.send.set(t.ws, { path: t.path, phase: 'checking', plan: null, result: null, message: null })
+  return () => sendPreviewRun(s, t, craftar)
+}
+
+async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar: Craftar): Promise<void> {
   await s.queue.run(t.ws, async () => {
     try {
       const plan = await promote(craftar, t.ws, t.path, { dryRun: true, forge: s.forgeDirs[t.ws] ?? null })
@@ -517,13 +522,16 @@ async function sendPreview(s: State, path: unknown): Promise<void> {
 }
 
 /** The write, on the second click, only after the dry run of the same file: craftar writes the Forge's working tree, never a commit. */
-async function sendRun(s: State, path: unknown): Promise<void> {
+async function sendRun(s: State, path: unknown): Promise<() => Promise<void>> {
   const t = sendable(s, path)
   const prev = s.send.get(t.ws)
   if (!prev || prev.phase !== 'preview' || prev.path !== t.path) throw new Error('look at the plan first: click Send to Forge for this file')
   const craftar = s.craftar as Craftar
   s.send.set(t.ws, { ...prev, phase: 'writing' })
-  await publish(s)
+  return () => sendWrite(s, t, prev, craftar)
+}
+
+async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendView, craftar: Craftar): Promise<void> {
   await s.queue.run(t.ws, async () => {
     try {
       const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: s.forgeDirs[t.ws] ?? null })
@@ -908,12 +916,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     void track(s, runUpdate(s, u.files)).catch((e) => orca.log(failed('update', e)))
     return view(s) as never
   })
+  // Both answer at once (plugin.request stops at 120 s; a promote proves against every registered
+  // workspace) and run on, tracked; the panel follows on state.changed.
   orca.panels.handle('send.preview', async (input) => {
-    await sendPreview(s, (input as { path?: unknown } | undefined)?.path)
+    const go = await sendPreview(s, (input as { path?: unknown } | undefined)?.path)
+    void track(s, go()).catch((e) => orca.log(failed('send', e)))
     return view(s) as never
   })
   orca.panels.handle('send.run', async (input) => {
-    await sendRun(s, (input as { path?: unknown } | undefined)?.path)
+    const go = await sendRun(s, (input as { path?: unknown } | undefined)?.path)
+    void track(s, go()).catch((e) => orca.log(failed('send', e)))
     return view(s) as never
   })
   orca.panels.handle('send.cancel', async () => {

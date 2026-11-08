@@ -30,7 +30,7 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync'> & S2View
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked'> & S2View & S3View
 
 export interface Actions {
   choose(id: string): void
@@ -40,6 +40,37 @@ export interface Actions {
   updateRun?(files: string[]): void
   /** S2: `consent.terminal`. */
   consentTerminal?(): void
+  /** S3a: `send.preview` (the dry run), `send.run` (the write, second click), `send.cancel`, `forge.dir.set`. */
+  sendPreview?(path: string): void
+  sendRun?(path: string): void
+  sendCancel?(): void
+  forgeDirSet?(dir: string): void
+}
+
+/** S3a's additions to the view (spec 60 §8, O5, O7): optional, as S2's. */
+export interface S3View {
+  send?: {
+    path: string
+    phase: 'checking' | 'preview' | 'writing' | 'done' | 'error'
+    plan: PromotePlan | null
+    result: PromotePlan | null
+    message: string | null
+  } | null
+  forgeDir?: { needed: boolean; dir: string | null }
+  marked?: string[]
+}
+
+export interface PromotePlan {
+  dryRun: boolean
+  path: string
+  ingredient: string
+  outcome: string
+  promoted: string
+  written: { path: string; action: string }[]
+  params: { key: string; old: unknown; value: unknown }[]
+  sections: { key: string; name: string }[]
+  impact: { registry: string; workspaces: unknown[] }
+  warnings: string[]
 }
 
 export type DiffShown = { path: string; text: string; warnings?: string[] } | { path: string; refused: string } | null
@@ -357,11 +388,20 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (m.edited.length > 0 && !m.refused && !m.checkFailed) drawSendCard(m)
     if (v.lastSync) drawLastSync(v.lastSync)
 
+    // O7: files saved since the last read that craftar lists — a hint until drift show reads them.
+    if (v.marked && v.marked.length > 0) {
+      const box = root.appendChild(h('section', { class: 'cta plain', 'data-role': 'marked-box' }))
+      const ul = box.appendChild(h('ul', { class: 'lines plain' }))
+      for (const p of v.marked) ul.appendChild(t('li', `${p} — edited, not yet in the Forge`, { 'data-role': 'marked' }))
+    }
+
     // ---- flat lists ----
     fileList('Coming down', m.pending, (row) => t('span', row.state, { class: 'st' }))
     fileList('Edited here', m.edited, (row) =>
       row.promotable
-        ? button('Send', { class: 'btn steel act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: NOT_BUILT_SEND }, 'up', null)
+        ? typeof a.sendPreview === 'function' && !(v.forgeDir?.needed && !v.forgeDir.dir) && v.send?.phase !== 'writing' && v.send?.phase !== 'checking'
+          ? button('Send', { class: 'btn steel act', 'data-action': 'send-file', 'data-path': row.path }, 'up', () => a.sendPreview?.(row.path))
+          : button('Send', { class: 'btn steel act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: typeof a.sendPreview === 'function' ? 'name a local clone of the Forge first' : NOT_BUILT_SEND }, 'up', null)
         : row.reason
           ? t('span', row.reason, { class: 'why' })
           : t('span', row.state, { class: 'st' }),
@@ -521,10 +561,69 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       card.appendChild(t('p', 'craftar will not send these up — each row below says why. They stay only here, kept on every sync.'))
     }
     const row = card.appendChild(h('div', { class: 'row' }))
-    if (n > 0) row.appendChild(button('Send to Forge', { class: 'btn steel', 'data-action': 'send', disabled: '', title: NOT_BUILT_SEND }, 'up', null))
+    const target = m.edited.find((e) => e.promotable)
+    const needsClone = v.forgeDir?.needed === true && !v.forgeDir.dir
+    const built = typeof a.sendPreview === 'function'
+    const busy = v.send?.phase === 'writing' || v.send?.phase === 'checking'
+    const can = n > 0 && built && !needsClone && !busy && !!target
+    const why = !built ? NOT_BUILT_SEND : needsClone ? 'name a local clone of the Forge below first' : busy ? 'craftar is writing the Forge' : null
+    if (n > 0) {
+      const attrs: Record<string, string> = { class: 'btn steel', 'data-action': 'send' }
+      if (!can) {
+        attrs.disabled = ''
+        if (why) attrs.title = why
+      }
+      row.appendChild(button('Send to Forge', attrs, 'up', can && target ? () => a.sendPreview?.(target.path) : null))
+    }
     const first = m.edited[0]
     row.appendChild(button('Review edits', { class: 'btn', 'data-action': 'review-up' }, 'diff', first ? () => a.showDiff(first.path) : null))
-    if (n > 0) card.appendChild(t('p', NOT_BUILT_SEND, { class: 'note' }))
+    if (n > 0 && why) card.appendChild(t('p', why, { class: 'note' }))
+    if (needsClone && n > 0) drawForgeDir(card)
+    if (v.send) drawSend(card, v.send)
+  }
+
+  function drawForgeDir(card: HTMLElement): void {
+    const box = card.appendChild(h('div', { class: 'confirm', 'data-role': 'forge-dir' }))
+    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it — craftar writes the change there, never a commit; the plugin keeps only this path.'))
+    const input = box.appendChild(h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' }))
+    box.appendChild(h('div', { class: 'row' }, button('Use this folder', { class: 'btn', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.((input as HTMLInputElement).value.trim()))))
+  }
+
+  function drawSend(card: HTMLElement, sd: NonNullable<S3View['send']>): void {
+    const box = card.appendChild(h('div', { class: 'confirm', 'data-role': 'send-box' }))
+    const plan = sd.phase === 'done' ? (sd.result ?? sd.plan) : sd.plan
+    if (sd.phase === 'error') {
+      box.appendChild(t('h2', `craftar did not send ${sd.path}`))
+      if (sd.message) box.appendChild(t('pre', sd.message, { class: 'words', 'data-role': 'send-message' }))
+      return
+    }
+    box.appendChild(t('h2', sd.phase === 'done' ? `Sent ${sd.path} to the Forge's working tree` : sd.phase === 'writing' ? `Writing ${sd.path} to the Forge…` : sd.phase === 'checking' ? `craftar is checking ${sd.path}…` : `Send ${sd.path} to the Forge?`))
+    if (plan) {
+      box.appendChild(t('p', `${plan.outcome} · ${plan.promoted}`, { class: 'muted', 'data-role': 'send-outcome' }))
+      const lines = (title: string, items: string[], role: string): void => {
+        if (items.length === 0) return
+        box.appendChild(t('h4', title))
+        const ul = box.appendChild(h('ul', { class: 'lines plain' }))
+        for (const i of items) ul.appendChild(t('li', i, { 'data-role': role }))
+      }
+      lines(sd.phase === 'done' ? 'Written in the Forge' : 'craftar would write in the Forge', plan.written.map((w) => `${w.path} · ${w.action}`), 'send-written')
+      lines('Values', plan.params.map((p) => `${p.key}: ${String(p.old)} → ${String(p.value)}`), 'send-param')
+      lines('Sections', plan.sections.map((x) => `${x.key} · ${x.name}`), 'send-section')
+      if (plan.impact.workspaces.length > 0) box.appendChild(t('p', `${plural(plan.impact.workspaces.length, 'other registered workspace', 'other registered workspaces')} will see this on their next sync.`, { class: 'muted' }))
+      lines('craftar says', plan.warnings, 'warning')
+    }
+    if (sd.phase === 'preview') {
+      box.appendChild(
+        h(
+          'div',
+          { class: 'row' },
+          button('Write to the Forge', { class: 'btn steel', 'data-action': 'send-confirm' }, 'up', () => a.sendRun?.(sd.path)),
+          button('Cancel', { class: 'btn', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.()),
+        ),
+      )
+      box.appendChild(t('p', "craftar writes the Forge's working tree only — nothing is committed, pushed or opened as a PR.", { class: 'note' }))
+    }
+    if (sd.phase === 'done') box.appendChild(t('p', "The Forge's working tree changed; nothing was committed. Branch, commit, push and PR come in the next slice — until then, use git in the Forge.", { class: 'note' }))
   }
 
   function drawConsent(c: NonNullable<S2View['consent']>): void {

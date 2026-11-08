@@ -272,6 +272,22 @@ const actions = {
       })
       .catch((e) => refused(e))
   },
+  sendPreview(path: string): void {
+    notice = null
+    call('send.preview', { path }, 200_000)
+  },
+  sendRun(path: string): void {
+    notice = null
+    call('send.run', { path }, 200_000)
+  },
+  sendCancel(): void {
+    notice = null
+    call('send.cancel', {}, 30_000)
+  },
+  forgeDirSet(dir: string): void {
+    notice = null
+    call('forge.dir.set', { dir }, 30_000)
+  },
   consentTerminal(): void {
     notice = null
     void orca.plugin
@@ -293,6 +309,17 @@ const actions = {
       draw()
     })
   },
+}
+
+/** A panel request: the worker's view drawn on its answer, its refusal shown in its words. */
+function call(name: string, input: unknown, timeoutMs: number): void {
+  void orca.plugin
+    .request(name, input, { timeoutMs })
+    .then((v) => {
+      view = v as PanelView
+      draw()
+    })
+    .catch((e) => refused(e))
 }
 
 /** A request the worker refused: its words shown, then the worker's view read again. */

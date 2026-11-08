@@ -9,8 +9,9 @@
 An [Orca](https://github.com/stablyai/orca) plugin that shows, for the workspace you have open, which craftar Forge it follows, its
 linked projects and the files coming and going between them — using the `craftar` you installed. It adds nothing to craftar.
 
-**Status: S2, the incoming path.** The plugin reads, and writes only when you click **Update** in its panel and confirm: one sync through
-`craftar mcp --allow-writes`, then exactly the files it wrote staged — never a commit.
+**Status: S3a, Send to Forge.** The plugin reads, and writes only on your clicks: **Update** (S2) — one sync through `craftar mcp
+--allow-writes`, then exactly the files it wrote staged, never a commit — and **Send to Forge** (S3a) — `craftar drift promote` into the
+Forge's working tree, after its dry run, never a commit. Branch, commit, push and PR in the Forge are the next slice.
 
 - **On enable** a self-check runs: the binary found and absolute, its version at least **0.33.0** (taken from `craftar doctor
   --json`, asked about the focused craftar workspace or, with none focused, another one on this machine — with none at all nothing
@@ -36,7 +37,18 @@ linked projects and the files coming and going between them — using the `craft
   workspace in its words, under "craftar says" (open when the sync is refused, a check fails, the Forge could not be fetched or a read gave an error; the
   registry's lines about other workspaces stay out of its panel); a refused sync in craftar's words; and a failed check with
   craftar's lines. Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
-  `--allow-writes`. "Send to Forge" is drawn disabled, with a note, until a later slice.
+  `--allow-writes`.
+- **Send to Forge** (spec 60 §8) is offered for a file you edited by hand that craftar can carry up (`drift show --json`'s
+  `promotable`); a file it will not carry shows craftar's reason. The first click runs `craftar drift promote <file> --workspace <dir>
+  --dry-run --json` and shows its plan as text — the outcome, the Forge files it would write, the values it would set, the other
+  workspaces that will see it, craftar's warnings; **Write to the Forge**, a second click, runs it for real. craftar proves the change,
+  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words. A Forge given as a git URL
+  needs a local clone of it: the panel asks for its folder once per workspace and keeps only that path (`--forge <dir>`); a Forge on
+  this machine needs nothing. One notification per file you newly edit by hand that craftar can carry: "<file> belongs to Forge <x> —
+  send the change to the Forge? Open the craftar panel."
+- **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
+  a second later. It never refuses or delays the save beyond reading the event's path, and never keeps, logs or sends the text; the
+  next `drift show` decides.
 - **The periodic check notifies** once when the files coming from the Forge grow, for a workspace Update can run on — "Forge <name> changed N files for <workspace> —
   update N files and add them to the commit? Open the craftar panel." — names and counts only (an Orca notification takes no click).
 - **Update** is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,

@@ -13,6 +13,8 @@ export interface FakeEl {
   replaceChildren(...c: FakeEl[]): void
   addEventListener(ev: string, fn: () => void): void
   textContent: string
+  /** An input's value, as a person would type it. */
+  value: string
 }
 
 function el(tag: string, ns: string | null): FakeEl {
@@ -22,6 +24,7 @@ function el(tag: string, ns: string | null): FakeEl {
     attrs: {},
     children: [],
     text: null,
+    value: '',
     listeners: {},
     setAttribute(k, v) {
       e.attrs[k] = String(v)
