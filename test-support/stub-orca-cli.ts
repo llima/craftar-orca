@@ -28,6 +28,7 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySecond
     `  "worktree ps --json") ${opts.psDelaySeconds ? `/bin/sleep ${opts.psDelaySeconds}; ` : ''}/bin/cat ${q(join(dir, 'ps.json'))}; exit ${opts.psCode ?? 0} ;;`,
     `  "terminal list --json") /bin/cat ${q(join(dir, 'tl.json'))} ;;`,
     `  "terminal switch --terminal "*) /bin/cat ${q(join(dir, 'sw.json'))}; exit $(/bin/cat ${q(join(dir, 'sw.code'))}) ;;`,
+    `  "reference add "*) /bin/cat ${q(join(dir, 'sw.json'))} ;;`,
     '  *) exit 2 ;;',
     'esac',
     '',

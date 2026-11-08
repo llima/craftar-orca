@@ -29,9 +29,11 @@ test('the commit command: a new branch, exactly those paths added and committed,
   const c = stepCommand('bash', 'commit', I)!
   assert.match(c, /^git -C '\/home\/acme\/forge' var GIT_AUTHOR_IDENT && /)
   assert.match(c, /switch -c craftar-acme-portal-commit-conventions && /)
-  assert.match(c, /add -- 'ingredients\/rules\/x\/rule\.md' 'recipes\/a b\.yaml' && /)
-  assert.match(c, /commit -m 'chore\(forge\): it'\\''s done' -- 'ingredients\/rules\/x\/rule\.md' 'recipes\/a b\.yaml' && /)
-  assert.ok(c.endsWith(` && echo ${marker('commit', 'n1', true)} || echo ${marker('commit', 'n1', false)}`))
+  assert.match(c, /git --literal-pathspecs -C '\/home\/acme\/forge' add -- 'ingredients\/rules\/x\/rule\.md' 'recipes\/a b\.yaml' && /)
+  assert.match(c, /--literal-pathspecs -C '\/home\/acme\/forge' commit -m 'chore\(forge\): it'\\''s done' -- 'ingredients\/rules\/x\/rule\.md' 'recipes\/a b\.yaml' && /)
+  assert.ok(c.endsWith(' && echo craftar-step-"ok":commit:n1 || echo craftar-step-"failed":commit:n1'))
+  // The marker never stands in one piece in the command, so a wrapped command line cannot read as a verdict.
+  assert.ok(!c.includes(marker('commit', 'n1', true)) && !c.includes(marker('commit', 'n1', false)))
   assert.doesNotMatch(c, / -A\b| --all\b|push|sendText/)
 })
 
@@ -44,11 +46,18 @@ test('push and PR are their own commands; PowerShell gets its own quoting; a val
   assert.equal(stepCommand('bash', 'pr', { ...I, title: 'a\nb' }), null)
   assert.equal(stepCommand('bash', 'commit', { ...I, paths: [] }), null)
   assert.equal(stepCommand('bash', 'commit', { ...I, paths: ['a\nb'] }), null)
+  assert.equal(stepCommand('bash', 'pr', { ...I, title: 'a\u202eb' }), null)
+  assert.equal(stepCommand('bash', 'pr', { ...I, title: 'a\u009bb' }), null)
   assert.match(stepCommand('bash', 'prepare', I)!, /var GIT_AUTHOR_IDENT && echo craftar-branch:\$\(git -C '\/home\/acme\/forge' rev-parse --abbrev-ref HEAD\)/)
 })
 
 test('a marker counts only as a whole line with its nonce; the identity, the branch and the PR URL of the Forge\'s host are kept', () => {
   const cmd = `$ ${stepCommand('bash', 'pr', I)}`
+  // Every way the terminal may wrap the command line: no row reads as a verdict.
+  for (let w = 10; w < 200; w++) {
+    const rows = cmd.match(new RegExp(`.{1,${w}}`, 'g')) ?? []
+    assert.equal(readStep(rows, 'pr', 'n1', 'github.com').done, null, String(w))
+  }
   assert.equal(readStep([cmd], 'pr', 'n1', 'github.com').done, null)
   assert.equal(readStep(['craftar-step-ok:pr:old'], 'pr', 'n1', 'github.com').done, null)
   const r = readStep([cmd, 'https://github.com/acme/forge/pull/7', `  ${marker('pr', 'n1', true)}`], 'pr', 'n1', 'github.com')

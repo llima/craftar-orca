@@ -10,8 +10,8 @@ export type Step = 'prepare' | 'commit' | 'push' | 'pr'
 export type Quotable = 'bash' | 'zsh' | 'sh' | 'pwsh'
 
 const BRANCH = /^[a-z0-9][a-z0-9-]{0,62}$/
-// A control character has no place in a terminal command, even quoted.
-const CONTROL = /[\u0000-\u001f\u007f]/
+// A control character (C0, DEL, C1) or a bidirectional control has no place in a terminal command, even quoted.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/
 
 export function quotable(shell: Shell): shell is Quotable {
   return shell === 'bash' || shell === 'zsh' || shell === 'sh' || shell === 'pwsh'
@@ -49,6 +49,12 @@ export function prBody(r: { outcome: string; promoted: string; written: { path: 
 
 export function marker(step: Step, nonce: string, ok: boolean): string {
   return `craftar-step-${ok ? 'ok' : 'failed'}:${step}:${nonce}`
+}
+
+// The marker as the command prints it: the verdict word is quoted apart, so the marker never stands in one piece in the
+// command line itself, even when the terminal wraps that line (bash, zsh, sh and PowerShell all join `a"b"c` into `abc`).
+function printed(step: Step, nonce: string, ok: boolean): string {
+  return `echo craftar-step-"${ok ? 'ok' : 'failed'}":${step}:${nonce}`
 }
 
 /** What a step's terminal printed, as far as the plugin keeps it: the marker's verdict, the identity, the branch, the PR URL. */
@@ -107,15 +113,17 @@ export function stepCommand(shell: Quotable, step: Step, i: StepInput): string |
   if (step === 'commit' && i.paths.length === 0) return null
   const q = (v: string): string => quote(shell, v)
   const git = `git -C ${q(i.forge)}`
-  const ok = `echo ${marker(step, i.nonce, true)}`
-  const bad = `echo ${marker(step, i.nonce, false)}`
+  // A path is matched literally, never as a pathspec pattern: exactly the paths craftar wrote.
+  const lit = `git --literal-pathspecs -C ${q(i.forge)}`
+  const ok = printed(step, i.nonce, true)
+  const bad = printed(step, i.nonce, false)
   const paths = i.paths.map(q).join(' ')
   const run = (() => {
     switch (step) {
       case 'prepare':
         return `${git} var GIT_AUTHOR_IDENT && echo craftar-branch:$(${git} rev-parse --abbrev-ref HEAD)`
       case 'commit':
-        return `${git} var GIT_AUTHOR_IDENT && ${git} switch -c ${i.branch} && ${git} add -- ${paths} && ${git} commit -m ${q(i.title)} -- ${paths} && ${git} log -1 --format=%an%x20%x3C%ae%x3E%x200%x20+0000`
+        return `${git} var GIT_AUTHOR_IDENT && ${git} switch -c ${i.branch} && ${lit} add -- ${paths} && ${lit} commit -m ${q(i.title)} -- ${paths} && ${git} log -1 --format=%an%x20%x3C%ae%x3E%x200%x20+0000`
       case 'push':
         return `${git} push -u origin ${i.branch}`
       case 'pr':

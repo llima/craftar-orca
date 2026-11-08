@@ -1,11 +1,12 @@
 // S3b in the worker: after a Send wrote the Forge, the PR in three clicks, each in a new visible terminal with a fixed command;
 // the plugin follows each step by its marker, keeps only the identity, the branch and the PR URL, and never commits itself.
 import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
-import { writeFileSync } from 'node:fs'
+import { chmodSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { marker } from './forge-pr'
+import { stubOrcaCli } from '../test-support/stub-orca-cli'
 import * as main from './worker'
 import type { View } from './worker'
 
@@ -166,4 +167,48 @@ test('a shell the plugin does not quote for gets the steps in words and no termi
   assert.equal(f?.open, false)
   await worker.request('forgepr.drop')
   assert.equal(await get(worker), null)
+})
+
+test('with an origin on a host, the PR URL of that host is kept and attached with orca-ide reference add; a second click while a step starts runs nothing', { skip: process.platform === 'win32' }, async () => {
+  const { h, worker, web } = await setup()
+  // On PATH: a stub orca-ide that records its arguments, and a git that answers the Forge's origin (POSIX shell scripts).
+  const cli = stubOrcaCli()
+  const git = join(cli.dir, 'git')
+  writeFileSync(git, '#!/bin/sh\ncase "$*" in *"remote get-url origin") echo https://github.com/acme/forge2.git ;; *) exit 1 ;; esac\n')
+  chmodSync(git, 0o755)
+  process.env.PATH = cli.dir
+  await sent(worker)
+  h.respond('terminal.read', { lines: ['craftar-shell:/bin/bash', 'Acme Dev <dev@acme.example> 1 +0000', 'craftar-branch:main', marker('prepare', 'n1', true)], truncated: false })
+  const first = worker.request('forgepr.prepare')
+  await assert.rejects(worker.request('forgepr.prepare'), /already starting/)
+  await first
+  await main.settled()
+  for (const step of ['commit', 'push'] as const) {
+    h.respond('terminal.read', { lines: ['Acme Dev <dev@acme.example> 0 +0000', marker(step, 'n1', true)], truncated: false })
+    const run = worker.request('forgepr.step', { step })
+    await assert.rejects(worker.request('forgepr.step', { step }), /already starting/)
+    await run
+    await main.settled()
+  }
+  h.respond('terminal.read', { lines: ['https://evil.example/acme/forge2/pull/9', 'https://github.com/acme/forge2/pull/3', marker('pr', 'n1', true)], truncated: false })
+  await worker.request('forgepr.step', { step: 'pr' })
+  await main.settled()
+  const f = await get(worker)
+  assert.equal(f?.url, 'https://github.com/acme/forge2/pull/3')
+  assert.equal(f?.attached, true)
+  assert.ok(cli.calls().includes(`reference add https://github.com/acme/forge2/pull/3 --worktree path:${web} --json`))
+  // One terminal per step: the second clicks opened none.
+  assert.equal(h.callsOf('terminal.create').filter((c) => /forge PR/.test((c as { title: string }).title)).length, 4)
+})
+
+test('a preview whose identity was not read holds the commit', async () => {
+  const { h, worker } = await setup()
+  await sent(worker)
+  h.respond('terminal.read', { lines: ['craftar-shell:/bin/bash', 'craftar-branch:main', marker('prepare', 'n1', true)], truncated: false })
+  await worker.request('forgepr.prepare')
+  await main.settled()
+  const f = await get(worker)
+  assert.equal(f?.phase, 'failed')
+  assert.equal(f?.step, 'prepare')
+  await assert.rejects(worker.request('forgepr.step', { step: 'commit' }), /waits for the one before it/)
 })
