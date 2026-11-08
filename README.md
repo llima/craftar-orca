@@ -48,7 +48,9 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   send the change to the Forge? Open the craftar panel."
 - **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
   a second later. It never refuses or delays the save beyond reading the event's path, and never keeps, logs or sends the text; the
-  next `drift show` decides.
+  next `drift show` decides. Orca names the editor's workspace with an id `workspace.list` does not hold (measured in Orca 1.4.250),
+  so the hook takes the focused workspace instead; each save writes one line to the plugin log, yes/no words only — whether the
+  workspace was listed, the file inside it, focused and recorded in the lock — never the path or the text.
 - **The periodic check notifies** once when the files coming from the Forge grow, for a workspace Update can run on — "Forge <name> changed N files for <workspace> —
   update N files and add them to the commit? Open the craftar panel." — names and counts only (an Orca notification takes no click).
 - **Update** is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
