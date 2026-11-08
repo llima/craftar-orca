@@ -74,6 +74,7 @@ type View = {
   send: { path: string; phase: string; plan: { outcome: string; written: unknown[] } | null; result: { dryRun: boolean } | null; message: string | null } | null
   forgeDir: { needed: boolean; dir: string | null }
   marked: string[]
+  sendRefused: { path: string; message: string }[]
 }
 
 test('Send runs the dry run first; Write to the Forge runs the write; nothing is written before the second click', async () => {
@@ -94,11 +95,16 @@ test('Write to the Forge without a dry run of that file first is refused, and no
   assert.equal(s.calls().some((c) => c.argv[1] === 'promote'), false)
 })
 
-test("a file the workspace does not list as promotable is refused; craftar's refusal of a dry run is shown in its words", async () => {
+test("a file the workspace does not list as promotable is refused; craftar's refusal of a dry run returns to the workspace, the file kept in its words", async () => {
   const { worker } = await setup({ extra: { 'drift promote': { stdout: '', code: 1, stderr: 'error: D16: promote refused\n' } } })
   await assert.rejects(worker.request('send.preview', { path: '.claude/rules/other.md' }), /not a file this workspace can send/)
   const v = (await sendAndWait(worker, 'send.preview', { path: EDITED }))
-  assert.deepEqual([v.send?.phase, v.send?.message], ['error', 'error: D16: promote refused'])
+  // No send screen to be stuck on: the panel is back on the workspace, and the refusal is kept per file.
+  assert.equal(v.send, null)
+  assert.deepEqual(v.sendRefused, [{ path: EDITED, message: 'error: D16: promote refused' }])
+  // Saving the file again is a new edit: the refusal is asked again.
+  await worker.hooks.fire('editor.save.before', { workspaceId: 'w1', path: EDITED, text: 'x' })
+  assert.deepEqual(((await worker.request('state.get')) as View).sendRefused, [])
 })
 
 test('a URL Forge needs a local clone named once: before it, Send says so; after it, --forge is passed', async () => {

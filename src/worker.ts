@@ -230,6 +230,11 @@ interface State {
   fetchState: Map<string, 'fetched' | 'failed' | 'off'>
   /** S3a, per workspace path: the Send to Forge in progress (the dry run's plan, then the write's result). */
   send: Map<string, SendView>
+  /** Per workspace path: the files craftar refused to send, with its words — kept here, no Send, until the file is saved again. */
+  sendRefused: Map<string, Map<string, string>>
+  /** The machine's registry and each workspace's repos, as the last read gave them: a focus read reuses them (the switch waits only for status and drift show). */
+  registryDoc: WorkspacesDoc | null
+  reposDocs: Map<string, ReposDoc | null>
   /** Per workspace path: every path craftar's status lists — what the save hook may mark (O7). */
   known: Map<string, Set<string>>
   /** Per workspace path: files saved since the last read, marked "edited — not yet in the Forge" (O7). */
@@ -411,8 +416,22 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
       await s.orca.storage.set(FETCHED_AT, fetched)
     }
     const drift: DriftDoc | null = await optional('drift show', driftShow(craftar, row.path), errors)
-    const rp: ReposDoc | null = await optional('repos', repos(craftar, row.path), errors)
-    const registry: WorkspacesDoc | null = await optional('workspaces', registryRead(craftar), errors)
+    // A focus read asks only status and drift show when an earlier read gave the rest: `workspaces` plans every registered
+    // workspace and grows with the machine, and neither it nor `repos` draws anything the switch needs. The periodic read refreshes both.
+    const reuse = reason === 'focus' && s.registryDoc !== null && s.reposDocs.has(row.path)
+    const rp: ReposDoc | null = reuse ? (s.reposDocs.get(row.path) ?? null) : await optional('repos', repos(craftar, row.path), errors)
+    const cached = reuse ? s.registryDoc : null
+    // A reused registry speaks for this workspace as of its read: its own `<ws>: …` lines are left out, since status
+    // and drift show just said them fresh. Every other line stays.
+    const registry: WorkspacesDoc | null = cached
+      ? { ...cached, warnings: cached.warnings.filter((w) => !w.startsWith(`${row.path}: `)) }
+      : await optional('workspaces', registryRead(craftar), errors)
+    // Only a document craftar gave is kept: after a failure the next focus read asks again, and says so.
+    if (!reuse) {
+      if (rp) s.reposDocs.set(row.path, rp)
+      else s.reposDocs.delete(row.path)
+      s.registryDoc = registry
+    }
     const model = buildModel({ ws: row.path, name: row.name, status, drift, repos: rp, registry, fetchedAt: fetched[row.path] ?? null, readAt: Date.now(), errors })
     // An offline read of a remote Forge reads the copy the last periodic check fetched: when that fetch
     // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
@@ -422,6 +441,9 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     s.known.set(row.path, new Set(status.statuses.filter((x) => x.state !== 'new').map((x) => x.path)))
     // drift show is the source of truth: a read replaces what the save hook marked.
     s.marked.delete(row.path)
+    // A refusal of a file no longer edited by hand is no longer a question.
+    const refused = s.sendRefused.get(row.path)
+    if (refused) for (const p of [...refused.keys()]) if (!model.edited.some((x) => x.path === p)) refused.delete(p)
     await notifyEdited(s, model)
     // Nothing left to update: a consent asked for an earlier Update is no longer the question.
     if (model.pending.length === 0 && s.consent.has(row.path)) {
@@ -543,6 +565,13 @@ async function sendPreview(s: State, path: unknown): Promise<() => Promise<void>
   return () => sendPreviewRun(s, t, craftar, forge, token)
 }
 
+/** Records craftar's refusal of one file: the panel keeps it here, in craftar's words, with no Send. */
+function refuseSend(s: State, ws: string, path: string, message: string): void {
+  const m = s.sendRefused.get(ws) ?? new Map<string, string>()
+  m.set(path, message)
+  s.sendRefused.set(ws, m)
+}
+
 /** Sets a send's state only while it is still the run that started it (a Cancel or a newer run wins). */
 function setIfCurrent(s: State, ws: string, token: number, next: SendView): void {
   if (s.send.get(ws)?.token === token) s.send.set(ws, next)
@@ -554,7 +583,11 @@ async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar
       const plan = await promote(craftar, t.ws, t.path, { dryRun: true, forge })
       setIfCurrent(s, t.ws, token, { path: t.path, phase: 'preview', plan, result: null, message: null, forge, token })
     } catch (e) {
-      setIfCurrent(s, t.ws, token, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run', forge, token })
+      if (e instanceof PromoteRefused && s.send.get(t.ws)?.token === token) {
+        // craftar's refusal is an answer, not a screen to be stuck on: back to the workspace, the file kept here with craftar's words.
+        refuseSend(s, t.ws, t.path, e.message)
+        s.send.delete(t.ws)
+      } else setIfCurrent(s, t.ws, token, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run', forge, token })
     }
   })
   await publish(s)
@@ -577,6 +610,7 @@ async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendVi
       const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: prev.forge ?? null })
       setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'done', result, message: null })
     } catch (e) {
+      if (e instanceof PromoteRefused) refuseSend(s, t.ws, t.path, e.message)
       setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'error', result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
     }
   })
@@ -602,6 +636,8 @@ export interface View {
   /** A URL Forge needs a local clone named once per workspace (O5); a local Forge needs nothing. */
   forgeDir: { needed: boolean; dir: string | null }
   marked: string[]
+  /** The files craftar refused to send, in its words: the panel shows them kept here, with no Send. */
+  sendRefused: { path: string; message: string }[]
 }
 
 function view(s: State): View {
@@ -621,6 +657,7 @@ function view(s: State): View {
     send: ws ? (s.send.get(ws) ?? null) : null,
     forgeDir: { needed: forgeIsRemote(s, ws), dir: ws ? (s.forgeDirs[ws] ?? null) : null },
     marked: ws ? [...(s.marked.get(ws) ?? [])].sort() : [],
+    sendRefused: ws ? [...(s.sendRefused.get(ws) ?? new Map<string, string>())].map(([path, message]) => ({ path, message })).sort((a, b) => a.path.localeCompare(b.path)) : [],
   }
 }
 
@@ -646,6 +683,7 @@ async function focusSource(ctx: Context | null): Promise<FocusSource> {
 }
 
 async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Promise<void> {
+  const startedSwitch = Date.now()
   const settings = await readSettings(s.orca)
   const { local, remote } = await listRows(s.orca)
   s.remote = remote
@@ -656,9 +694,25 @@ async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Pr
   s.focus = focusedBy(await focusSource(context), context, local, typeof stored === 'string' ? stored : null)
   const ws = focusedPath(s)
   if (s.diff && s.diff.ws !== ws) await stopDiff(s)
-  await ensureCheck(s, settings, local, recheck || before !== ws)
+  // The switch first: the panel shows the new workspace at once, from its last read, while craftar reads it again.
+  // The self-check runs before only when none ran yet or the settings changed (the reads need its craftar).
+  const checked = await ensureCheck(s, settings, local, false)
+  if (before !== ws) await publish(s)
+  const shownAt = Date.now()
   if (s.focus.kind === 'one') await readWorkspace(s, s.focus.row, 'focus', settings)
   await publish(s)
+  // Numbers only: how long a switch took to show and to read, for the live run.
+  if (before !== ws) s.orca.log(`focus switch: shown in ${shownAt - startedSwitch} ms, read in ${Date.now() - startedSwitch} ms`)
+  // A new focus or Check again re-asks doctor about the workspace in focus — after the read, so the switch never waits
+  // for it, and skipped when the focus moved on in the meantime.
+  if (!checked && (recheck || before !== ws)) {
+    void track(s, s.queue.run(FOCUS_QUEUE, async () => {
+      if (focusedPath(s) !== ws) return
+      // The settings as they are now: a change during the read is the one this check is for.
+      await ensureCheck(s, await readSettings(s.orca), local, true)
+      await publish(s)
+    })).catch((e) => s.orca.log(failed('self-check', e)))
+  }
 }
 
 function settingsKey(st: Settings): string {
@@ -677,11 +731,11 @@ async function stopDiff(s: State): Promise<void> {
  * diff child built from the old settings is stopped too (O1). doctor is asked about the focused workspace,
  * else any local one, and runs in that workspace's queue so it never overlaps a read of it.
  */
-async function ensureCheck(s: State, settings: Settings, local: Row[], force: boolean): Promise<void> {
+async function ensureCheck(s: State, settings: Settings, local: Row[], force: boolean): Promise<boolean> {
   const key = settingsKey(settings)
   const changed = s.usedKey !== null && s.usedKey !== key
   const appeared = s.checkedWs === null && local.length > 0
-  if (!force && !changed && !appeared && s.selfCheck.length > 0) return
+  if (!force && !changed && !appeared && s.selfCheck.length > 0) return false
   if (changed) await stopDiff(s)
   const focusedWs = focusedPath(s)
   const ws = focusedWs ?? local[0]?.path ?? null
@@ -695,6 +749,7 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   s.version = r.version ?? null
   s.usedKey = key
   s.checkedWs = ws
+  return true
 }
 
 /** The periodic check: every local craftar workspace, the only read that may fetch (spec 60 §7.1). */
@@ -907,6 +962,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     lastSync: new Map(),
     fetchState: new Map(),
     send: new Map(),
+    sendRefused: new Map(),
+    registryDoc: null,
+    reposDocs: new Map(),
     known: new Map(),
     marked: new Map(),
     forgeDirs: {},
@@ -1019,6 +1077,8 @@ export default function activate(orca: OrcaWorkerApi): void {
       const set = s.marked.get(row.path) ?? new Set<string>()
       set.add(rel)
       s.marked.set(row.path, set)
+      // A new save is a new edit: craftar may answer otherwise, so its refusal of this file is asked again.
+      s.sendRefused.get(row.path)?.delete(rel)
       scheduleRead(s, () => refresh())
     }
     return undefined

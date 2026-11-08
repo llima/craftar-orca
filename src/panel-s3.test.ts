@@ -73,7 +73,12 @@ test("after the write: what craftar wrote, and that nothing was committed; a ref
 test('a URL Forge with no clone named: Send is off and the panel asks for the clone folder', () => {
   const { root, calls } = draw(view({ forgeDir: { needed: true, dir: null } }))
   assert.equal(byAction(root, 'send')[0].attrs.disabled, '')
-  const input = all(root).find((e) => e.attrs['data-role'] === 'forge-dir-input')
+  // The ask sits in the fixed footer toolbar, above the buttons, not in the body.
+  const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
+  assert.ok(all(bar).some((e) => e.attrs['data-role'] === 'forge-dir'))
+  assert.ok(all(bar).some((e) => e.attrs['data-action'] === 'forge-dir-save'))
+  assert.equal(all(bar).filter((e) => e.attrs['data-role'] === 'send-reason').length, 0)
+  const input = all(bar).find((e) => e.attrs['data-role'] === 'forge-dir-input')
   assert.ok(input)
   input!.value = '/home/acme/forge-clone'
   click(byAction(root, 'forge-dir-save')[0])
@@ -107,6 +112,46 @@ test("craftar's own dry-run shape draws the plan and the Write button", () => {
 test('a stored clone folder is shown with a way to change it', () => {
   const { root, calls } = draw(view({ forgeDir: { needed: true, dir: '/home/acme/forge-clone' } }))
   assert.match(root.textContent, /\/home\/acme\/forge-clone/)
+  const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
+  assert.ok(all(bar).some((e) => e.attrs['data-role'] === 'forge-dir-stored'))
   click(byAction(root, 'forge-dir-change')[0])
   assert.deepEqual(calls, ['dir '])
+})
+
+test('the send screen takes the body over: its steps, and its own toolbar per phase', () => {
+  const role = (root: FakeEl, r: string) => all(root).filter((e) => e.attrs['data-role'] === r)
+  const bar = (root: FakeEl) => all(role(root, 'toolbar')[0]).filter((e) => e.attrs['data-action']).map((e) => e.attrs['data-action'])
+  const preview = draw(view({ send: { path: EDITED, phase: 'preview', plan: PLAN as never, result: null, message: null } }))
+  assert.deepEqual(bar(preview.root), ['send-cancel', 'send-confirm'])
+  assert.match(role(preview.root, 'send-steps')[0].textContent, /1 dry run2 write3 done/)
+  assert.equal(role(preview.root, 'list-down').length, 0)
+  click(byAction(preview.root, 'send-confirm')[0])
+  assert.deepEqual(preview.calls, [`run ${EDITED}`])
+  const writing = draw(view({ send: { path: EDITED, phase: 'writing', plan: PLAN as never, result: null, message: null } }))
+  const busy = all(role(writing.root, 'toolbar')[0]).find((e) => e.attrs['aria-busy'] === 'true')
+  assert.equal(busy?.attrs.disabled, '')
+  assert.equal(byAction(writing.root, 'send-confirm').length, 0)
+  const done = draw(view({ send: { path: EDITED, phase: 'done', plan: PLAN as never, result: { ...PLAN, dryRun: false } as never, message: null } }))
+  assert.deepEqual(bar(done.root), ['send-cancel'])
+  click(byAction(done.root, 'send-cancel')[0])
+  assert.deepEqual(done.calls, ['cancel'])
+})
+
+test("a file craftar refused to send is kept here in craftar's words, with no Send, and the panel is not stuck", () => {
+  const { root } = draw(view({ sendRefused: [{ path: EDITED, message: 'error: D17: reaches agent/x, local to this profile' }] }))
+  assert.equal(byAction(root, 'send-file').length, 0)
+  assert.equal(byAction(root, 'send').length, 0)
+  assert.match(root.textContent, /kept here — craftar will not send it/)
+  const words = all(root).filter((e) => e.attrs['data-role'] === 'send-refused-message').map((e) => e.textContent)
+  assert.deepEqual(words, ['error: D17: reaches agent/x, local to this profile'])
+})
+
+test('the error screen of a send always has a way back, on the card and in the toolbar', () => {
+  const { root, calls } = draw(view({ send: { path: EDITED, phase: 'error', plan: null, result: null, message: 'error: D16: promote refused' } }))
+  const backs = byAction(root, 'send-cancel')
+  assert.equal(backs.length, 2)
+  const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
+  assert.ok(all(bar).some((e) => e.attrs['data-action'] === 'send-cancel'))
+  click(backs[0])
+  assert.deepEqual(calls, ['cancel'])
 })

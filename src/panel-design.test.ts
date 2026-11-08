@@ -1,6 +1,6 @@
-// The approved panel design (agent 62, the user's approval of 2026-11-07): the state pill, the Forge ↔ workspace
-// tree with two lanes, the cards, the flat lists, and S2's cards drawn from its contract when the worker gives
-// it (absent: drawn disabled). Every value stays text.
+// The layout the user approved on 2026-11-08: the bell, the sync diagram (Forge, craftar sync, one card per
+// surface, the workspace and its profile), the files both ways and the actions in a footer toolbar; S2's parts
+// drawn from its contract when the worker gives it (absent: drawn disabled). Every value stays text.
 import { assert, test } from 'orca/testing'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -43,114 +43,135 @@ function draw(v: PanelView) {
 const cls = (e: FakeEl): string[] => (e.attrs.class ?? '').split(/\s+/).filter(Boolean)
 const byClass = (root: FakeEl, c: string): FakeEl[] => all(root).filter((e) => cls(e).includes(c))
 const role = (root: FakeEl, r: string): FakeEl[] => all(root).filter((e) => e.attrs['data-role'] === r)
-const pill = (root: FakeEl): FakeEl | undefined => role(root, 'state-pill')[0]
-const lane = (root: FakeEl, dir: 'down' | 'up'): string[] => cls(byClass(root, 'lane').find((e) => cls(e).includes(dir)) as FakeEl)
-const comets = (root: FakeEl): string[] => byClass(root, 'comet').map((e) => cls(e).join(' '))
 
 const sync = (m: PanelModel) => {
   m.pending = []
   m.edited = []
   m.apart = []
+  m.outputs = m.outputs.map((o) => ({ owner: o.owner, counts: { unchanged: 3 } }))
 }
 
-test('in sync: a green pill, both lanes idle with the pulse dot, no comet', () => {
+const state = (root: FakeEl): FakeEl | undefined => role(root, 'sync-state')[0]
+const surfaces = (root: FakeEl): FakeEl[] => role(root, 'surface')
+
+test('in sync: craftar sync says so in green, every surface reads up to date, and the toolbar has nothing to do', () => {
   const { root } = draw(view(sync))
-  assert.equal(pill(root)?.textContent, 'in sync')
-  assert.ok(cls(pill(root)!).includes('ok'))
-  assert.ok(lane(root, 'down').includes('idle'))
-  assert.ok(lane(root, 'up').includes('idle'))
-  assert.equal(byClass(root, 'dot-pulse').length, 1)
-  assert.deepEqual(comets(root), [])
-  assert.match(root.textContent, /in sync/)
+  assert.ok(cls(state(root)!).includes('ok'))
+  assert.match(state(root)!.textContent, /in sync/)
+  assert.ok(surfaces(root).every((x) => /up to date/.test(x.textContent)))
+  assert.equal(byAction(root, 'update').length, 0)
+  assert.equal(byAction(root, 'send').length, 0)
+  assert.equal(role(root, 'toolbar-empty').length, 1)
 })
 
-test('pending only: the down lane is lit with an ember comet, the commit move is said, and the down card is drawn', () => {
-  const { root } = draw(view((m) => (m.edited = [])))
-  assert.equal(pill(root)?.textContent, '1 pending')
-  assert.ok(cls(pill(root)!).includes('em'))
-  assert.ok(lane(root, 'down').includes('on'))
-  assert.ok(!lane(root, 'up').includes('on'))
-  assert.deepEqual(comets(root), ['comet e'])
+test('pending only: craftar sync counts what comes down and the commit move, and the toolbar offers Bring', () => {
+  const { root } = draw(view((m) => ((m.edited = []), (m.apart = []))))
+  assert.ok(cls(state(root)!).includes('active'))
   assert.match(root.textContent, /1 coming down from the Forge/)
   assert.match(root.textContent, /commit 4d764d6 → d2309dc/)
-  assert.match(root.textContent, /Update 1 file and add it to your commit\?/)
+  assert.equal(byAction(root, 'update')[0].textContent, 'Bring 1 from the Forge')
   assert.equal(byAction(root, 'send').length, 0)
 })
 
-test('edited only: the up lane is lit with a steel comet when a file can go up, and the up card is drawn', () => {
-  const { root } = draw(view((m) => (m.pending = [])))
-  assert.equal(pill(root)?.textContent, '1 to send up')
-  assert.ok(cls(pill(root)!).includes('st'))
-  assert.ok(lane(root, 'up').includes('on'))
-  assert.deepEqual(comets(root), ['comet s'])
-  assert.match(root.textContent, /Send 1 edited file up to the Forge\?/)
+test('edited only: craftar sync counts what can go up, and the toolbar offers Send', () => {
+  const { root } = draw(view((m) => ((m.pending = []), (m.apart = []))))
+  assert.match(root.textContent, /1 can go up to the Forge/)
+  assert.equal(byAction(root, 'send')[0].textContent, 'Send 1 to the Forge')
   assert.equal(byAction(root, 'update').length, 0)
 })
 
-test('edited files craftar will not send light no lane and say how many were held back', () => {
+test('edited files craftar will not send offer no Send and say how many were held back', () => {
   const { root } = draw(
     view((m) => {
       m.pending = []
+      m.apart = []
       m.edited = [{ path: '.kiro/steering/x.md', state: 'drift', promotable: false, reason: 'kiro file — edit its .claude/ twin' }]
     }),
   )
-  assert.equal(pill(root)?.textContent, '1 edited')
-  assert.ok(!lane(root, 'up').includes('on'))
-  assert.deepEqual(comets(root), [])
+  assert.equal(byAction(root, 'send').length, 0)
   assert.match(root.textContent, /1 edited here that craftar will not send — see why below/)
   assert.match(root.textContent, /kiro file — edit its \.claude\/ twin/)
 })
 
-test('both: two comets, the pill counts both ways, the down card comes before the up card', () => {
+test('both ways: the toolbar holds Bring then Send, and the lists go down then up', () => {
   const { root } = draw(view())
-  assert.equal(pill(root)?.textContent, '1 ↓ · 1 ↑')
-  assert.deepEqual(comets(root), ['comet e', 'comet s'])
-  const cards = byClass(root, 'cta').map((e) => e.attrs['data-role'])
-  assert.deepEqual(cards, ['update-card', 'send-card'])
+  const bar = role(root, 'toolbar')[0]
+  assert.deepEqual(all(bar).filter((e) => e.attrs['data-action']).map((e) => e.attrs['data-action']), ['update', 'send'])
+  const lists = all(root).filter((e) => (e.attrs['data-role'] ?? '').startsWith('list-')).map((e) => e.attrs['data-role'])
+  assert.deepEqual(lists.slice(0, 2), ['list-down', 'list-up'])
 })
 
-test('a refused sync breaks both lanes, with no comet, a red pill and craftar words in the card', () => {
+test("a refused sync says so in red in the diagram, with craftar words in the card; Bring is off, Send stays craftar's call", () => {
   const { root } = draw(
     view((m) => {
       m.refused = true
-      m.unset = [{ key: 'acme.key', declaredBy: ['rule/a'], citedBy: ['rule/a'] }]
+      m.unset = [{ key: 'acme.key', declaredBy: ['rule/x'], citedBy: ['rule/x'] }]
     }),
   )
-  assert.equal(pill(root)?.textContent, 'sync refused')
-  assert.ok(cls(pill(root)!).includes('bad'))
-  assert.ok(lane(root, 'down').includes('broken'))
-  assert.ok(lane(root, 'up').includes('broken'))
-  assert.deepEqual(comets(root), [])
+  assert.ok(cls(state(root)!).includes('bad'))
+  assert.match(state(root)!.textContent, /sync refused/)
   assert.match(root.textContent, /sync refused: declared parameter\(s\) with no value: acme\.key/)
-  assert.equal(byAction(root, 'update').length, 0)
+  assert.equal(byAction(root, 'update')[0].getAttribute('disabled'), '')
+  // The worker never refuses a send on this, and drift show still marks the file promotable: no gate of the panel's own.
+  const send = byAction(root, 'send')[0]
+  assert.doesNotMatch(send.getAttribute('title') ?? '', /refuse/)
+  assert.match(send.getAttribute('title') ?? '', /not built yet/) // this helper passes no sendPreview
 })
 
-test('a cached copy breaks the lanes, labels the Forge, and keeps Update disabled with the reason', () => {
-  const { root } = draw(view((m) => (m.forge = { ...m.forge!, freshness: 'cached', fetchedAt: Date.UTC(2026, 10, 7, 10, 0) })))
-  assert.equal(pill(root)?.textContent, 'cached copy')
-  assert.ok(cls(pill(root)!).includes('warn'))
-  assert.ok(lane(root, 'down').includes('broken'))
-  assert.match(root.textContent, /could not fetch the Forge/)
+test('with several files craftar can send, the toolbar names the one its click sends', () => {
+  const { root } = draw(
+    view((m) => {
+      m.edited = [
+        { path: '.claude/rules/commit-conventions.md', state: 'drift', promotable: true, reason: null },
+        { path: '.claude/rules/release.md', state: 'drift', promotable: true, reason: null },
+      ]
+    }),
+  )
+  const b = byAction(root, 'send')[0]
+  assert.equal(b.textContent, 'Send commit-conventions.md to the Forge')
+  assert.equal(b.attrs['data-path'], '.claude/rules/commit-conventions.md')
+})
+
+test('a cached copy labels the Forge, says it in the diagram, and keeps Bring disabled with the reason', () => {
+  const { root } = draw(view((m) => (m.forge = { ...m.forge!, freshness: 'cached', fetchedAt: null })))
+  assert.match(role(root, 'freshness')[0].textContent, /cached copy/)
+  assert.match(state(root)!.textContent, /could not fetch the Forge/)
   const update = byAction(root, 'update')
   assert.equal(update.length, 1)
   assert.equal(update[0].getAttribute('disabled'), '')
   assert.match(update[0].getAttribute('title') ?? '', /needs a fetch that works/)
 })
 
-test('the workspace branches show each craftar owner with its count and deltas, and no folder craftar did not name', () => {
+test("one card per surface, named as craftar names the owner, with its state and counts; the workspace and its profile below", () => {
   const { root } = draw(view())
-  const chip = byClass(root, 'chip')[0]
-  assert.match(chip.textContent, /claude-code/)
-  assert.doesNotMatch(chip.textContent, /\.claude\//)
-  assert.ok(byClass(chip, 'delta').some((d) => d.textContent === '~1' && cls(d).includes('em')))
-  assert.ok(byClass(chip, 'delta').some((d) => d.textContent === '✎1' && cls(d).includes('st')))
+  const card = surfaces(root)[0]
+  assert.match(card.textContent, /claude-code/)
+  assert.doesNotMatch(card.textContent, /\.claude\//)
+  assert.match(card.textContent, /drift/)
+  assert.match(card.textContent, /1 to update, 1 edited/)
+  const ws = role(root, 'workspace')[0]
+  assert.match(ws.textContent, /workspace\s*web/)
+  assert.equal(role(root, 'profile')[0].textContent, 'acme-web')
+  assert.doesNotMatch(root.textContent, /Linked/)
 })
 
-test('Review changes and Review edits open the first file of their list', () => {
+test('a file in either list opens its diff', () => {
   const { root, calls } = draw(view())
-  click(byAction(root, 'review-down')[0])
-  click(byAction(root, 'review-up')[0])
+  for (const b of byAction(root, 'diff')) click(b)
   assert.deepEqual(calls, ['diff .claude/rules/workflow.md', 'diff .claude/rules/commit-conventions.md'])
+})
+
+test("the bell holds craftar's messages, opens on a click, and opens by itself when craftar reports an error", () => {
+  const { root } = draw(view((m) => ((m.warnings = ['plan: <b>a warning</b>']), (m.errors = []))))
+  const pop = role(root, 'messages')[0]
+  assert.equal(pop.attrs.class, 'pop')
+  assert.equal(role(root, 'messages-count')[0].textContent, '1')
+  assert.equal(role(pop, 'warning')[0].textContent, 'plan: <b>a warning</b>')
+  click(byAction(root, 'messages')[0])
+  assert.equal(pop.attrs.class, 'pop open')
+  const err = draw(view((m) => (m.errors = ['drift show: failed'])))
+  assert.equal(role(err.root, 'messages')[0].attrs.class, 'pop open')
+  assert.equal(role(err.root, 'error')[0].textContent, 'drift show: failed')
 })
 
 test('before S2: Update and Send are disabled with a note saying they are not built yet', () => {
@@ -167,13 +188,13 @@ test("S2's contract: an allowed update asks first, listing the files, then runs 
   const { root, calls } = draw(view(undefined, { update: { allowed: true, reason: null, files: [{ path: '.claude/rules/workflow.md', state: 'update' }] } }))
   const update = byAction(root, 'update')[0]
   assert.equal(update.getAttribute('disabled'), null)
-  assert.equal(update.textContent, 'Update and stage')
+  assert.equal(update.textContent, 'Bring 1 from the Forge')
   click(update)
   const confirm = byAction(root, 'update-confirm')
   assert.equal(confirm.length, 1)
   const box = role(root, 'update-confirm-box')[0]
   assert.match(box.textContent, /Update 1 file and add it to your commit\?/)
-  assert.match(box.textContent, /\.claude\/rules\/workflow\.md/)
+  assert.deepEqual(role(root, 'update-file').map((e) => e.textContent), ['.claude/rules/workflow.md'])
   click(byAction(root, 'update-cancel')[0])
   assert.equal(byAction(root, 'update-confirm').length, 0)
   assert.deepEqual(calls, [])
@@ -228,19 +249,19 @@ test('no craftar workspace in focus: the empty card names craftar init and Check
   assert.deepEqual(calls, ['refresh'])
 })
 
-test('craftar missing: a red pill, the self-check lines verbatim, Check again', () => {
+test('craftar missing: not usable, the self-check lines verbatim, Check again', () => {
   const { root } = draw(view(undefined, { model: null, focus: 'none', selfCheck: [{ level: 'error', message: 'craftar: not found on the absolute entries of PATH' }] }))
-  assert.equal(pill(root)?.textContent, 'no craftar')
+  assert.match(role(root, 'status-line')[0].textContent, /craftar: not usable/)
   assert.match(root.textContent, /craftar: not found on the absolute entries of PATH/)
   assert.ok(byAction(root, 'refresh').length >= 2)
 })
 
-test('the footer reads the version from the self-check, and the workspace card names its path', () => {
+test('the status line reads the version from the self-check; the Forge says where it is read from; the workspace names its path', () => {
+  const empty = draw(view(undefined, { focus: 'none', model: null }))
+  assert.match(role(empty.root, 'status-line')[0].textContent, /craftar 1\.3\.0/)
   const { root } = draw(view())
-  const footer = all(root).find((e) => e.tag === 'footer')!
-  assert.match(footer.textContent, /craftar 1\.3\.0/)
-  assert.match(footer.textContent, /Forge on this machine/)
-  assert.match(root.textContent, /\/home\/acme\/web/)
+  assert.match(role(root, 'freshness')[0].textContent, /on this machine/)
+  assert.match(role(root, 'workspace')[0].textContent, /\/home\/acme\/web/)
 })
 
 test('the stylesheet keys the plugin tokens on Orca theme classes, defines no Orca variable, and stops motion on request', () => {
@@ -251,7 +272,9 @@ test('the stylesheet keys the plugin tokens on Orca theme classes, defines no Or
   const reduced = src.slice(src.indexOf('@media (prefers-reduced-motion: reduce)'))
   assert.match(reduced, /animation:\s*none !important/)
   assert.match(reduced, /transition:\s*none !important/)
-  assert.match(reduced, /\.comet\s*\{\s*display:\s*none/)
+  // Item 2: the page paints no background of its own, so Orca's sidebar shows through; no gradient anywhere.
+  assert.match(src, /html, body \{ background: transparent;/)
+  assert.doesNotMatch(src, /gradient\(/)
 })
 
 test('an allowed update with no way to run it yet stays disabled and says why', () => {
@@ -268,7 +291,7 @@ test('an allowed update with no file to list is disabled, and the card counts wh
   const { root } = draw(view(undefined, { update: { allowed: true, reason: null, files: [] } }))
   const b = byAction(root, 'update')[0]
   assert.equal(b.getAttribute('disabled'), '')
-  assert.match(role(root, 'update-card')[0].textContent, /Update 0 files/)
+  assert.equal(b.textContent, 'Bring 0 from the Forge')
   assert.match(b.getAttribute('title') ?? '', /no file to update/)
 })
 
@@ -294,12 +317,10 @@ test("craftar's sync message is shown verbatim whatever the phase, and lastSync'
 
 test('a failed read is a bad card with Check again; a tie names each workspace by name and path in the new design', () => {
   const failed = draw(view(undefined, { readFailed: true, model: null }))
-  assert.equal(pill(failed.root)?.textContent, 'error')
   assert.match(failed.root.textContent, /craftar status gave no document/)
   click(byAction(failed.root, 'refresh').at(-1)!)
   assert.deepEqual(failed.calls, ['refresh'])
   const tie = draw(view(undefined, { focus: 'ask', model: null, ask: [{ id: 'a', name: 'web', path: '/home/acme/web' }, { id: 'b', name: 'web', path: '/home/acme/web-2' }] }))
-  assert.equal(pill(tie.root), undefined)
   assert.match(tie.root.textContent, /Which workspace are you working in\?/)
   const b = byAction(tie.root, 'choose')
   assert.deepEqual(b.map((e) => e.textContent), ['web/home/acme/web', 'web/home/acme/web-2'])
@@ -309,4 +330,27 @@ test('the missing-craftar card names no version of its own (the self-check says 
   const { root } = draw(view(undefined, { model: null, focus: 'none', selfCheck: [{ level: 'error', message: 'craftar: not found' }] }))
   const card = byClass(root, 'empty')[0]
   assert.doesNotMatch(card.textContent, /\d+\.\d+\.\d+/)
+})
+
+test('no craftar workspace: the logo is drawn animated — the top square linked to the orange and the blue one', () => {
+  const { root } = draw(view(undefined, { focus: 'none', model: null }))
+  const art = role(root, 'empty-art')[0]
+  assert.deepEqual(byClass(art, 'art-box').map((e) => cls(e).join(' ')), ['art-box w', 'art-box o', 'art-box b'])
+  assert.equal(byClass(art, 'art-link').length, 2)
+  assert.equal(byClass(art, 'art-top').length, 1)
+  const src = readFileSync(fileURLToPath(new URL('./panel.ts', import.meta.url)), 'utf8')
+  assert.match(src, /\.art-link \{[^}]*animation: link-flow/)
+  assert.match(src, /\.art-top \{ animation: lift/)
+})
+
+test('the Bring screen lists every file, craftar.lock and what stays as edited, in place of the main view, with its own toolbar', () => {
+  const { root, calls } = draw(view(undefined, { update: { allowed: true, reason: null, files: [{ path: '.claude/rules/workflow.md', state: 'update' }] } }))
+  click(byAction(root, 'update')[0])
+  assert.equal(role(root, 'list-down').length, 0)
+  assert.match(root.textContent, /craftar\.lockstaged too/)
+  assert.match(root.textContent, /Kept as you edited it/)
+  assert.match(root.textContent, /\.claude\/rules\/commit-conventions\.md/)
+  const bar = role(root, 'toolbar')[0]
+  assert.deepEqual(all(bar).filter((e) => e.attrs['data-action']).map((e) => e.attrs['data-action']), ['update-cancel', 'update-confirm'])
+  assert.deepEqual(calls, [])
 })
