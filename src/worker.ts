@@ -983,9 +983,11 @@ export default function activate(orca: OrcaWorkerApi): void {
     refuseWhileBusy(s, ws)
     // An empty folder forgets the stored one: the panel asks for it again ("Change").
     if (dir === '') {
+      const rest = { ...s.forgeDirs }
+      delete rest[ws]
+      await orca.storage.set(FORGE_DIRS, rest)
       delete s.forgeDirs[ws]
       s.send.delete(ws)
-      await orca.storage.set(FORGE_DIRS, s.forgeDirs)
       return view(s) as never
     }
     if (typeof dir !== 'string' || !isAbsolute(dir) || /[\u0000-\u001f\u007f]/.test(dir)) throw new Error('give the absolute path of a folder that holds a clone of the Forge')

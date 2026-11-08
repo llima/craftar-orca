@@ -569,7 +569,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const built = typeof a.sendPreview === 'function'
     const busy = v.send?.phase === 'writing' || v.send?.phase === 'checking'
     const can = n > 0 && built && !needsClone && !busy && !!target
-    const why = !built ? NOT_BUILT_SEND : needsClone ? 'name a local clone of the Forge below first' : busy ? 'craftar is writing the Forge' : null
+    const why = !built ? NOT_BUILT_SEND : needsClone ? 'name a local clone of the Forge below first' : busy ? 'craftar is working on a send' : null
     if (n > 0) {
       const attrs: Record<string, string> = { class: 'btn steel', 'data-action': 'send' }
       if (!can) {
