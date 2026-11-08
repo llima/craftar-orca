@@ -30,7 +30,12 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr'> & S2View & S3View & BellView & PrView
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr' | 'discard'> & S2View & S3View & BellView & PrView & DiscardView
+
+/** Discard's addition (spec 60 §8a): optional, as the others. */
+export interface DiscardView {
+  discard?: View['discard']
+}
 
 /** S3b's addition: the PR in the Forge (optional, as the others). */
 export interface PrView {
@@ -57,6 +62,10 @@ export interface Actions {
   forgeDirEdit?(draft: string | null): void
   /** What the person typed in that box, kept without a redraw. */
   forgeDirDraft?(value: string): void
+  /** Discard (spec 60 §8a): open the confirmation, run it (the second click), leave it. */
+  discardOpen?(path: string): void
+  discardRun?(path: string): void
+  discardCancel?(): void
   /** S3b: prepare the PR after a Send, run a step, read a waiting terminal again, show or leave the PR screen, drop the steps left. */
   forgePrPrepare?(): void
   forgePrStep?(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void
@@ -369,6 +378,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
 
   if (m) {
     if (v.forgePr?.open) drawPrScreen(v.forgePr)
+    else if (v.discard) drawDiscardScreen(v.discard)
     else if (v.send) drawSendScreen(m, v.send)
     else drawMain(m)
     root.appendChild(toolbar)
@@ -501,14 +511,14 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     fileList('From the Forge', 'down', m.pending, (row) => t('span', row.state, { class: 'st' }))
     const needsClone = v.forgeDir?.needed === true && !v.forgeDir.dir
     const busy = v.send?.phase === 'writing' || v.send?.phase === 'checking'
-    fileList('Edited here', 'up', m.edited, (row) =>
+    fileList('Edited here', 'up', m.edited, (row) => withDiscard(row, m,
       row.promotable
         ? typeof a.sendPreview === 'function' && !needsClone && !busy
           ? button('Send', { class: 'btn ember act', 'data-action': 'send-file', 'data-path': row.path }, 'up', () => a.sendPreview?.(row.path))
           : button('Send', { class: 'btn ember act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: sendWhy(m) ?? 'craftar is working on a send' }, 'up', null)
         : row.reason
           ? t('span', row.reason, { class: 'why', ...(refusedSend.has(row.path) ? { title: refusedSend.get(row.path) ?? '', 'data-role': 'send-refused-why' } : {}) })
-          : t('span', row.state, { class: 'st' }),
+          : t('span', row.state, { class: 'st' })),
     )
     // craftar's refusal, in its words, under the files it concerns.
     const refusals = (shown?.edited ?? []).filter((e) => e.promotable && refusedSend.has(e.path))
@@ -522,7 +532,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       }
       box.appendChild(t('p', 'Kept here as you edited it. Save the file again, or click Check again, to ask craftar once more.', { class: 'muted' }))
     }
-    fileList('Kept apart', 'apart', m.apart, (row) => t('span', row.state, { class: 'st' }))
+    fileList('Kept apart', 'apart', m.apart, (row) => withDiscard(row, m, t('span', row.state, { class: 'st' })))
     if (v.lastSync) drawLastSync(v.lastSync)
     tail()
     drawMainToolbar(m)
@@ -771,6 +781,69 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (typeof a.forgePrPrepare === 'function') row.appendChild(button('Prepare the PR', { class: 'btn ember', 'data-action': 'forgepr-prepare' }, 'up', () => a.forgePrPrepare?.()))
     }
     else row.appendChild(button(sd.phase === 'writing' ? 'Writing…' : 'Checking…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, 'up', null))
+    tail()
+  }
+
+  // Discard (spec 60 §8a): offered on a `drift` or `orphan-drift` row, never on the example settings file or a collision; with
+  // anything pending it reads "Update first". The worker checks it all again; the panel only draws it.
+  function withDiscard(row: { path: string; state: string }, m: PanelModel, right: HTMLElement): HTMLElement {
+    if (typeof a.discardOpen !== 'function' || (row.state !== 'drift' && row.state !== 'orphan-drift') || row.path === '.claude/settings.craftar.example.json') return right
+    const pending = m.pending.length
+    const busyHere = !!v.discard && (v.discard.phase === 'checking' || v.discard.phase === 'running')
+    const attrs: Record<string, string> = { class: 'btn ghost act', 'data-action': 'discard-file', 'data-path': row.path }
+    if (pending > 0) {
+      attrs.disabled = ''
+      attrs.title = 'Update first: bring the files coming from the Forge with Update and stage, then discard'
+    } else if (busyHere) {
+      attrs.disabled = ''
+      attrs.title = 'a discard is running'
+    } else attrs.title = row.state === 'orphan-drift' ? 'Delete this file, which craftar no longer writes' : 'Put back what craftar writes for this file'
+    return h('span', { class: 'acts' }, right, button('Discard', attrs, null, pending > 0 || busyHere ? null : () => a.discardOpen?.(row.path)))
+  }
+
+  function drawDiscardScreen(d: NonNullable<View['discard']>): void {
+    const box = body.appendChild(h('section', { class: d.phase === 'error' ? 'card bad' : 'card', 'data-role': 'discard-box' }))
+    const name = d.path
+    toolbar.replaceChildren()
+    const row = toolbar.appendChild(h('div', { class: 'tb' }))
+    const back = (label: string): HTMLButtonElement => button(label, { class: 'btn ghost', 'data-action': 'discard-cancel' }, null, () => a.discardCancel?.())
+    if (d.phase === 'done') {
+      box.setAttribute('class', 'ok-banner')
+      box.appendChild(icon('check'))
+      box.appendChild(h('div', {}, t('strong', d.deleted ? `${name} was deleted` : `${name} reads as craftar writes it`), t('div', `Now: ${d.after?.file ?? 'not read'}. Nothing was staged or committed.`, { class: 'muted', 'data-role': 'discard-after' })))
+      if (d.after && d.after.others.length > 0) {
+        const ul = h('ul', { class: 'lines' })
+        for (const o of d.after.others) ul.appendChild(t('li', o, { class: 'warn', 'data-role': 'discard-other' }))
+        body.appendChild(sec('Also changed since the confirmation', d.after.others.length, ul))
+      }
+      if (d.after && d.after.warnings.length > 0) {
+        const ul = h('ul', { class: 'lines' })
+        for (const w of d.after.warnings) ul.appendChild(t('li', w, { class: 'warn', 'data-role': 'warning' }))
+        body.appendChild(sec('craftar says', d.after.warnings.length, ul))
+      }
+      row.appendChild(back('Back to the workspace'))
+      tail()
+      return
+    }
+    if (d.phase === 'error') {
+      box.appendChild(t('h2', `${name} was not discarded`))
+      if (d.message) box.appendChild(t('pre', d.message, { class: 'words', 'data-role': 'discard-message' }))
+      row.appendChild(back('Back to the workspace'))
+      tail()
+      return
+    }
+    box.appendChild(t('h2', d.deleted ? `Delete ${name}?` : `Discard your edit of ${name}?`))
+    if (d.message) box.appendChild(t('p', d.message, { class: 'note bad', 'data-role': 'discard-note' }))
+    box.appendChild(t('p', d.deleted
+      ? 'craftar no longer writes this file: the discard deletes it, with your edit. This cannot be undone from the panel.'
+      : 'The file goes back to what craftar writes for it (the diff below): your edit is lost for good. Nothing is staged or committed.', { class: 'muted' }))
+    if (d.diff !== null) body.appendChild(sec('What changes', null, t('pre', d.diff, { class: 'words', 'data-role': 'discard-diff' })))
+    else if (d.note) body.appendChild(sec('What changes', null, t('p', d.note, { class: 'muted', 'data-role': 'discard-withheld' })))
+    if (d.phase === 'confirm') {
+      row.appendChild(back('Cancel'))
+      row.appendChild(button(d.deleted ? 'Delete the file' : 'Discard the edit', { class: 'btn ember', 'data-action': 'discard-confirm' }, null, () => a.discardRun?.(d.path)))
+      toolbar.appendChild(t('p', 'the Forge is fetched first, then craftar drift discard runs on that copy · never --overwrite-drift', { class: 'fnote' }))
+    } else row.appendChild(button(d.phase === 'checking' ? 'Fetching the Forge…' : 'Discarding…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, null, null))
     tail()
   }
 
