@@ -287,3 +287,24 @@ test('a read that fails after the discard ran does not say nothing was written, 
   assert.match(d?.message ?? '', /^The discard ran, but reading the workspace again failed/)
   assert.match(d?.message ?? '', /wrote \.claude\/rules\/commit-conventions\.md/)
 })
+
+test('while a discard holds its Forge, an Update there is refused', async () => {
+  const { worker } = await setup({ 'drift discard': { stdout: '', code: 0, delayMs: 400 } })
+  await worker.request('discard.open', { path: EDITED })
+  await worker.request('discard.run', { path: EDITED })
+  await assert.rejects(worker.request('update.run', { files: [] }), /a discard on this Forge is running/)
+  await main.settled()
+})
+
+test('while the periodic check reads that Forge, the discard is refused and nothing runs', async () => {
+  const { s, worker, answer } = await setup()
+  await worker.request('discard.open', { path: EDITED })
+  answer('status --json', { ...statusDoc(), delayMs: 400 })
+  const periodic = main.periodic()
+  // Wait until the periodic check is inside its read of the workspace.
+  for (let i = 0; i < 100 && !s.calls().some((c) => c.argv[0] === 'status' && !c.argv.includes('--offline') && c.start !== undefined); i++) await new Promise((r) => setTimeout(r, 10))
+  await assert.rejects(worker.request('discard.run', { path: EDITED }), /periodic check is reading this Forge/)
+  await periodic
+  await main.settled()
+  assert.equal(discards(s).length, 0)
+})

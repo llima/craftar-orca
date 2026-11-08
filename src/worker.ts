@@ -272,6 +272,8 @@ interface State {
   discard: Map<string, DiscardState>
   /** The Forge sources whose fetches the worker holds while a discard reads and runs (the periodic check skips them). */
   discardHold: Set<string>
+  /** The workspace the periodic check is reading now (it may fetch), or null. */
+  periodicReading: string | null
 }
 
 /** Discard's state for one workspace: what the confirmation showed and where the run stands. */
@@ -1038,7 +1040,12 @@ export async function periodic(): Promise<void> {
       // A discard holds its Forge's fetches from its last read to the end of its run (spec 60 §8a item 4).
       const src = s.models.get(row.path)?.forge?.source
       if (src && s.discardHold.has(src)) continue
-      await readWorkspace(s, row, 'periodic', settings)
+      s.periodicReading = row.path
+      try {
+        await readWorkspace(s, row, 'periodic', settings)
+      } finally {
+        s.periodicReading = null
+      }
     }
   })()
   await track(s, all)
@@ -1252,6 +1259,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     forgePr: new Map(),
     discard: new Map(),
     discardHold: new Set(),
+    periodicReading: null,
   }
   st = s
   orca.host
@@ -1310,10 +1318,10 @@ export default function activate(orca: OrcaWorkerApi): void {
     const u = updateView(s)
     const asked = u.files.map((f) => f.path).sort()
     const given = Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string').sort() : null
-    if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
     // A discard on the same Forge holds its fetches until it ends (spec 60 §8a item 4): Update, which fetches, waits for it.
     const heldSrc = focusedPath(s) ? s.models.get(focusedPath(s)!)?.forge?.source : null
     if (heldSrc && s.discardHold.has(heldSrc)) throw new Error('a discard on this Forge is running: update once it ends')
+    if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
     if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them: look again and confirm')
     // Answered at once (plugin.request's ceiling is 120 s, measured): the update runs on, tracked, and the
     // panel follows it on state.changed.
@@ -1488,6 +1496,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (heldSource && [...s.sync.entries()].some(([w, sv]) => sv.phase === 'running' && s.models.get(w)?.forge?.source === heldSource)) {
       throw new Error('an Update on this Forge is running: discard once it ends')
     }
+    const reading = s.periodicReading
+    if (heldSource && reading && s.models.get(reading)?.forge?.source === heldSource) throw new Error('the periodic check is reading this Forge now: discard again in a moment')
     // Answered at once (a panel request stops at 120 s, and a fetch then the discard can take longer): the run goes on, tracked,
     // and the panel follows it on state.changed. Busy from now, so a second click starts nothing.
     discardBusy.add(ws)
