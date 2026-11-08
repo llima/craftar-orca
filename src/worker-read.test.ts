@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
-import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
 import { psDoc, stubOrcaCli, terminalsDoc } from '../test-support/stub-orca-cli'
 import * as main from './worker'
 
@@ -677,7 +677,7 @@ test('a fetch that worked, then a periodic fallback: the offline focus read is t
   const tableFile = String(s.env.CRAFTAR_STUB_TABLE)
   const t = JSON.parse(readFileSync(tableFile, 'utf8'))
   t['status --json --workspace'] = remoteStatus(false)
-  writeFileSync(tableFile, JSON.stringify(t))
+  writeTable(tableFile, t)
   await main.periodic()
   await worker.request('state.refresh')
   const v = (await worker.request('state.get')) as View
@@ -713,7 +713,7 @@ test('the consent card goes once a read shows nothing left to update', async () 
   const status = JSON.parse(fixture('status.json'))
   status.statuses = status.statuses.map((x: { state: string }) => ({ ...x, state: x.state === 'update' ? 'unchanged' : x.state }))
   t['status --json'] = { stdout: JSON.stringify(status), code: 0 }
-  writeFileSync(tableFile, JSON.stringify(t))
+  writeTable(tableFile, t)
   await worker.request('state.refresh')
   const v = (await worker.request('state.get')) as View
   assert.equal(v.consent, null)
@@ -790,7 +790,7 @@ test('a notification Orca did not deliver is logged as sent and not delivered; a
   const { s, worker } = await setup({ results: { 'notifications.show': { delivered: false } } })
   await main.periodic()
   assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /1 notification sent, 0 delivered$/)
-  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': { stdout: '', code: 2 } })))
+  writeTable(String(s.env.CRAFTAR_STUB_TABLE), table({ 'status --json': { stdout: '', code: 2 } }))
   await main.periodic()
   assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /0 workspaces read, 1 read failed, 0 with files to bring, no notification sent$/)
 })
@@ -821,7 +821,7 @@ test('a URL Forge whose ref the named clone holds as a tag is pinned; a branch o
   await main.settled()
   let v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
   assert.equal(v.model.forge.pinned, 'tag')
-  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': remote('main') })))
+  writeTable(String(s.env.CRAFTAR_STUB_TABLE), table({ 'status --json': remote('main') }))
   await worker.request('state.refresh')
   await main.settled()
   v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
@@ -913,12 +913,12 @@ test('a newer tag on the Forge notifies once per tag, from the periodic check on
   assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /, 1 newer tag notification sent$/)
   await main.periodic()
   assert.equal(tags().length, 1, 'the same tag again does not notify')
-  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': at('v1.4.0') })))
+  writeTable(String(s.env.CRAFTAR_STUB_TABLE), table({ 'status --json': at('v1.4.0') }))
   await main.periodic()
   assert.equal(tags().length, 2)
   assert.deepEqual(Object.values(h.data().storage['notified.newertag'] as Record<string, string>), ['v1.4.0'])
   // The ref moved past it: nothing to say, and the record goes.
-  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': at(null) })))
+  writeTable(String(s.env.CRAFTAR_STUB_TABLE), table({ 'status --json': at(null) }))
   await main.periodic()
   assert.equal(tags().length, 2)
   assert.deepEqual(h.data().storage['notified.newertag'], {})

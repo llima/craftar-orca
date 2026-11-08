@@ -5,7 +5,7 @@ import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
-import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
 import * as main from './worker'
 import type { View } from './worker'
 
@@ -82,7 +82,7 @@ async function setup(extra: Record<string, unknown> = {}) {
   const answer = (key: string, value: unknown) => {
     const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
     t[key] = value
-    writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(t))
+    writeTable(s.env.CRAFTAR_STUB_TABLE, t)
   }
   return { s, h, worker, web, answer }
 }
@@ -97,11 +97,12 @@ test('the confirmation names the file with its diff; the second click fetches, t
   assert.equal(d?.phase, 'confirm')
   assert.equal(d?.diff, '- my edit\n+ what craftar writes')
   assert.equal(discards(s).length, 0)
-  await worker.request('discard.run', { path: EDITED })
-  // The read after the run sees the file as craftar writes it (the second read, which fetches, keeps its own answer).
+  // The read after the run sees the file as craftar writes it (the second read, which fetches, keeps its own answer). Set before
+  // the click: discard.run answers at once and the run goes on, so an answer given after it could come too late.
   const put = JSON.parse(statusDoc().stdout)
   for (const r of put.statuses) if (r.path === EDITED) r.state = 'unchanged'
   answer('status --json --offline', { stdout: JSON.stringify(put), code: 0 })
+  await worker.request('discard.run', { path: EDITED })
   await main.settled()
   d = await state(worker)
   assert.equal(d?.phase, 'done')
@@ -267,11 +268,13 @@ test('an orphan-drift row: the file is deleted, and it reads gone', async () => 
   await worker.request('discard.open', { path: EDITED })
   assert.equal((await state(worker))?.deleted, true)
   answer('drift discard', { stdout: 'removed .claude/rules/commit-conventions.md\n', code: 0 })
-  // The read after the run sees the file gone.
+  // The read after the run sees the file gone. The table is set before the run starts: discard.run answers at once and the run
+  // goes on, so a table changed after that answer could be read by the run half-written (or too late). Between the click and
+  // the read after the run, nothing reads `status --json --offline`: the second read is `status --json`, which fetches.
   const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
-  await worker.request('discard.run', { path: EDITED })
   t['status --json --offline'] = { stdout: JSON.stringify(after), code: 0 }
-  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(t))
+  writeTable(s.env.CRAFTAR_STUB_TABLE, t)
+  await worker.request('discard.run', { path: EDITED })
   await main.settled()
   const d = await state(worker)
   assert.equal(d?.phase, 'done')
@@ -281,8 +284,9 @@ test('an orphan-drift row: the file is deleted, and it reads gone', async () => 
 test('a read that fails after the discard ran does not say nothing was written, and keeps craftar\'s report', async () => {
   const { worker, answer } = await setup()
   await worker.request('discard.open', { path: EDITED })
-  await worker.request('discard.run', { path: EDITED })
+  // Only the read after the run asks `status --json --offline` (the second read fetches): set before the click, so it is not late.
   answer('status --json --offline', { stdout: 'not json', code: 1 })
+  await worker.request('discard.run', { path: EDITED })
   await main.settled()
   const d = await state(worker)
   assert.equal(d?.phase, 'error')

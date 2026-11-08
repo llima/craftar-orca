@@ -4,7 +4,7 @@ import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
-import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
 import * as main from './worker'
 
 const CAPS = ['workspace:read', 'workspace:write', 'terminal:send', 'terminal:read', 'notifications:show', 'storage:own', 'settings:own']
@@ -168,7 +168,7 @@ test('a save of a Forge file reads the workspace a second later and notifies onc
   // The person edits and saves: from now on drift show lists the file.
   const table = JSON.parse(readFileSync(String(s.env.CRAFTAR_STUB_TABLE), 'utf8'))
   table['drift show --json'] = { stdout: fixture('drift-show.json'), code: 1 }
-  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table))
+  writeTable(String(s.env.CRAFTAR_STUB_TABLE), table)
   await worker.hooks.fire('editor.save.before', { workspaceId: 'w1', path: EDITED, text: 'x' })
   await new Promise((r) => setTimeout(r, 1_300))
   await main.settled()
@@ -244,7 +244,7 @@ test('a file the Forge brings that is not here yet is refused by the worker, wha
   status.statuses.push({ path: '.claude/rules/brand-new.md', state: 'new', target: 'claude-code', ingredient: 'rule/brand-new' })
   const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
   table['status --json'] = { stdout: JSON.stringify(status), code: 0 }
-  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(table))
+  writeTable(s.env.CRAFTAR_STUB_TABLE, table)
   await worker.request('state.refresh')
   await main.settled()
   await assert.rejects(worker.request('file.open', { path: '.claude/rules/brand-new.md' }), /not a file this workspace lists/)
@@ -278,7 +278,7 @@ test("Check again clears only the focused workspace's refusals; another craftar 
   await focus('api', 'dev')
   const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
   table['doctor --json'] = { stdout: JSON.stringify({ ...JSON.parse(fixture('doctor.json')), version: '1.8.0' }), code: 0 }
-  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(table))
+  writeTable(s.env.CRAFTAR_STUB_TABLE, table)
   await worker.request('state.refresh')
   await main.settled()
   await focus('web', 'main')
