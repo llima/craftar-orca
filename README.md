@@ -1,7 +1,7 @@
 # craftar for Orca
 
 > **Approving this plugin grants it full Node on your machine**: it is a `trusted-worker` plugin, so its worker runs with your
-> user account's access, plus the Orca capabilities it lists (`orca-ide plugin inspect` shows them). `drift promote`, `git` and `gh` are
+> user account's access, plus the Orca capabilities it lists (`orca-ide plugin inspect` shows them). `drift promote`, `drift discard`, `git` and `gh` are
 > gated only by that approval and a click each; a sync goes through craftar's own consent (`craftar mcp allow-writes`, typed by you in
 > a terminal). The plugin sends nothing anywhere: no telemetry; the only network traffic is craftar's own fetch and the `git push` /
 > `gh pr create` you click. For a remote Forge over ssh the worker gets no `SSH_AUTH_SOCK`: use https with a credential helper.
@@ -11,8 +11,8 @@ surfaces craftar writes there and the files coming and going between them, using
 
 **Status: S3b, a PR in the Forge.** The plugin reads, and writes only on your clicks: **Update** (S2), one sync through `craftar mcp
 --allow-writes` and then exactly the files it wrote staged, never a commit; **Send to Forge** (S3a), `craftar drift promote` into the
-Forge's working tree, after its dry run, never a commit; and **a PR in the Forge** (S3b), three clicks, each a command in a terminal
-you see, never a commit by the plugin itself.
+Forge's working tree, after its dry run, never a commit; **a PR in the Forge** (S3b), three clicks, each a command in a terminal
+you see, never a commit by the plugin itself; and **Discard** of a hand edit (spec 60 §8a), after a confirmation with its diff, nothing staged.
 
 - **On enable** a self-check runs: the binary found and absolute, its version at least **0.33.0** (taken from `craftar doctor
   --json`, asked about the focused craftar workspace or, with none focused, another one on this machine; with none at all nothing
@@ -75,6 +75,17 @@ you see, never a commit by the plugin itself.
   left*; what is already done in the Forge stays). With cmd or a shell the probe does not recognise, no terminal is opened and the steps are
   shown in words. Measured with bash; PowerShell 7 (`&&`, `$( )`) is reasoned, not run. The Orca workspace's name goes into the PR
   title (editable) and body (not editable): in a shared Forge, edit the title if that name should not appear.
+- **Discard** (spec 60 §8a) puts back what craftar writes for one file you edited by hand by mistake. It is on a `drift` row of "Edited
+  here" and an `orphan-drift` row of "Kept apart", never on `.claude/settings.craftar.example.json` (a value may have been typed there) or a
+  collision. `craftar drift discard` is a whole sync, so it is offered only when nothing else is pending (otherwise it reads *Update first*,
+  pointing at Update and stage). The first click opens a confirmation that names the file and shows craftar's diff of what will be written
+  (craftar's note where it withholds the content; a withheld file the Forge also changed is not offered, since no diff can show its new text),
+  and says the edit is lost for good (for an `orphan-drift`, that the file is deleted). The second click reads `status` again with a fetch: a
+  failed fetch or a pending file cancels, writing nothing, and a Forge that moved (its commit, the row, or the diff) draws the confirmation
+  again on the new text. Then it runs `craftar drift discard <path> --workspace <dir> --offline` as a child with an argument array, against the
+  copy just fetched, never `--overwrite-drift`, never through `craftar mcp` or a terminal; the periodic check holds that Forge's fetches
+  meanwhile. A refusal is shown as craftar words it (its stderr and stdout); afterwards the panel reads the workspace again and lists what
+  else moved and craftar's warnings. Nothing is staged or committed. With *Fetch a remote Forge* off, Discard stays off for a remote Forge.
 - **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
   a second later. It never refuses or delays the save beyond reading the event's path, and never keeps, logs or sends the text; the
   next `drift show` decides. Orca names the editor's workspace with an id `workspace.list` does not hold (measured in Orca 1.4.250),
