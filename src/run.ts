@@ -19,15 +19,21 @@ export function childEnv(base: NodeJS.ProcessEnv, craftarHome: string): NodeJS.P
 // would read inside quotes (`%` and `!` expand, `"` ends the quote, `^`, `&`, `|`, `<`, `>`, a control character) refuses the run in
 // words rather than being escaped. No other program goes through cmd.
 const CMD_UNSAFE = /["%!^&|<>\u0000-\u001f\u007f]/
+/** The one wording of a refusal: it names no value. */
+export const CMD_REFUSED = 'a value holds a character cmd cannot pass to craftar.cmd safely (" % ! ^ & | < >, a control character, or a trailing backslash): nothing was started'
+
+/** Whether cmd can carry this value inside double quotes: none of the characters above, and no trailing backslash (`"D:\\"` would
+ * hand node a quote, not the end of the value). */
+export function cmdSafe(value: string): boolean {
+  return !CMD_UNSAFE.test(value) && !value.endsWith('\\')
+}
 
 export type Invocation = { file: string; args: string[]; verbatim: boolean } | { refused: string }
 
 export function invocation(file: string, args: readonly string[], platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): Invocation {
   if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(file)) return { file, args: [...args], verbatim: false }
   const values = [file, ...args]
-  if (values.some((v) => CMD_UNSAFE.test(v))) {
-    return { refused: 'a value holds a character cmd cannot pass to craftar.cmd safely (" % ! ^ & | < > or a control character): nothing was started' }
-  }
+  if (!values.every(cmdSafe)) return { refused: CMD_REFUSED }
   const comspec = env.ComSpec ?? env.COMSPEC ?? ''
   const root = env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows'
   const cmd = /^[A-Za-z]:\\/.test(comspec) ? comspec : `${root}\\System32\\cmd.exe`

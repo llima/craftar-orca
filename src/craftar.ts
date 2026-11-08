@@ -6,7 +6,7 @@
 // stdout or stderr, which can hold a workspace path. Whether the worker can start craftar inside Orca at
 // all is pending the S0 probe (README, "Pending the S0 probe").
 import { isAbsolute } from 'node:path'
-import { run } from './run'
+import { CMD_REFUSED, run } from './run'
 
 export interface Craftar {
   bin: string
@@ -17,8 +17,9 @@ export class ReadFailure extends Error {
   constructor(
     readonly read: string,
     readonly code: number | null,
+    detail: string | null = null,
   ) {
-    super(`craftar ${read}: no JSON document (exit ${code ?? 'none'})`)
+    super(`craftar ${read}: no JSON document (exit ${code ?? 'none'})${detail ? `: ${detail}` : ''}`)
     this.name = 'ReadFailure'
   }
 }
@@ -107,6 +108,8 @@ const FETCH_TIMEOUT_MS = 120_000
 
 async function readJsonCode<T>(c: Craftar, read: string, args: string[], timeoutMs?: number): Promise<{ doc: T; code: number | null }> {
   const r = await run(c.bin, args, c.env, timeoutMs)
+  // A run cmd refused (S4) says so in its fixed words, which name no value.
+  if (r.code === null && r.stderr === CMD_REFUSED) throw new ReadFailure(read, null, CMD_REFUSED)
   let doc: unknown
   try {
     doc = JSON.parse(r.stdout)

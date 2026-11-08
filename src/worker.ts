@@ -13,7 +13,7 @@ import { craftarWorkspaces, focusedBy, onThisMachine, type Context, type Focus, 
 import { activeWorkspacePath, findOrcaCli, switchToTerminal, terminalListed, terminalWorkspacePaths } from './orca-cli'
 import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
-import { childEnv, run } from './run'
+import { childEnv, CMD_REFUSED, run } from './run'
 import { intervalMs, readStatus, type Reason, Serial } from './scheduler'
 import { type Line, selfCheck, versionAtLeast } from './self-check'
 import { compareWithQuestion } from './compare'
@@ -153,7 +153,7 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
     out.push(`craftar: found at ${found.found}${found.shim ? ` (under the ${found.shim} shim directory: a project's files can choose what runs)` : ''}`)
     const r = await run(found.found, ['--version'], childEnv(process.env, craftarHome))
     const first = r.stdout.trim().split(/\r?\n/)[0] ?? ''
-    out.push(r.code === 0 ? `version: ${first}` : `version: craftar --version failed (exit ${r.code ?? 'none'})`)
+    out.push(r.code === 0 ? `version: ${first}` : `version: craftar --version failed (exit ${r.code ?? 'none'})${r.stderr === CMD_REFUSED ? `: ${CMD_REFUSED}` : ''}`)
     const v = r.code === 0 ? versionShaped(first) : null
     summary.push(`craftar found${found.shim ? ` (${found.shim} shim)` : ''}, ${r.code === 0 ? `version ${v ?? '(not shown)'}` : `--version failed (exit ${r.code ?? 'none'})`}`)
   }
@@ -1465,7 +1465,7 @@ export default function activate(orca: OrcaWorkerApi): void {
         return s.diff.child.diff(path)
       })
     } catch (e) {
-      throw new Error(`the diff could not be read, so Discard is not offered: ${e instanceof DiffRefused ? e.message : 'craftar mcp did not answer'}`)
+      throw new Error(`the diff could not be read, so Discard is not offered: ${e instanceof DiffRefused ? e.message : e instanceof Error && e.message === CMD_REFUSED ? CMD_REFUSED : 'craftar mcp did not answer'}`)
     }
     const file = d.files.find((f) => f.path === path)
     if (!file || (file.diff === null && file.note === null)) throw new Error('craftar gave no diff for this file, so Discard is not offered: Check again')
@@ -1662,7 +1662,7 @@ export default function activate(orca: OrcaWorkerApi): void {
         return s.diff.child.diff(path)
       })) as never
     } catch (e) {
-      return { refused: e instanceof DiffRefused ? e.message : 'craftar mcp did not answer' } as never
+      return { refused: e instanceof DiffRefused ? e.message : e instanceof Error && e.message === CMD_REFUSED ? CMD_REFUSED : 'craftar mcp did not answer' } as never
     }
   })
   // A card closed with ×: hidden until craftar says something else (the key holds craftar's words) or the worker restarts.

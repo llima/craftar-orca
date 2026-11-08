@@ -1,7 +1,8 @@
 // S4 (spec 60 §11): a craftar.cmd named by craftarPath on Windows runs through cmd, every value in double quotes, and a value cmd
 // would read inside quotes refuses the run in words. Every other program, and every other platform, gets the argument array as is.
 import { assert, test } from 'orca/testing'
-import { invocation } from './run'
+import { CMD_REFUSED, invocation } from './run'
+import { allowWritesCommand } from './shell'
 
 const ENV = { ComSpec: 'C:\\Windows\\system32\\cmd.exe' }
 const SHIM = 'C:\\Users\\acme dev\\AppData\\Roaming\\npm\\craftar.cmd'
@@ -33,4 +34,25 @@ test('anything else is started as it is: another platform, an .exe, a .bat only 
 test('cmd is found from ComSpec when it is an absolute Windows path, else under SystemRoot', () => {
   assert.equal((invocation(SHIM, [], 'win32', { SystemRoot: 'D:\\Win' }) as { file: string }).file, 'D:\\Win\\System32\\cmd.exe')
   assert.equal((invocation(SHIM, [], 'win32', { ComSpec: 'cmd.exe', SystemRoot: 'D:\\Win' }) as { file: string }).file, 'D:\\Win\\System32\\cmd.exe')
+})
+
+test('a value ending in a backslash (a drive root) is refused: cmd would hand node a quote, not the end of the value', () => {
+  assert.ok('refused' in invocation(SHIM, ['status', '--workspace', 'D:\\'], 'win32', ENV))
+  assert.ok(!('refused' in invocation(SHIM, ['status', '--workspace', 'D:\\acme'], 'win32', ENV)))
+})
+
+test('a refusal is the one fixed wording, which run() hands back as stderr with no exit code', () => {
+  // On this platform run() starts a .cmd as it is, so the refusal is checked on the pure function run() and the mcp session use.
+  const how = invocation(SHIM, ['--workspace', 'C:\\a&b'], 'win32', ENV)
+  assert.deepEqual(how, { refused: CMD_REFUSED })
+})
+
+test("the consent terminal for a craftar.cmd: a value cmd cannot carry gives no command (the steps in words)", () => {
+  const ok = allowWritesCommand('pwsh', { bin: SHIM, home: '' }, 'C:\\acme\\web')
+  assert.match(ok ?? '', /^& 'C:\\Users\\acme dev\\AppData\\Roaming\\npm\\craftar\.cmd' mcp allow-writes --workspace 'C:\\acme\\web'$/)
+  assert.equal(allowWritesCommand('pwsh', { bin: SHIM, home: '' }, 'C:\\acme&calc'), null)
+  assert.equal(allowWritesCommand('pwsh', { bin: SHIM, home: '' }, 'C:\\%TEMP%\\web'), null)
+  assert.equal(allowWritesCommand('pwsh', { bin: SHIM, home: '' }, 'D:\\'), null)
+  // An .exe is not read by cmd: PowerShell's quoting stands.
+  assert.notEqual(allowWritesCommand('pwsh', { bin: 'C:\\craftar\\craftar.exe', home: '' }, 'C:\\acme&calc'), null)
 })

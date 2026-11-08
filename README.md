@@ -171,12 +171,13 @@ open the right side bar and select the craftar tab (the status bar item *craftar
 
 ## Windows (S4)
 
-- **craftar:** set *craftar binary* to your `craftar.cmd` (see Settings). A workspace or Forge path holding one of the characters above
-  cannot be passed to it; move it, or install craftar where a `.exe` is on an absolute `PATH` entry.
+- **craftar:** set *craftar binary* to your `craftar.cmd` (see Settings). A workspace or Forge path holding one of the characters listed
+  there, or ending in a backslash (a drive root), cannot be passed to it; the consent terminal then shows its steps in words; move it, or install craftar where a `.exe` is on an absolute `PATH` entry.
 - **Terminals:** when the shell probe finds PowerShell, the consent terminal and the Forge PR steps quote their values for it (version 7,
   for `&&`). A cmd terminal gets no command: the panel shows the steps in words.
 - **Measured:** nothing in this plugin has run on Windows yet. The cmd quoting is reasoned from cmd's rules and tested on this
-  build's tests only.
+  build's tests only. Known: through cmd, a time limit or a stop ends cmd, not the craftar it started, so a craftar that hangs is not
+  cut short and goes on until it ends.
 
 ## Settings
 
@@ -185,7 +186,8 @@ open the right side bar and select the craftar tab (the status bar item *craftar
   version manager's shim directory (asdf, volta, mise), a project's files can choose what runs; the self-check says so. On Windows,
   npm installs `craftar.cmd`, which the `PATH` lookup does not start by itself: set this to its absolute path (for one,
   `%APPDATA%\npm\craftar.cmd`, written out). The plugin then starts it through `cmd /d /s /c`, every value in double quotes; a value cmd
-  would read inside quotes (`"`, `%`, `!`, `^`, `&`, `|`, `<`, `>`) is refused in words, nothing started.
+  would read inside quotes (`"`, `%`, `!`, `^`, `&`, `|`, `<`, `>`, a control character) or one ending in a backslash is refused in
+  words, nothing started.
 - **CRAFTAR_HOME** (`craftarHome`): passed to craftar, so it reads the registry and Forge cache your terminal uses.
 - **Check the Forge every** (`intervalMinutes`, default 2, minimum 2) and **Fetch a remote Forge** (`fetch`, default on): the periodic check only.
 
