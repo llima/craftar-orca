@@ -1,7 +1,7 @@
 // S3b's pure part: the branch and title offered and checked, the commands per shell (quoted, markers with a nonce, exactly the
 // paths), and what the plugin keeps of a terminal: the marker's verdict, the identity, the branch, the PR URL.
 import { assert, test } from 'orca/testing'
-import { branchFault, defaultBranch, defaultTitle, marker, prBody, readStep, remoteHost, stepCommand, titleFault } from './forge-pr'
+import { branchFault, defaultBranch, defaultBranchAll, defaultTitle, defaultTitleAll, marker, prBody, prBodyAll, readStep, remoteHost, stepCommand, titleFault } from './forge-pr'
 
 const I = { forge: '/home/acme/forge', nonce: 'n1', branch: 'craftar-acme-portal-commit-conventions', title: "chore(forge): it's done", body: 'a body', paths: ['ingredients/rules/x/rule.md', 'recipes/a b.yaml'] }
 
@@ -77,4 +77,30 @@ test("the Forge remote's host, from https or ssh", () => {
   assert.equal(remoteHost('git@github.com:acme/forge.git'), 'github.com')
   assert.equal(remoteHost('ssh://git@git.acme.example/acme/forge.git'), 'git.acme.example')
   assert.equal(remoteHost('/home/acme/forge'), null)
+})
+
+// Send all (design A, 2026-11-08).
+test('Send the rest commits on the branch already made: switch without -c, the same marker and literal paths', () => {
+  const c = stepCommand('bash', 'commit', { ...I, existing: true })!
+  assert.match(c, /^git -C '[^']+' var GIT_AUTHOR_IDENT && git -C '[^']+' switch craftar-acme-portal-commit-conventions && git --literal-pathspecs/)
+  assert.doesNotMatch(c, /switch -c/)
+  assert.match(stepCommand('bash', 'commit', I)!, /switch -c craftar-acme-portal-commit-conventions /)
+  assert.equal(stepCommand('bash', 'commit', { ...I, existing: true, branch: 'Bad Branch' }), null)
+})
+
+test('the branch and title for several files, and a body over several sends: one line, refs and paths, capped with "and N more"', () => {
+  assert.equal(defaultBranchAll('acme-web', 3), 'craftar-acme-web-3-changes')
+  assert.equal(defaultBranchAll('A'.repeat(80), 2).length <= 63, true)
+  assert.equal(branchFault(defaultBranchAll('acme_web', 2)), null)
+  assert.equal(defaultTitleAll(2, 'web'), 'chore(forge): 2 changes from web')
+  const one = { outcome: 'variant', promoted: 'rule/x--acme-web', written: [{ path: 'ingredients/rules/x--acme-web/rule.md', action: 'created' }] }
+  assert.equal(prBodyAll([one], 0, 'web'), prBody({ ...one, others: 0, workspaceName: 'web' }), 'one send keeps the single body')
+  const two = prBodyAll([one, { ...one, promoted: 'rule/y--acme-web' }], 2, 'web')
+  assert.match(two, /^Sent from the workspace web with craftar drift promote \(the craftar plugin for Orca\), 2 changes: variant, rule\/x--acme-web \(ingredients\/rules\/x--acme-web\/rule\.md created\); variant, rule\/y--acme-web /)
+  assert.match(two, /After them: 2 other registered workspaces see them on their next sync\.$/)
+  assert.doesNotMatch(two, /\n/)
+  const many = Array.from({ length: 60 }, (_, i) => ({ ...one, promoted: `rule/x${i}--acme-web`, written: [{ path: `ingredients/rules/x${i}--acme-web/rule.md`, action: 'created' }] }))
+  const capped = prBodyAll(many, 0, 'web')
+  assert.ok(capped.length <= 1500, `capped at ${capped.length}`)
+  assert.match(capped, /60 changes: .*; and \d+ more\. After them: no other registered workspace sees them\.$/)
 })
