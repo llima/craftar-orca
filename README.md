@@ -77,6 +77,16 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   left*; what is already done in the Forge stays). With cmd or a shell the probe does not recognise, no terminal is opened and the steps are
   shown in words. Measured with bash; PowerShell 7 (`&&`, `$( )`) is reasoned, not run. The Orca workspace's name goes into the PR
   title (editable) and body (not editable): in a shared Forge, edit the title if that name should not appear.
+- **Send all** (the footer, with two or more files craftar can carry up; each row still sends its own): one click runs the dry run of
+  every file, one after another, and shows one plan: per file its outcome, the Forge files craftar would write and its warnings, or
+  craftar's refusal of that dry run (the file then stays "kept here", as a single Send keeps it). Each plan is a dry run against the Forge
+  as it is now. **Write all N**, a second click, runs `craftar drift promote` for real over exactly the planned files, in order, and stops
+  at the first refusal: craftar's words are shown, with the files not written. A refusal over a Forge file the write before left
+  uncommitted (craftar's git gate) clears once that is committed, so the PR comes next: *Prepare the PR* covers every file written (a
+  branch `craftar-<profile>-<n>-changes` and a title for several), and after **1 Branch and commit**, **Send the rest (N)** plans and writes
+  the files left; their commit goes on the same branch (`git switch <branch>`, never `-c`, with only the paths that batch wrote), then
+  push and the PR carry everything. The PR body lists each send's outcome, ref and paths, one line, cut with "and N more" past 1,500
+  characters. Bring needs nothing of this: it already brings every pending file in one click.
 - **Discard** (spec 60 §8a) puts back what craftar writes for one file you edited by hand by mistake. It is on a `drift` row of "Edited
   here" and an `orphan-drift` row of "Kept apart", never on `.claude/settings.craftar.example.json` (a value may have been typed there) or a
   collision. `craftar drift discard` is a whole sync, so it is offered only when nothing else is pending (otherwise it reads *Update first*,
