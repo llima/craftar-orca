@@ -93,12 +93,16 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   workspace was listed, the file inside it, focused and recorded in the lock, never the path or the text.
 - **The periodic check notifies** once when the files coming from the Forge grow, for a workspace Update can run on: "Forge <name> changed N files for <workspace>:
   update N files and add them to the commit? Open the craftar panel." Names and counts only (an Orca notification takes no click).
-  Each check writes one line to the plugin log, counts and fixed words only: the workspaces read (and the reads that failed), how many
-  have files to bring, and how many notifications were sent and how many Orca says it delivered. A workspace pinned to a ref that does
-  not move never has files to bring when the Forge merges a change: craftar reads the ref `craftar.yaml` names and does not look for a
-  newer tag. The Forge card says so: under a ref that is a full commit id, or a tag of the local clone of the Forge named for Send
-  (`git show-ref --verify --quiet refs/tags/<ref>` in that clone, offline), a line reads "tag <ref> does not move: a change merged in the
-  Forge comes here once a newer tag is set as ref in craftar.yaml". Without a named clone a tag is not told from a branch, and no line is shown.
+  Each check writes one line to the plugin log, counts and fixed words only: the workspaces read, and when there are any, the reads
+  that failed and the workspaces a running Discard held; how many have files to bring, and of those how many Update cannot run on (a
+  failed fetch, fetch off, a refused sync, an older craftar) and how many were already notified at that count; then the
+  notifications sent and how many Orca says it delivered ("no notification sent" otherwise). With no craftar found the line reads
+  "periodic check: craftar not found, nothing read". A workspace pinned to a ref that does not move never has files to bring when the
+  Forge merges a change: craftar reads the ref `craftar.yaml` names and does not look for a newer tag. The Forge card says so. Under a
+  tag of the local clone of the Forge named for Send (`git show-ref --verify --quiet refs/tags/<ref>` in that clone, offline) a line
+  reads "tag <ref> does not move: a change merged in the Forge comes here once a newer tag is set as ref in craftar.yaml"; under a ref
+  that is a full commit id, "a commit does not move: a change merged in the Forge comes here once a newer ref is set in craftar.yaml".
+  Without a named clone a tag is not told from a branch, and no line is shown.
 - **Bring** (the toolbar's *Bring N from the Forge*, the update) is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
   and, for a remote Forge, the last periodic check fetched it (a focus read is offline and changes nothing here; with **Fetch a
   remote Forge** off, Update stays off for a remote Forge); otherwise it says why. Its confirm lists every file

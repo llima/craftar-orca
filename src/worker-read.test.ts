@@ -782,7 +782,7 @@ test('each periodic check logs what it read and notified, in counts only', async
   const lines = worker.logs.filter((l) => l.includes('periodic check:'))
   assert.equal(lines.length, 2)
   assert.match(lines[0], /periodic check: 1 workspace read, 1 with files to bring, 1 notification sent, 1 delivered$/)
-  assert.match(lines[1], /periodic check: 1 workspace read, 1 with files to bring, no notification sent$/)
+  assert.match(lines[1], /periodic check: 1 workspace read, 1 with files to bring, 1 already notified, no notification sent$/)
   assert.equal(worker.logs.some((l) => l.includes(web) || l.includes('forge2')), false, 'no path and no Forge in the log')
 })
 
@@ -796,8 +796,9 @@ test('a notification Orca did not deliver is logged as sent and not delivered; a
 })
 
 test('the periodic line counts in words: one and many, a held workspace, failed reads', () => {
-  assert.equal(main.tallyLine({ read: 2, failed: 0, held: 1, toBring: 0, sent: 0, delivered: 0 }), 'periodic check: 2 workspaces read, 1 held by a discard, 0 with files to bring, no notification sent')
-  assert.equal(main.tallyLine({ read: 1, failed: 2, held: 0, toBring: 1, sent: 2, delivered: 1 }), 'periodic check: 1 workspace read, 2 reads failed, 1 with files to bring, 2 notifications sent, 1 delivered')
+  assert.equal(main.tallyLine({ read: 2, failed: 0, held: 1, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0 }), 'periodic check: 2 workspaces read, 1 workspace held by a discard, 0 with files to bring, no notification sent')
+  assert.equal(main.tallyLine({ read: 1, failed: 2, held: 2, toBring: 3, blocked: 1, notified: 1, sent: 1, delivered: 1 }), 'periodic check: 1 workspace read, 2 reads failed, 2 workspaces held by a discard, 3 with files to bring, 1 where Update cannot run, 1 already notified, 1 notification sent, 1 delivered')
+  assert.equal(main.tallyLine({ read: 1, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 2, delivered: 0 }), 'periodic check: 1 workspace read, 0 with files to bring, 2 notifications sent, 0 delivered')
 })
 
 // The Forge card's pinned line (2026-11-08): a tag is known from the person's named local clone, offline.
@@ -835,4 +836,36 @@ test('without a named clone a URL Forge on a named ref says nothing about it', a
   await main.settled()
   const v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
   assert.equal(v.model.forge.pinned, null)
+})
+
+test('files to bring where Update cannot run (a failed fetch) are counted apart, with no notification', async () => {
+  const st = JSON.parse(fixture('status.json'))
+  st.forge = { ...st.forge, kind: 'git', source: 'https://example.com/acme/forge.git', ref: 'main', fetched: false }
+  const { h, worker } = await setup({ extra: { 'status --json': { stdout: JSON.stringify(st), code: 0 } } })
+  await main.periodic()
+  assert.equal(growth(h).length, 0)
+  assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /1 workspace read, 1 with files to bring, 1 where Update cannot run, no notification sent$/)
+})
+
+test('a named clone that is not a git repository gives no pinned line, and is asked again on the next read', { skip: !findOnPath('git', ORIGINAL_PATH) }, async () => {
+  const notRepo = tempDir('craftar-orca-clone-')
+  const st = JSON.parse(fixture('status.json'))
+  st.forge = { ...st.forge, kind: 'git', source: 'https://example.com/acme/forge.git', ref: 'v1.2.0', fetched: true }
+  const { worker } = await setup({ extra: { 'status --json': { stdout: JSON.stringify(st), code: 0 } } })
+  process.env.PATH = gitDirOnPath()
+  await worker.request('forge.dir.set', { dir: notRepo })
+  await worker.request('state.refresh')
+  await main.settled()
+  let v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
+  assert.equal(v.model.forge.pinned, null)
+  // The folder becomes the clone and gets the tag: the next read sees it (a no was not kept).
+  const env = { ...process.env, PATH: ORIGINAL_PATH, GIT_AUTHOR_NAME: 'acme', GIT_AUTHOR_EMAIL: 'acme@example.com', GIT_COMMITTER_NAME: 'acme', GIT_COMMITTER_EMAIL: 'acme@example.com' }
+  const g = (...a: string[]) => execFileSync('git', ['-C', notRepo, ...a], { env })
+  g('init', '-q', '-b', 'main')
+  g('commit', '-q', '--allow-empty', '-m', 'init')
+  g('tag', 'v1.2.0')
+  await worker.request('state.refresh')
+  await main.settled()
+  v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
+  assert.equal(v.model.forge.pinned, 'tag')
 })

@@ -276,8 +276,8 @@ interface State {
   periodicReading: string | null
   /** The periodic check in flight: what it read and notified, for its one log line (counts only), or null. */
   tally: Tally | null
-  /** Per local Forge clone and ref: whether the clone holds the ref as a tag (asked offline, once per pair). */
-  tagRefs: Map<string, boolean>
+  /** The local Forge clone and ref pairs the clone holds as a tag (asked offline; a no is asked again). */
+  tagRefs: Map<string, true>
 }
 
 /** What one periodic check did, said in one log line: counts only, never a path or a name. */
@@ -286,6 +286,10 @@ interface Tally {
   failed: number
   held: number
   toBring: number
+  /** With files to bring and no notification: Update could not run there (a failed fetch, fetch off, a refusal, an old craftar). */
+  blocked: number
+  /** With files to bring and no notification: the count did not grow since the last one. */
+  notified: number
   sent: number
   delivered: number
 }
@@ -295,8 +299,10 @@ export function tallyLine(t: Tally): string {
   const n = (k: number, one: string, many: string): string => `${k} ${k === 1 ? one : many}`
   const parts = [n(t.read, 'workspace read', 'workspaces read')]
   if (t.failed > 0) parts.push(n(t.failed, 'read failed', 'reads failed'))
-  if (t.held > 0) parts.push(`${t.held} held by a discard`)
+  if (t.held > 0) parts.push(n(t.held, 'workspace held by a discard', 'workspaces held by a discard'))
   parts.push(`${t.toBring} with files to bring`)
+  if (t.blocked > 0) parts.push(`${t.blocked} where Update cannot run`)
+  if (t.notified > 0) parts.push(`${t.notified} already notified`)
   parts.push(t.sent === 0 ? 'no notification sent' : `${n(t.sent, 'notification', 'notifications')} sent, ${t.delivered} delivered`)
   return `periodic check: ${parts.join(', ')}`
 }
@@ -571,43 +577,56 @@ const NOTIFIED = 'notified'
  */
 async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<void> {
   if (reason !== 'periodic') return
-  if (s.tally && m.pending.length > 0) s.tally.toBring++
+  const tally = m.pending.length > 0 ? s.tally : null
+  if (tally) tally.toBring++
   // Not for a workspace Update could not run on: the notification's question would get a disabled button.
-  if (blockedReason(s, m.ws, m) !== null) return
+  if (blockedReason(s, m.ws, m) !== null) {
+    if (tally) tally.blocked++
+    return
+  }
   const seen = ((await s.orca.storage.get(NOTIFIED).catch(() => null)) as Record<string, { count: number; at: number }> | null) ?? {}
   const before = typeof seen[m.ws]?.count === 'number' ? seen[m.ws].count : 0
   const now = m.pending.length
-  if (now === before) return
+  if (now === before) {
+    if (tally) tally.notified++
+    return
+  }
   seen[m.ws] = { count: now, at: Date.now() }
   await s.orca.storage.set(NOTIFIED, seen).catch((e) => s.orca.log(failed('storage', e)))
-  if (now < before) return
+  if (now < before) {
+    if (tally) tally.notified++
+    return
+  }
   const files = now === 1 ? '1 file' : `${now} files`
   const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'The Forge'
   const body = `${forge} changed ${files} for ${m.name}: update ${files} and add ${now === 1 ? 'it' : 'them'} to the commit? Open the craftar panel.`
-  const shown = (await s.orca.host.call('notifications.show', { title: 'craftar', body }).catch((e) => {
+  let shown: { delivered?: unknown } | null | undefined
+  try {
+    shown = (await s.orca.host.call('notifications.show', { title: 'craftar', body })) as { delivered?: unknown } | null
+  } catch (e) {
     s.orca.log(failed('notification', e))
-    return null
-  })) as { delivered?: unknown } | null
-  if (s.tally) {
-    s.tally.sent++
-    if (shown?.delivered === true) s.tally.delivered++
+    return
+  }
+  if (tally) {
+    tally.sent++
+    if (shown?.delivered === true) tally.delivered++
   }
 }
 
 /**
  * Whether the person's named local clone of the Forge holds `ref` as a tag: `git show-ref --verify --quiet refs/tags/<ref>`,
- * an argument array, offline. Only a clear answer is kept (exit 0 or 1); no git, or any other outcome, says nothing.
+ * an argument array, offline. Only a yes is kept: the clone may fetch the tag later, so a no (or no git, or any other
+ * outcome, which says nothing) is asked again on the next read.
  */
 async function holdsTag(s: State, clone: string, ref: string): Promise<boolean> {
   const key = `${clone}\0${ref}`
-  const known = s.tagRefs.get(key)
-  if (known !== undefined) return known
+  if (s.tagRefs.has(key)) return true
   const git = findGit(process.env.PATH ?? '')
   if (!git) return false
   const r = await run(git.bin, ['-C', clone, 'show-ref', '--verify', '--quiet', `refs/tags/${ref}`], git.env, 10_000).catch(() => null)
-  if (!r || (r.code !== 0 && r.code !== 1)) return false
-  s.tagRefs.set(key, r.code === 0)
-  return r.code === 0
+  if (r?.code !== 0) return false
+  s.tagRefs.set(key, true)
+  return true
 }
 
 function forgeIsRemote(s: State, ws: string | null): boolean {
@@ -1093,7 +1112,7 @@ export async function periodic(): Promise<void> {
     return publish(s)
   }
   // One workspace after another: a periodic check never starts several craftar processes at once.
-  const tally: Tally = { read: 0, failed: 0, held: 0, toBring: 0, sent: 0, delivered: 0 }
+  const tally: Tally = { read: 0, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0 }
   s.tally = tally
   const all = (async () => {
     for (const row of local) {

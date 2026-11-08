@@ -227,6 +227,8 @@ test("the periodic check holds that Forge's fetches while the discard reads and 
   const fetching = s.calls().slice(before).filter((c) => c.argv[0] === 'status' && !c.argv.includes('--offline'))
   assert.equal(fetching.length, 1)
   assert.equal(discards(s).length, 1)
+  // The periodic check's log line counts the workspace it left alone.
+  assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /0 workspaces read, 1 workspace held by a discard, /)
 })
 
 test('a diff that could not be read is no confirmation: Discard is refused', async () => {
