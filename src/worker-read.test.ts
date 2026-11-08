@@ -773,3 +773,66 @@ test('a switch that fails while Orca still lists the terminal opens no second on
   const created = (h.callsOf('terminal.create') as { command?: string }[]).filter((c) => (c.command ?? '').includes('allow-writes'))
   assert.equal(created.length, 1)
 })
+
+// One log line per periodic check, counts and fixed words only: "no notification" is answered from the log (2026-11-08).
+test('each periodic check logs what it read and notified, in counts only', async () => {
+  const { worker, web } = await setup({ results: { 'notifications.show': { delivered: true } } })
+  await main.periodic()
+  await main.periodic()
+  const lines = worker.logs.filter((l) => l.includes('periodic check:'))
+  assert.equal(lines.length, 2)
+  assert.match(lines[0], /periodic check: 1 workspace read, 1 with files to bring, 1 notification sent, 1 delivered$/)
+  assert.match(lines[1], /periodic check: 1 workspace read, 1 with files to bring, no notification sent$/)
+  assert.equal(worker.logs.some((l) => l.includes(web) || l.includes('forge2')), false, 'no path and no Forge in the log')
+})
+
+test('a notification Orca did not deliver is logged as sent and not delivered; a failed read is counted', async () => {
+  const { s, worker } = await setup({ results: { 'notifications.show': { delivered: false } } })
+  await main.periodic()
+  assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /1 notification sent, 0 delivered$/)
+  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': { stdout: '', code: 2 } })))
+  await main.periodic()
+  assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /0 workspaces read, 1 read failed, 0 with files to bring, no notification sent$/)
+})
+
+test('the periodic line counts in words: one and many, a held workspace, failed reads', () => {
+  assert.equal(main.tallyLine({ read: 2, failed: 0, held: 1, toBring: 0, sent: 0, delivered: 0 }), 'periodic check: 2 workspaces read, 1 held by a discard, 0 with files to bring, no notification sent')
+  assert.equal(main.tallyLine({ read: 1, failed: 2, held: 0, toBring: 1, sent: 2, delivered: 1 }), 'periodic check: 1 workspace read, 2 reads failed, 1 with files to bring, 2 notifications sent, 1 delivered')
+})
+
+// The Forge card's pinned line (2026-11-08): a tag is known from the person's named local clone, offline.
+test('a URL Forge whose ref the named clone holds as a tag is pinned; a branch of the same clone is not', { skip: !findOnPath('git', ORIGINAL_PATH) }, async () => {
+  const clone = tempDir('craftar-orca-clone-')
+  const env = { ...process.env, PATH: ORIGINAL_PATH, GIT_AUTHOR_NAME: 'acme', GIT_AUTHOR_EMAIL: 'acme@example.com', GIT_COMMITTER_NAME: 'acme', GIT_COMMITTER_EMAIL: 'acme@example.com' }
+  const g = (...a: string[]) => execFileSync('git', ['-C', clone, ...a], { env })
+  g('init', '-q', '-b', 'main')
+  g('commit', '-q', '--allow-empty', '-m', 'init')
+  g('tag', 'v1.2.0')
+  const remote = (ref: string) => {
+    const st = JSON.parse(fixture('status.json'))
+    st.forge = { ...st.forge, kind: 'git', source: 'https://example.com/acme/forge.git', ref, fetched: true }
+    return { stdout: JSON.stringify(st), code: 0 }
+  }
+  const { s, worker } = await setup({ extra: { 'status --json': remote('v1.2.0') } })
+  process.env.PATH = gitDirOnPath()
+  await worker.request('forge.dir.set', { dir: clone })
+  await worker.request('state.refresh')
+  await main.settled()
+  let v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
+  assert.equal(v.model.forge.pinned, 'tag')
+  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': remote('main') })))
+  await worker.request('state.refresh')
+  await main.settled()
+  v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
+  assert.equal(v.model.forge.pinned, null)
+})
+
+test('without a named clone a URL Forge on a named ref says nothing about it', async () => {
+  const st = JSON.parse(fixture('status.json'))
+  st.forge = { ...st.forge, kind: 'git', source: 'https://example.com/acme/forge.git', ref: 'v1.2.0', fetched: true }
+  const { worker } = await setup({ extra: { 'status --json': { stdout: JSON.stringify(st), code: 0 } } })
+  await worker.request('state.refresh')
+  await main.settled()
+  const v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
+  assert.equal(v.model.forge.pinned, null)
+})

@@ -274,6 +274,31 @@ interface State {
   discardHold: Set<string>
   /** The workspace the periodic check is reading now (it may fetch), or null. */
   periodicReading: string | null
+  /** The periodic check in flight: what it read and notified, for its one log line (counts only), or null. */
+  tally: Tally | null
+  /** Per local Forge clone and ref: whether the clone holds the ref as a tag (asked offline, once per pair). */
+  tagRefs: Map<string, boolean>
+}
+
+/** What one periodic check did, said in one log line: counts only, never a path or a name. */
+interface Tally {
+  read: number
+  failed: number
+  held: number
+  toBring: number
+  sent: number
+  delivered: number
+}
+
+/** The one log line of a periodic check: counts and fixed words only (safe to log). */
+export function tallyLine(t: Tally): string {
+  const n = (k: number, one: string, many: string): string => `${k} ${k === 1 ? one : many}`
+  const parts = [n(t.read, 'workspace read', 'workspaces read')]
+  if (t.failed > 0) parts.push(n(t.failed, 'read failed', 'reads failed'))
+  if (t.held > 0) parts.push(`${t.held} held by a discard`)
+  parts.push(`${t.toBring} with files to bring`)
+  parts.push(t.sent === 0 ? 'no notification sent' : `${n(t.sent, 'notification', 'notifications')} sent, ${t.delivered} delivered`)
+  return `periodic check: ${parts.join(', ')}`
 }
 
 /** Discard's state for one workspace: what the confirmation showed and where the run stands. */
@@ -477,10 +502,12 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
       status = await readStatus(craftar, row.path, reason, settings)
     } catch (e) {
       s.failed.add(row.path)
+      if (reason === 'periodic' && s.tally) s.tally.failed++
       s.orca.log(`read failed for a workspace: ${e instanceof ReadFailure ? `exit ${e.code ?? 'none'}` : 'did not run'}`)
       return
     }
     s.failed.delete(row.path)
+    if (reason === 'periodic' && s.tally) s.tally.read++
     // O10: only the periodic read fetches; an offline focus read says nothing about a failed fetch.
     const remote = status.forge?.kind !== undefined && status.forge.kind !== 'path'
     if (remote && reason === 'periodic') s.fetchState.set(row.path, !settings.fetch ? 'off' : status.forge?.fetched === true ? 'fetched' : 'failed')
@@ -512,6 +539,10 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     // An offline read of a remote Forge reads the copy the last periodic check fetched: when that fetch
     // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
     if (model.forge && model.forge.freshness === 'cached' && s.fetchState.get(row.path) === 'fetched') model.forge.freshness = 'fetched'
+    if (model.forge && remote && model.forge.pinned === null && model.forge.ref) {
+      const clone = s.forgeDirs[row.path]
+      if (clone && (await holdsTag(s, clone, model.forge.ref))) model.forge.pinned = 'tag'
+    }
     s.models.set(row.path, model)
     // The lock records every file but a `new` one (spec 60 §8 step 1: a path the lock records).
     s.known.set(row.path, new Set(status.statuses.filter((x) => x.state !== 'new').map((x) => x.path)))
@@ -540,6 +571,7 @@ const NOTIFIED = 'notified'
  */
 async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<void> {
   if (reason !== 'periodic') return
+  if (s.tally && m.pending.length > 0) s.tally.toBring++
   // Not for a workspace Update could not run on: the notification's question would get a disabled button.
   if (blockedReason(s, m.ws, m) !== null) return
   const seen = ((await s.orca.storage.get(NOTIFIED).catch(() => null)) as Record<string, { count: number; at: number }> | null) ?? {}
@@ -552,7 +584,30 @@ async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<vo
   const files = now === 1 ? '1 file' : `${now} files`
   const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'The Forge'
   const body = `${forge} changed ${files} for ${m.name}: update ${files} and add ${now === 1 ? 'it' : 'them'} to the commit? Open the craftar panel.`
-  await s.orca.host.call('notifications.show', { title: 'craftar', body }).catch((e) => s.orca.log(failed('notification', e)))
+  const shown = (await s.orca.host.call('notifications.show', { title: 'craftar', body }).catch((e) => {
+    s.orca.log(failed('notification', e))
+    return null
+  })) as { delivered?: unknown } | null
+  if (s.tally) {
+    s.tally.sent++
+    if (shown?.delivered === true) s.tally.delivered++
+  }
+}
+
+/**
+ * Whether the person's named local clone of the Forge holds `ref` as a tag: `git show-ref --verify --quiet refs/tags/<ref>`,
+ * an argument array, offline. Only a clear answer is kept (exit 0 or 1); no git, or any other outcome, says nothing.
+ */
+async function holdsTag(s: State, clone: string, ref: string): Promise<boolean> {
+  const key = `${clone}\0${ref}`
+  const known = s.tagRefs.get(key)
+  if (known !== undefined) return known
+  const git = findGit(process.env.PATH ?? '')
+  if (!git) return false
+  const r = await run(git.bin, ['-C', clone, 'show-ref', '--verify', '--quiet', `refs/tags/${ref}`], git.env, 10_000).catch(() => null)
+  if (!r || (r.code !== 0 && r.code !== 1)) return false
+  s.tagRefs.set(key, r.code === 0)
+  return r.code === 0
 }
 
 function forgeIsRemote(s: State, ws: string | null): boolean {
@@ -1033,13 +1088,21 @@ export async function periodic(): Promise<void> {
   const { local } = await listRows(s.orca)
   // In the focus queue: never two self-checks at once, whichever path starts them.
   await s.queue.run(FOCUS_QUEUE, () => ensureCheck(s, settings, local, false))
-  if (!s.craftar) return publish(s)
+  if (!s.craftar) {
+    s.orca.log('periodic check: craftar not found, nothing read')
+    return publish(s)
+  }
   // One workspace after another: a periodic check never starts several craftar processes at once.
+  const tally: Tally = { read: 0, failed: 0, held: 0, toBring: 0, sent: 0, delivered: 0 }
+  s.tally = tally
   const all = (async () => {
     for (const row of local) {
       // A discard holds its Forge's fetches from its last read to the end of its run (spec 60 §8a item 4).
       const src = s.models.get(row.path)?.forge?.source
-      if (src && s.discardHold.has(src)) continue
+      if (src && s.discardHold.has(src)) {
+        if (s.tally) s.tally.held++
+        continue
+      }
       s.periodicReading = row.path
       try {
         await readWorkspace(s, row, 'periodic', settings)
@@ -1048,7 +1111,12 @@ export async function periodic(): Promise<void> {
       }
     }
   })()
-  await track(s, all)
+  try {
+    await track(s, all)
+    s.orca.log(tallyLine(tally))
+  } finally {
+    if (s.tally === tally) s.tally = null
+  }
   await publish(s)
 }
 
@@ -1260,6 +1328,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     discard: new Map(),
     discardHold: new Set(),
     periodicReading: null,
+    tally: null,
+    tagRefs: new Map(),
   }
   st = s
   orca.host
