@@ -9,9 +9,10 @@
 An [Orca](https://github.com/stablyai/orca) plugin that shows, for the workspace you have open, which craftar Forge it follows, the
 surfaces craftar writes there and the files coming and going between them, using the `craftar` you installed. It adds nothing to craftar.
 
-**Status: S3a, Send to Forge.** The plugin reads, and writes only on your clicks: **Update** (S2), one sync through `craftar mcp
---allow-writes` and then exactly the files it wrote staged, never a commit; and **Send to Forge** (S3a), `craftar drift promote` into the
-Forge's working tree, after its dry run, never a commit. Branch, commit, push and PR in the Forge are the next slice.
+**Status: S3b, a PR in the Forge.** The plugin reads, and writes only on your clicks: **Update** (S2), one sync through `craftar mcp
+--allow-writes` and then exactly the files it wrote staged, never a commit; **Send to Forge** (S3a), `craftar drift promote` into the
+Forge's working tree, after its dry run, never a commit; and **a PR in the Forge** (S3b), three clicks, each a command in a terminal
+you see, never a commit by the plugin itself.
 
 - **On enable** a self-check runs: the binary found and absolute, its version at least **0.33.0** (taken from `craftar doctor
   --json`, asked about the focused craftar workspace or, with none focused, another one on this machine; with none at all nothing
@@ -61,6 +62,18 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   needs a local clone of it: the panel asks for its folder once per workspace, in its footer toolbar above the Send button, and keeps only that path (`--forge <dir>`); a Forge on
   this machine needs nothing. One notification per file you newly edit by hand that craftar can carry: "<file> belongs to Forge <x>:
   send the change to the Forge? Open the craftar panel."
+- **A PR in the Forge** (S3b), after *Write to the Forge*: *Prepare the PR* opens a terminal "craftar forge PR: prepare" that runs
+  `git var GIT_AUTHOR_IDENT` and reads the Forge's branch (it writes nothing), and the preview shows that identity (the one git uses
+  in this workspace's terminals), the branch to create (built from `[a-z0-9-]`, editable), the commit subject and PR title (one line,
+  editable), exactly the paths craftar wrote, and the PR body the plugin writes from craftar's result (refs and paths only). Then three
+  clicks, each a new terminal with one command reaching the Forge with `git -C <its folder>`, every value quoted for the shell the probe
+  found: **1 Branch and commit** (`git switch -c <branch>`, `git add -- <paths>`, `git commit -m <title> -- <paths>`, so nothing else
+  staged goes in), **2 Push** (`git push -u origin <branch>`), **3 Open the PR** (`gh pr create`). Each command ends by printing a marker:
+  the plugin reads the terminal's last lines until it sees it (up to 5 minutes, since a push can wait on a credential prompt you answer
+  there; then *Check the terminal*), and keeps only the identity, the branch and the PR URL, attached to this Orca workspace with
+  `orca-ide reference add`. A failed step can be tried again; *Back* keeps the steps waiting on the workspace (*Continue*, *Drop the steps
+  left*; what is already done in the Forge stays). With cmd or a shell the probe does not recognise, no terminal is opened and the steps are
+  shown in words. PowerShell needs version 7 for `&&`.
 - **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
   a second later. It never refuses or delays the save beyond reading the event's path, and never keeps, logs or sends the text; the
   next `drift show` decides. Orca names the editor's workspace with an id `workspace.list` does not hold (measured in Orca 1.4.250),
