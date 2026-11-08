@@ -201,6 +201,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       'aria-label': messages.length > 0 ? `Messages from craftar, ${messages.length}` : 'Messages from craftar, none',
       'aria-expanded': openAtStart ? 'true' : 'false',
       'data-action': 'messages',
+      'aria-controls': 'craftar-messages',
     }),
   )
   bell.appendChild(icon('bell'))
@@ -209,7 +210,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   refresh.appendChild(icon('refresh'))
   refresh.addEventListener('click', () => a.refresh())
 
-  const pop = root.appendChild(h('div', { class: openAtStart ? 'pop open' : 'pop', role: 'dialog', 'aria-label': 'Messages from craftar', 'data-role': 'messages' }))
+  const pop = root.appendChild(h('div', { id: 'craftar-messages', class: openAtStart ? 'pop open' : 'pop', role: 'region', 'aria-label': 'Messages from craftar', 'data-role': 'messages' }))
   pop.appendChild(h('div', { class: 'pop-h' }, t('span', 'craftar says'), t('span', String(messages.length), { class: 'n' })))
   if (messages.length === 0) pop.appendChild(t('p', 'No message from craftar.', { class: 'muted' }))
   else {
@@ -220,6 +221,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const open = pop.getAttribute('class') === 'pop open'
     pop.setAttribute('class', open ? 'pop' : 'pop open')
     bell.setAttribute('aria-expanded', open ? 'false' : 'true')
+    const c = (bell.getAttribute('class') ?? '').split(' ').filter((x) => x && x !== 'on')
+    bell.setAttribute('class', (open ? c : [...c, 'on']).join(' '))
   })
 
   const body = root.appendChild(h('div', { class: 'body' }))
@@ -364,14 +367,14 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const busy = v.send?.phase === 'writing' || v.send?.phase === 'checking'
     fileList('Edited here', 'up', m.edited, (row) =>
       row.promotable
-        ? typeof a.sendPreview === 'function' && !needsClone && !busy && !m.refused && !m.checkFailed
+        ? typeof a.sendPreview === 'function' && !needsClone && !busy
           ? button('Send', { class: 'btn ember act', 'data-action': 'send-file', 'data-path': row.path }, 'up', () => a.sendPreview?.(row.path))
           : button('Send', { class: 'btn ember act', 'data-action': 'send-file', 'data-path': row.path, disabled: '', title: sendWhy(m) ?? 'craftar is working on a send' }, 'up', null)
         : row.reason
           ? t('span', row.reason, { class: 'why' })
           : t('span', row.state, { class: 'st' }),
     )
-    if (promotable > 0 && !m.refused && !m.checkFailed) {
+    if (promotable > 0) {
       if (needsClone) drawForgeDir()
       else if (v.forgeDir?.needed && v.forgeDir.dir) {
         body.appendChild(
@@ -427,7 +430,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (note) row.appendChild(t('small', note))
     }
     if (linkBroken) {
-      flow('bad', '✕', m.refused ? 'sync refused' : m.checkFailed ? 'check failed' : 'could not fetch the Forge', cached ? 'showing the cached copy' : 'craftar says why below')
+      flow('bad', '✕', m.refused ? 'sync refused' : m.checkFailed ? 'check failed' : 'could not fetch the Forge', cached ? "showing the cached copy · craftar's messages (the bell) say why" : m.refused ? 'craftar says why below' : "craftar's messages (the bell) say why")
     } else if (idle) {
       flow('ok', '=', 'in sync', 'nothing to bring down, nothing to send up')
     } else {
@@ -481,9 +484,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     ws.appendChild(t('div', m.ws, { class: 'k path' }))
   }
 
-  function sendWhy(m: PanelModel): string | null {
+  function sendWhy(_m: PanelModel): string | null {
     if (typeof a.sendPreview !== 'function') return NOT_BUILT_SEND
-    if (m.refused || m.checkFailed) return 'craftar refuses this workspace — see above'
     if (v.forgeDir?.needed === true && !v.forgeDir.dir) return 'name a local clone of the Forge first'
     if (v.send?.phase === 'writing' || v.send?.phase === 'checking') return 'craftar is working on a send'
     return null
@@ -521,7 +523,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         attrs.disabled = ''
         attrs.title = why
       }
-      row.appendChild(button(`Send ${promotable} to the Forge`, attrs, 'up', !why && target ? () => a.sendPreview?.(target.path) : null))
+      // drift promote carries one file at a time: with several, the button names the one it sends (the rows send the others).
+      const label = promotable === 1 ? 'Send 1 to the Forge' : `Send ${target ? target.path.slice(target.path.lastIndexOf('/') + 1) : 'a file'} to the Forge`
+      if (target) attrs['data-path'] = target.path
+      row.appendChild(button(label, attrs, 'up', !why && target ? () => a.sendPreview?.(target.path) : null))
     }
     if (m.pending.length === 0 && promotable === 0) row.appendChild(t('span', 'Nothing to bring or send', { class: 'tb-empty', 'data-role': 'toolbar-empty' }))
     const notes: string[] = []

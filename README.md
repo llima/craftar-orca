@@ -36,7 +36,7 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   services — with its state: up to date, outdated, drift or kept apart) and the workspace below with its profile; then the files coming
   from the Forge and the files edited here; and the actions in a fixed toolbar at the bottom, Bring (from the Forge) and Send (to the
   Forge). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
-  read gave an error; the registry's lines about other workspaces stay out of its panel). A refused sync and a failed check are
+  read gave an error, the sync is refused, a check fails or the Forge could not be fetched; the registry's lines about other workspaces stay out of its panel). A refused sync and a failed check are
   shown in craftar's words. With no craftar workspace in focus the panel shows the logo, animated (still when the system asks for
   reduced motion). Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
   `--allow-writes`.

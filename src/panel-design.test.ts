@@ -101,7 +101,7 @@ test('both ways: the toolbar holds Bring then Send, and the lists go down then u
   assert.deepEqual(lists.slice(0, 2), ['list-down', 'list-up'])
 })
 
-test('a refused sync says so in red in the diagram, with craftar words in the card and both actions disabled', () => {
+test("a refused sync says so in red in the diagram, with craftar words in the card; Bring is off, Send stays craftar's call", () => {
   const { root } = draw(
     view((m) => {
       m.refused = true
@@ -112,7 +112,24 @@ test('a refused sync says so in red in the diagram, with craftar words in the ca
   assert.match(state(root)!.textContent, /sync refused/)
   assert.match(root.textContent, /sync refused: declared parameter\(s\) with no value: acme\.key/)
   assert.equal(byAction(root, 'update')[0].getAttribute('disabled'), '')
-  assert.equal(byAction(root, 'send')[0].getAttribute('disabled'), '')
+  // The worker never refuses a send on this, and drift show still marks the file promotable: no gate of the panel's own.
+  const send = byAction(root, 'send')[0]
+  assert.doesNotMatch(send.getAttribute('title') ?? '', /refuse/)
+  assert.match(send.getAttribute('title') ?? '', /not built yet/) // this helper passes no sendPreview
+})
+
+test('with several files craftar can send, the toolbar names the one its click sends', () => {
+  const { root } = draw(
+    view((m) => {
+      m.edited = [
+        { path: '.claude/rules/commit-conventions.md', state: 'drift', promotable: true, reason: null },
+        { path: '.claude/rules/release.md', state: 'drift', promotable: true, reason: null },
+      ]
+    }),
+  )
+  const b = byAction(root, 'send')[0]
+  assert.equal(b.textContent, 'Send commit-conventions.md to the Forge')
+  assert.equal(b.attrs['data-path'], '.claude/rules/commit-conventions.md')
 })
 
 test('a cached copy labels the Forge, says it in the diagram, and keeps Bring disabled with the reason', () => {

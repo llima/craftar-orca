@@ -42,7 +42,7 @@ h1.title { margin: 0; display: flex; align-items: baseline; gap: 8px; min-width:
 .bell.bad .badge { background: var(--orca-destructive); color: var(--orca-destructive-foreground, #fff); }
 
 /* Item 8: craftar's messages, behind the bell. */
-.pop { display: none; position: absolute; top: 44px; right: 10px; width: min(320px, calc(100% - 20px)); max-height: 60vh; overflow: auto; z-index: 3; background: var(--orca-popover); color: var(--orca-popover-foreground, var(--orca-foreground)); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); padding: 10px; }
+.pop { display: none; position: absolute; top: 44px; right: 10px; width: min(320px, calc(100% - 20px)); max-height: 60vh; overflow: auto; z-index: 3; background: var(--orca-popover, var(--orca-card, #262a31)); color: var(--orca-popover-foreground, var(--orca-foreground)); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); padding: 10px; }
 .pop.open { display: grid; gap: 8px; }
 .pop-h { display: flex; align-items: center; gap: 8px; font: 500 10px/1.2 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--orca-muted-foreground); }
 .pop-h .n { margin-left: auto; }
