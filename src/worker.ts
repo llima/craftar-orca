@@ -6,7 +6,8 @@
 // refusal opens, on a click, the shell check and the allow-writes terminal where the person answers. Nothing
 // else writes a workspace or a Forge. S0's probe and heartbeat stay, in the palette.
 import type { OrcaWorkerApi } from 'orca/worker'
-import { type Craftar, driftShow, ReadFailure, repos, workspaces as registryRead, type DriftDoc, type ReposDoc, type WorkspacesDoc } from './craftar'
+import { type Craftar, driftShow, ReadFailure, repos, status as readStatusDoc, workspaces as registryRead, type DriftDoc, type ReposDoc, type StatusDoc, type WorkspacesDoc } from './craftar'
+import { afterDiscard, discardArgs, fetchFailed, pendingOf, rowFault } from './discard'
 import { DiffChild, DiffRefused } from './diff-child'
 import { craftarWorkspaces, focusedBy, onThisMachine, type Context, type Focus, type FocusSource, type Row } from './focus'
 import { activeWorkspacePath, findOrcaCli, switchToTerminal, terminalListed, terminalWorkspacePaths } from './orca-cli'
@@ -267,6 +268,27 @@ interface State {
   validating: boolean
   /** S3b, per workspace path: the PR in the Forge after a Send (memory only). */
   forgePr: Map<string, ForgePr>
+  /** Discard (spec 60 §8a), per workspace path: the confirmation, the run and its outcome (memory only). */
+  discard: Map<string, DiscardState>
+  /** The Forge sources whose fetches the worker holds while a discard reads and runs (the periodic check skips them). */
+  discardHold: Set<string>
+}
+
+/** Discard's state for one workspace: what the confirmation showed and where the run stands. */
+export interface DiscardState {
+  path: string
+  phase: 'confirm' | 'checking' | 'running' | 'done' | 'error'
+  /** An `orphan-drift`: the discard deletes the file. */
+  deleted: boolean
+  /** The diff tool's text for the file, or craftar's note where it withholds the content. */
+  diff: string | null
+  note: string | null
+  /** craftar's refusal or the plugin's reason, verbatim; a note above the confirmation when it was drawn again. */
+  message: string | null
+  after: { file: string; others: string[]; warnings: string[] } | null
+  /** Internal: the read the confirmation came from, and that row's Forge side. */
+  before?: StatusDoc
+  rowForge?: string
 }
 
 /** S3b's state for one workspace: what the PR carries, where its three steps stand, and what the terminals said that is kept. */
@@ -698,6 +720,8 @@ export interface View {
   validating: boolean
   /** S3b: the PR in the Forge, for the focused workspace. */
   forgePr: Omit<ForgePr, 'nonce' | 'terminalId' | 'host'> | null
+  /** Discard of a hand edit, for the focused workspace. */
+  discard: Omit<DiscardState, 'before' | 'rowForge'> | null
 }
 
 /** craftar's words for this workspace, as the bell lists them: its warnings, its errors and its refusals to send. */
@@ -745,7 +769,14 @@ function view(s: State): View {
     messagesCleared: cleared(s, ws),
     validating: s.validating,
     forgePr: ws ? shownForgePr(s.forgePr.get(ws)) : null,
+    discard: ws ? shownDiscard(s.discard.get(ws)) : null,
   }
+}
+
+function shownDiscard(d: DiscardState | undefined): View['discard'] {
+  if (!d) return null
+  const { before: _b, rowForge: _r, ...shown } = d
+  return shown
 }
 
 function shownForgePr(f: ForgePr | undefined): View['forgePr'] {
@@ -993,7 +1024,12 @@ export async function periodic(): Promise<void> {
   if (!s.craftar) return publish(s)
   // One workspace after another: a periodic check never starts several craftar processes at once.
   const all = (async () => {
-    for (const row of local) await readWorkspace(s, row, 'periodic', settings)
+    for (const row of local) {
+      // A discard holds its Forge's fetches from its last read to the end of its run (spec 60 §8a item 4).
+      const src = s.models.get(row.path)?.forge?.source
+      if (src && s.discardHold.has(src)) continue
+      await readWorkspace(s, row, 'periodic', settings)
+    }
   })()
   await track(s, all)
   await publish(s)
@@ -1204,6 +1240,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     cleared: {},
     validating: false,
     forgePr: new Map(),
+    discard: new Map(),
+    discardHold: new Set(),
   }
   st = s
   orca.host
@@ -1369,6 +1407,135 @@ export default function activate(orca: OrcaWorkerApi): void {
     const ws = focusedPath(s)
     if (ws && forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is starting: wait for its terminal')
     if (ws) s.forgePr.delete(ws)
+    await publish(s)
+    return view(s) as never
+  })
+  // Discard (spec 60 §8a): the confirmation (first click), then the run (second click), one at a time per workspace.
+  const discardBusy = new Set<string>()
+  const discardFor = async (ws: string, work: () => Promise<void>): Promise<never> => {
+    discardBusy.add(ws)
+    try {
+      await work()
+    } finally {
+      discardBusy.delete(ws)
+    }
+    await publish(s)
+    return view(s) as never
+  }
+  /** The confirmation for a path: offline reads, nothing pending, the diff (or craftar's note), the row's Forge side. */
+  const confirmDiscard = async (ws: string, path: string, message: string | null): Promise<void> => {
+    const craftar = s.craftar
+    if (!craftar) throw new Error('craftar is not ready (see the self-check)')
+    const settings = await readSettings(orca)
+    const [st, dr] = await s.queue.run(ws, async () => [await readStatusDoc(craftar, ws, { fetch: false }), await driftShow(craftar, ws)] as const)
+    const row = dr.files.find((f) => f.path === path)
+    const fault = rowFault(row)
+    if (fault || !row) throw new Error(fault ?? 'not a file craftar lists as edited here')
+    const pending = pendingOf(st)
+    if (pending.length > 0) throw new Error(`Update first: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} coming from the Forge. Bring them with Update and stage, then discard.`)
+    if (st.forge?.kind && st.forge.kind !== 'path' && !settings.fetch) throw new Error('Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings')
+    const d = await s.queue.run(ws, () => {
+      if (!s.craftar) throw new Error('no craftar')
+      if (!s.diff || s.diff.ws !== ws) s.diff = { ws, child: new DiffChild(s.craftar, ws) }
+      return s.diff.child.diff(path)
+    }).catch((e) => ({ files: [], refused: e instanceof DiffRefused ? e.message : 'craftar mcp did not answer' }) as unknown as { files: { path: string; diff: string | null; note: string | null }[]; refused?: string })
+    const file = d.files.find((f) => f.path === path)
+    const diff = file?.diff ?? null
+    const note = file?.note ?? ((d as { refused?: string }).refused ?? null)
+    // No diff can show the Forge's new text of a file craftar withholds: not offered when the Forge changed it too.
+    if (diff === null && row.forge === 'changed') throw new Error("craftar does not show this file's content, and the Forge changed it too: no diff can show what a discard would write. Discard it by hand if you mean to.")
+    s.discard.set(ws, { path, phase: 'confirm', deleted: row.state === 'orphan-drift', diff, note, message, after: null, before: st, rowForge: row.forge })
+  }
+  orca.panels.handle('discard.open', async (input) => {
+    const ws = focusedPath(s)
+    const path = (input as { path?: unknown } | null)?.path
+    if (!ws || typeof path !== 'string') throw new Error('not a file this workspace lists: refresh the panel')
+    if (discardBusy.has(ws)) throw new Error('a discard is already running in this workspace')
+    return discardFor(ws, () => confirmDiscard(ws, path, null))
+  })
+  orca.panels.handle('discard.run', async (input) => {
+    const ws = focusedPath(s)
+    const path = (input as { path?: unknown } | null)?.path
+    const d = ws ? s.discard.get(ws) : undefined
+    if (!ws || !d || d.phase !== 'confirm' || d.path !== path || !d.before) throw new Error('look at the confirmation first')
+    if (discardBusy.has(ws)) throw new Error('a discard is already running in this workspace')
+    const craftar = s.craftar
+    if (!craftar) throw new Error('craftar is not ready (see the self-check)')
+    // Answered at once (a panel request stops at 120 s, and a fetch then the discard can take longer): the run goes on, tracked,
+    // and the panel follows it on state.changed. Busy from now, so a second click starts nothing.
+    discardBusy.add(ws)
+    s.discard.set(ws, { ...d, phase: 'checking', message: null })
+    void track(s, discardFor(ws, async () => {
+      const src = d.before?.forge?.source ?? null
+      if (src) s.discardHold.add(src)
+      s.discard.set(ws, { ...d, phase: 'checking', message: null })
+      await publish(s)
+      let redraw = false
+      try {
+        await s.queue.run(ws, async () => {
+          // The second read fetches the Forge the discard will write from.
+          const st = await readStatusDoc(craftar, ws, { fetch: true })
+          const failedFetch = fetchFailed(st)
+          if (failedFetch) {
+            s.discard.set(ws, { ...d, phase: 'error', message: `Nothing was written: the Forge could not be fetched.\n${failedFetch.join('\n')}` })
+            return
+          }
+          const pending = pendingOf(st)
+          if (pending.length > 0) {
+            s.discard.set(ws, { ...d, phase: 'error', message: `Nothing was written: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} now coming from the Forge. Update first.` })
+            return
+          }
+          const dr = await driftShow(craftar, ws)
+          const row = dr.files.find((f) => f.path === d.path)
+          // A path Forge's commit is its HEAD, which an edit to its working tree does not move: the diff is asked again and compared
+          // (spec 60 §8a item 2). A row with no diff text is guarded by the drift row's Forge side instead.
+          let diffMoved = false
+          if (d.diff !== null) {
+            if (!s.diff || s.diff.ws !== ws) s.diff = { ws, child: new DiffChild(craftar, ws) }
+            const again = await s.diff.child.diff(d.path).catch(() => null)
+            diffMoved = (again?.files.find((f) => f.path === d.path)?.diff ?? null) !== d.diff
+          }
+          if (diffMoved || (st.forge?.commit ?? null) !== (d.before?.forge?.commit ?? null) || !row || row.forge !== d.rowForge || rowFault(row)) {
+            // The text that would be written changed: the confirmation is drawn again, on the new diff (after this queue turn).
+            redraw = true
+            return
+          }
+          s.discard.set(ws, { ...d, phase: 'running' })
+          await publish(s)
+          const r = await run(craftar.bin, discardArgs(d.path, ws), craftar.env, 120_000)
+          if (r.code !== 0) {
+            const words = [r.stderr.trim(), r.stdout.trim()].filter((x) => x !== '').join('\n')
+            s.discard.set(ws, { ...d, phase: 'error', message: words || (r.code === null ? 'craftar drift discard did not finish in time' : `craftar drift discard exited ${r.code}`) })
+            return
+          }
+          const after = await readStatusDoc(craftar, ws, { fetch: false })
+          const cmp = afterDiscard(d.before!, after, d.path)
+          s.discard.set(ws, { ...d, phase: 'done', after: { ...cmp, warnings: after.warnings } })
+        })
+      } catch (e) {
+        s.orca.log(failed('discard', e))
+        s.discard.set(ws, { ...d, phase: 'error', message: 'the discard stopped on an unexpected error: see the plugin log' })
+      } finally {
+        if (src) s.discardHold.delete(src)
+      }
+      if (redraw) {
+        s.discard.delete(ws)
+        await confirmDiscard(ws, d.path, 'The Forge moved since the confirmation: look at the diff again before you discard.').catch((e) => {
+          s.discard.set(ws, { ...d, phase: 'error', message: e instanceof Error ? e.message : 'the confirmation could not be read again' })
+        })
+        return
+      }
+      const row = [...s.rowsById.values()].find((r) => r.path === ws)
+      if (row) await readWorkspace(s, row, 'focus', await readSettings(orca))
+    }).catch((e) => s.orca.log(failed('discard', e))))
+    await publish(s)
+    return view(s) as never
+  })
+  orca.panels.handle('discard.cancel', async () => {
+    const ws = focusedPath(s)
+    const d = ws ? s.discard.get(ws) : undefined
+    if (ws && d && (d.phase === 'checking' || d.phase === 'running')) throw new Error('the discard is running: wait for it')
+    if (ws) s.discard.delete(ws)
     await publish(s)
     return view(s) as never
   })
