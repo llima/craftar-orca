@@ -4,18 +4,16 @@ import { cachedAgeLine, classify, counted } from './messages'
 
 const SKIP = 'agents-md: 2 skill ingredient(s) have no AGENTS.md equivalent — skipped: skill/a, skill/b'
 
-test('a skip another target covers is information, with the fix naming the target that writes it and how to silence it', () => {
+test('a skip is to look at; the fix states what the workspace also writes for, never that another target writes the ingredient', () => {
   const m = classify(SKIP, false, ['agents-md', 'claude-code', 'kiro'])
   assert.equal(m.text, SKIP)
-  assert.equal(m.level, 'info')
-  assert.match(m.fix ?? '', /claude-code, kiro still write it/)
-  assert.match(m.fix ?? '', /remove agents-md from the profile's targets/)
-})
-
-test('a skip no other target covers asks for the person, and never claims another target writes it', () => {
-  const m = classify('kiro: hook hook/x has no Kiro equivalent — skipped', false, ['kiro'])
   assert.equal(m.level, 'action')
-  assert.match(m.fix ?? '', /no target of this workspace writes it/)
+  assert.match(m.fix ?? '', /^AGENTS\.md gets no skill file; this workspace also writes for claude-code, kiro — /)
+  assert.doesNotMatch(m.fix ?? '', /still write/)
+  assert.match(m.fix ?? '', /take agents-md out of the targets \(the profile's, or craftar\.yaml's\)/)
+  const alone = classify('kiro: hook hook/x has no Kiro equivalent — skipped', false, ['kiro'])
+  assert.equal(alone.level, 'action')
+  assert.match(alone.fix ?? '', /^Kiro gets no hook file — if they should not reach Kiro/)
 })
 
 test("a line that already says its fix gets none of the plugin's; an unknown line is kept as is, to look at", () => {
@@ -32,7 +30,7 @@ test('an error stays an error; the cached copy is information with its age; the 
   const now = 10 * 60_000
   assert.deepEqual(cachedAgeLine(now - 7 * 60_000, now), { text: 'showing the cached copy of the Forge, fetched 7 min ago', level: 'info', from: 'plugin' })
   assert.match(cachedAgeLine(null, now).text, /never fetched/)
-  assert.equal(counted([e, cachedAgeLine(null, now), classify(SKIP, false, ['claude-code'])]), 1)
+  assert.equal(counted([e, cachedAgeLine(null, now), classify(SKIP, false, ['claude-code'])]), 2)
 })
 
 test('a fetch that failed asks for the person; --offline is only information', () => {

@@ -35,13 +35,15 @@ export function classify(text: string, err: boolean, owners: string[]): Message 
   const skip = SKIP_TYPE.exec(text) ?? SKIP_ONE.exec(text)
   if (skip) {
     const [, target, type] = skip
+    // Whether another target writes these ingredients depends on their own `targets`, which the panel does not read:
+    // the line states only what the workspace writes for, and the skip stays one to look at.
     const others = owners.filter((o) => o !== target && o !== 'services')
     const label = TARGET_LABEL[target] ?? target
-    const silence = `to silence it, give those ingredients targets that leave ${target} out, or remove ${target} from the profile's targets`
-    // A skip another target covers is information; one nothing else writes loses the ingredient for that tool.
-    return others.length > 0
-      ? { text, level: 'info', from: 'craftar', fix: `${label} gets no ${type} file; ${others.join(', ')} still ${others.length === 1 ? 'writes' : 'write'} it — ${silence}` }
-      : { text, level: 'action', from: 'craftar', fix: `no target of this workspace writes it — ${silence}` }
+    const silence = `if they should not reach ${label}, give those ${type} ingredients targets that leave ${target} out, or take ${target} out of the targets (the profile's, or craftar.yaml's)`
+    return {
+      text, level: 'action', from: 'craftar',
+      fix: `${label} gets no ${type} file${others.length > 0 ? `; this workspace also writes for ${others.join(', ')}` : ''} — ${silence}`,
+    }
   }
   if (/^claude-code: Claude Code does not list a skill written as one file/.test(text)) return { text, level: 'action', from: 'craftar' }
   if (/ is generated, but git ignores it /.test(text)) return { text, level: 'action', from: 'craftar' }

@@ -668,7 +668,12 @@ export interface View {
 function craftarWords(s: State, ws: string): string[] {
   const m = s.models.get(ws)
   const refused = [...(s.sendRefused.get(ws) ?? new Map<string, string>())].map(([p, msg]) => `${p}: ${msg}`)
-  return [...(m?.warnings ?? []), ...(m?.errors ?? []), ...refused]
+  // Every line the bell lists, so a different refusal, self-check failure or failed update brings them back.
+  const unset = (m?.unset ?? []).map((u) => `unset ${u.key} ${u.declaredBy.join(',')} ${u.citedBy.join(',')}`)
+  const checks = s.selfCheck.filter((l) => l.level !== 'ok').map((l) => `${l.level} ${l.message}`)
+  const sync = s.sync.get(ws)
+  const failedSync = sync?.phase === 'error' && sync.message ? [sync.message] : []
+  return [...(m?.warnings ?? []), ...(m?.errors ?? []), ...refused, ...unset, ...checks, ...failedSync]
 }
 
 /** A digest of the bell's messages for a workspace: what is stored when the person clears them, never the text. */

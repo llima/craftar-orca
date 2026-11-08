@@ -220,11 +220,15 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const messages: Message[] = m
     ? [
         ...(cached ? [cachedAgeLine(m.forge?.fetchedAt ?? null, Date.now())] : []),
+        ...(m.refused ? [classify(refusalLines(m.unset).join('\n'), true, owners)] : []),
         ...m.errors.map((e) => classify(e, true, owners)),
-        ...(v.sendRefused ?? []).map((r) => ({ ...classify(`${r.path}: ${r.message}`, true, owners) })),
+        ...(v.sendRefused ?? []).map((r) => classify(`${r.path}: ${r.message}`, true, owners)),
+        ...(v.sync?.phase === 'error' && v.sync.message ? [classify(v.sync.message, true, owners)] : []),
         ...m.warnings.map((w) => classify(w, false, owners)),
       ]
     : []
+  // The self-check's failures are craftar's (or the plugin's) words too: a closed Self-check card leaves them here.
+  for (const l of failing) messages.unshift(l.level === 'error' ? { text: l.message, level: 'error', from: 'craftar' } : { text: l.message, level: 'action', from: 'craftar' })
   const cleared = v.messagesCleared === true
   const badge = cleared ? 0 : needsLook(messages)
   const hasError = !cleared && messages.some((x) => x.level === 'error')
@@ -277,7 +281,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
 
   const pop = root.appendChild(h('div', { id: 'craftar-messages', class: openAtStart ? 'pop open' : 'pop', role: 'region', 'aria-label': 'Messages from craftar', 'data-role': 'messages' }))
   const popHead = pop.appendChild(h('div', { class: 'pop-h' }, t('span', 'craftar says'), t('span', String(messages.length), { class: 'n' })))
-  if (messages.length > 0 && !cleared && typeof a.messagesClear === 'function') {
+  // Clear hides craftar's words; the plugin's own line (a cached copy's age) is not something to clear.
+  if (messages.some((x) => x.from === 'craftar') && !cleared && typeof a.messagesClear === 'function') {
     popHead.appendChild(button('Clear', { class: 'btn ghost clear', 'data-action': 'messages-clear', title: 'Hide these messages until craftar says something different' }, null, () => a.messagesClear?.()))
   }
   if (messages.length === 0) pop.appendChild(t('p', 'No message from craftar.', { class: 'muted' }))
@@ -313,7 +318,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   if (v.probe && !dismissed.has(cardKey('probe', String(v.probe.at)))) {
     const box = body.appendChild(h('section', { class: 'card', 'data-role': 'probe' }))
     box.appendChild(cardHead('Validation', cardKey('probe', String(v.probe.at))))
-    box.appendChild(t('p', `run ${new Date(v.probe.at).toLocaleTimeString()} — paths and outcomes only, no file content`, { class: 'muted' }))
+    box.appendChild(t('p', `run ${new Date(v.probe.at).toLocaleTimeString()} — no file content; the terminal's last lines included`, { class: 'muted' }))
     box.appendChild(t('pre', v.probe.lines.join('\n'), { class: 'words', 'data-role': 'probe-text' }))
   }
 
@@ -423,12 +428,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         box.appendChild(t('pre', refusalLines(m.unset).join('\n'), { class: 'words' }))
       }
     } else if (m.checkFailed) {
-      if (dismissed.has(checkFailedKey)) {
-        // closed: the diagram still says "check failed"
-      } else {
-      const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'check-failed' }))
-      box.appendChild(cardHead('A check fails', checkFailedKey))
-      box.appendChild(t('p', "craftar status exits 1 — a check fails; craftar's messages (the bell) say why."))
+      // Once closed, the diagram still says "check failed" and the bell keeps craftar's words.
+      if (!dismissed.has(checkFailedKey)) {
+        const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'check-failed' }))
+        box.appendChild(cardHead('A check fails', checkFailedKey))
+        box.appendChild(t('p', "craftar status exits 1 — a check fails; craftar's messages (the bell) say why."))
       }
     } else if (cached && !dismissed.has(fetchKey)) {
       const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'fetch-failed' }))

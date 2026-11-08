@@ -37,10 +37,10 @@ const role = (root: FakeEl, r: string): FakeEl[] => all(root).filter((e) => e.at
 test('each message carries its level and, apart from craftar\'s words, the fix; the badge counts what asks for the person', () => {
   const { root } = draw(view((m) => { m.warnings = [SKIP, 'plan: something to look at']; m.errors = [] }))
   const items = all(role(root, 'messages')[0]).filter((e) => e.tag === 'li')
-  assert.deepEqual(items.map((e) => e.attrs['data-level']), ['info', 'action'])
+  assert.deepEqual(items.map((e) => e.attrs['data-level']), ['action', 'action'])
   assert.deepEqual(role(root, 'warning').map((e) => e.textContent), [SKIP, 'plan: something to look at'])
-  assert.match(role(root, 'message-fix')[0].textContent, /^fix: AGENTS\.md gets no skill file; claude-code still writes it/)
-  assert.equal(role(root, 'messages-count')[0].textContent, '1')
+  assert.match(role(root, 'message-fix')[0].textContent, /^fix: AGENTS\.md gets no skill file; this workspace also writes for claude-code/)
+  assert.equal(role(root, 'messages-count')[0].textContent, '2')
 })
 
 test('Clear sends messages.clear; once cleared, no badge and no opening by itself, the messages still listed, dimmed', () => {
@@ -127,4 +127,36 @@ test("a refused path whose row craftar already says it will not promote keeps cr
   assert.match(root.textContent, /kiro file — edit its \.claude\/ twin/)
   assert.doesNotMatch(root.textContent, /kept here — craftar will not send it/)
   assert.equal(role(root, 'send-refused').length, 0)
+})
+
+test('closing a refusal or failure card unlocks nothing: Bring stays off, the diagram still says it, craftar\'s words stay in the bell', () => {
+  for (const [edit, card, flow] of [
+    [(m: PanelModel) => { m.refused = true; m.unset = [{ key: 'acme.team', declaredBy: ['rule/x'], citedBy: ['rule/x'] }] }, 'refused', /sync refused/],
+    [(m: PanelModel) => { m.checkFailed = true; m.errors = ['status: a check fails'] }, 'check-failed', /check failed/],
+    [(m: PanelModel) => { m.forge = { ...m.forge!, freshness: 'cached' } }, 'fetch-failed', /could not fetch the Forge/],
+  ] as [(m: PanelModel) => void, string, RegExp][]) {
+    const v = view(edit, { update: { allowed: true, reason: null, files: [{ path: '.claude/rules/workflow.md', state: 'update' }] } })
+    const open = draw(v)
+    click(byAction(role(open.root, card)[0], 'dismiss')[0])
+    const key = open.calls[0].slice('dismiss '.length)
+    const closed = draw({ ...v, dismissed: [key] })
+    assert.equal(role(closed.root, card).length, 0, card)
+    assert.equal(byAction(closed.root, 'update')[0].attrs.disabled, '', card)
+    assert.match(role(closed.root, 'sync-state')[0].textContent, flow)
+  }
+  const refused = view((m) => { m.refused = true; m.unset = [{ key: 'acme.team', declaredBy: ['rule/x'], citedBy: ['rule/x'] }] })
+  assert.match(role(draw(refused).root, 'error')[0].textContent, /sync refused: declared parameter\(s\) with no value: acme\.team/)
+})
+
+test('the self-check\'s failures and a failed update are in the bell too, so closing their cards drops no word', () => {
+  const v = view(() => {}, { selfCheck: [{ level: 'error', message: 'craftar 0.30.0 is older than 0.33.0' }], sync: { phase: 'error', message: 'error: craftar mcp did not answer' } })
+  const errs = role(draw(v).root, 'error').map((e) => e.textContent)
+  assert.ok(errs.includes('craftar 0.30.0 is older than 0.33.0'))
+  assert.ok(errs.includes('error: craftar mcp did not answer'))
+})
+
+test('Clear is not offered when the only line is the plugin\'s own (a cached copy\'s age)', () => {
+  const { root } = draw(view((m) => { m.forge = { ...m.forge!, freshness: 'cached', fetchedAt: Date.now() }; m.warnings = []; m.errors = [] }))
+  assert.equal(role(root, 'plugin-line').length, 1)
+  assert.equal(byAction(root, 'messages-clear').length, 0)
 })
