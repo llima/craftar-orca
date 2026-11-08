@@ -91,13 +91,17 @@ const state = async (worker: { request: (n: string) => Promise<unknown> }) => ((
 const discards = (s: { calls: () => { argv: string[] }[] }) => s.calls().filter((c) => c.argv[0] === 'drift' && c.argv[1] === 'discard').map((c) => c.argv)
 
 test('the confirmation names the file with its diff; the second click fetches, then discards that one path --offline; nothing staged', async () => {
-  const { s, worker, web } = await setup()
+  const { s, h, worker, web, answer } = await setup()
   await worker.request('discard.open', { path: EDITED })
   let d = await state(worker)
   assert.equal(d?.phase, 'confirm')
   assert.equal(d?.diff, '- my edit\n+ what craftar writes')
   assert.equal(discards(s).length, 0)
   await worker.request('discard.run', { path: EDITED })
+  // The read after the run sees the file as craftar writes it (the second read, which fetches, keeps its own answer).
+  const put = JSON.parse(statusDoc().stdout)
+  for (const r of put.statuses) if (r.path === EDITED) r.state = 'unchanged'
+  answer('status --json --offline', { stdout: JSON.stringify(put), code: 0 })
   await main.settled()
   d = await state(worker)
   assert.equal(d?.phase, 'done')
@@ -107,6 +111,13 @@ test('the confirmation names the file with its diff; the second click fetches, t
   const at = kinds.findIndex((k) => k.startsWith('drift discard'))
   assert.ok(kinds.slice(0, at).some((k) => k.startsWith('status --json --workspace')))
   assert.equal(s.calls().some((c) => c.argv.includes('--overwrite-drift')), false)
+  // The re-read after the run, its comparison, and craftar's report kept.
+  const afterRun = kinds.slice(at + 1)
+  assert.ok(afterRun.some((k) => k.startsWith('status --json --offline')) && afterRun.some((k) => k.startsWith('drift show')))
+  assert.equal(d?.after?.file, 'unchanged')
+  assert.equal(d?.after?.report, 'wrote .claude/rules/commit-conventions.md')
+  // Nothing staged: no git was started and the source control view was not opened.
+  assert.equal(h.callsOf('commands.run').filter((c) => (c as { action: string }).action === 'sidebar.sourceControl.toggle').length, 0)
 })
 
 test('Update first: with anything pending, no confirmation', async () => {
@@ -216,4 +227,51 @@ test("the periodic check holds that Forge's fetches while the discard reads and 
   const fetching = s.calls().slice(before).filter((c) => c.argv[0] === 'status' && !c.argv.includes('--offline'))
   assert.equal(fetching.length, 1)
   assert.equal(discards(s).length, 1)
+})
+
+test('a diff that could not be read is no confirmation: Discard is refused', async () => {
+  const { worker } = await setup({ 'mcp call 0': { content: [{ type: 'text', text: 'error: the diff tool failed' }], isError: true } })
+  await assert.rejects(worker.request('discard.open', { path: EDITED }), /the diff could not be read/)
+  assert.equal(await state(worker), null)
+})
+
+test('with "Fetch a remote Forge" off, Discard stays off for a remote Forge', async () => {
+  const remote = { kind: 'git', source: 'https://x.example/acme/forge.git', fetched: true }
+  const { h, worker } = await setup({ 'status --json --offline': statusDoc({ forge: remote }) })
+  h.respond('settings.get', { settings: { craftarPath: (h.data().settings as Record<string, unknown>).craftarPath, craftarHome: '', intervalMinutes: 5, fetch: false } })
+  await assert.rejects(worker.request('discard.open', { path: EDITED }), /Fetch a remote Forge/)
+})
+
+test("the drift row's Forge side moving between the two clicks draws the confirmation again", async () => {
+  const { s, worker, answer } = await setup()
+  await worker.request('discard.open', { path: EDITED })
+  answer('drift show --json', driftDoc('changed'))
+  await worker.request('discard.run', { path: EDITED })
+  await main.settled()
+  const d = await state(worker)
+  assert.equal(d?.phase, 'confirm')
+  assert.match(d?.message ?? '', /Forge moved/)
+  assert.equal(discards(s).length, 0)
+})
+
+test('an orphan-drift row: the file is deleted, and it reads gone', async () => {
+  const orphan = JSON.parse(fixture('drift-show.json'))
+  orphan.files[0].state = 'orphan-drift'
+  const before = JSON.parse(statusDoc().stdout)
+  for (const r of before.statuses) if (r.path === EDITED) r.state = 'orphan-drift'
+  const after = JSON.parse(statusDoc().stdout)
+  after.statuses = after.statuses.filter((r: { path: string }) => r.path !== EDITED)
+  const { s, worker, answer } = await setup({ 'drift show --json': { stdout: JSON.stringify(orphan), code: 1 }, 'status --json --offline': { stdout: JSON.stringify(before), code: 0 }, 'status --json': { stdout: JSON.stringify(before), code: 0 } })
+  await worker.request('discard.open', { path: EDITED })
+  assert.equal((await state(worker))?.deleted, true)
+  answer('drift discard', { stdout: 'removed .claude/rules/commit-conventions.md\n', code: 0 })
+  // The read after the run sees the file gone.
+  const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+  await worker.request('discard.run', { path: EDITED })
+  t['status --json --offline'] = { stdout: JSON.stringify(after), code: 0 }
+  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(t))
+  await main.settled()
+  const d = await state(worker)
+  assert.equal(d?.phase, 'done')
+  assert.equal(d?.after?.file, 'gone')
 })

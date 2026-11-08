@@ -285,7 +285,7 @@ export interface DiscardState {
   note: string | null
   /** craftar's refusal or the plugin's reason, verbatim; a note above the confirmation when it was drawn again. */
   message: string | null
-  after: { file: string; others: string[]; warnings: string[] } | null
+  after: { file: string; others: string[]; warnings: string[]; report: string } | null
   /** Internal: the read the confirmation came from, and that row's Forge side. */
   before?: StatusDoc
   rowForge?: string
@@ -1434,14 +1434,22 @@ export default function activate(orca: OrcaWorkerApi): void {
     const pending = pendingOf(st)
     if (pending.length > 0) throw new Error(`Update first: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} coming from the Forge. Bring them with Update and stage, then discard.`)
     if (st.forge?.kind && st.forge.kind !== 'path' && !settings.fetch) throw new Error('Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings')
-    const d = await s.queue.run(ws, () => {
-      if (!s.craftar) throw new Error('no craftar')
-      if (!s.diff || s.diff.ws !== ws) s.diff = { ws, child: new DiffChild(s.craftar, ws) }
-      return s.diff.child.diff(path)
-    }).catch((e) => ({ files: [], refused: e instanceof DiffRefused ? e.message : 'craftar mcp did not answer' }) as unknown as { files: { path: string; diff: string | null; note: string | null }[]; refused?: string })
+    // The confirmation always shows craftar's diff, or craftar's own note where it withholds the content: a diff that could not be
+    // read is no confirmation, so the Discard is refused with craftar's words.
+    let d: { files: { path: string; diff: string | null; note: string | null }[] }
+    try {
+      d = await s.queue.run(ws, () => {
+        if (!s.craftar) throw new Error('no craftar')
+        if (!s.diff || s.diff.ws !== ws) s.diff = { ws, child: new DiffChild(s.craftar, ws) }
+        return s.diff.child.diff(path)
+      })
+    } catch (e) {
+      throw new Error(`the diff could not be read, so Discard is not offered: ${e instanceof DiffRefused ? e.message : 'craftar mcp did not answer'}`)
+    }
     const file = d.files.find((f) => f.path === path)
-    const diff = file?.diff ?? null
-    const note = file?.note ?? ((d as { refused?: string }).refused ?? null)
+    if (!file || (file.diff === null && file.note === null)) throw new Error('craftar gave no diff for this file, so Discard is not offered: Check again')
+    const diff = file.diff
+    const note = file.note
     // No diff can show the Forge's new text of a file craftar withholds: not offered when the Forge changed it too.
     if (diff === null && row.forge === 'changed') throw new Error("craftar does not show this file's content, and the Forge changed it too: no diff can show what a discard would write. Discard it by hand if you mean to.")
     s.discard.set(ws, { path, phase: 'confirm', deleted: row.state === 'orphan-drift', diff, note, message, after: null, before: st, rowForge: row.forge })
@@ -1461,6 +1469,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (discardBusy.has(ws)) throw new Error('a discard is already running in this workspace')
     const craftar = s.craftar
     if (!craftar) throw new Error('craftar is not ready (see the self-check)')
+    if (d.before.forge?.kind && d.before.forge.kind !== 'path' && !(await readSettings(orca)).fetch) throw new Error('Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings')
     // Answered at once (a panel request stops at 120 s, and a fetch then the discard can take longer): the run goes on, tracked,
     // and the panel follows it on state.changed. Busy from now, so a second click starts nothing.
     discardBusy.add(ws)
@@ -1504,13 +1513,15 @@ export default function activate(orca: OrcaWorkerApi): void {
           await publish(s)
           const r = await run(craftar.bin, discardArgs(d.path, ws), craftar.env, 120_000)
           if (r.code !== 0) {
-            const words = [r.stderr.trim(), r.stdout.trim()].filter((x) => x !== '').join('\n')
+            const words = [r.stderr, r.stdout].filter((x) => x.trim() !== '').map((x) => x.replace(/\n+$/, '')).join('\n')
             s.discard.set(ws, { ...d, phase: 'error', message: words || (r.code === null ? 'craftar drift discard did not finish in time' : `craftar drift discard exited ${r.code}`) })
             return
           }
           const after = await readStatusDoc(craftar, ws, { fetch: false })
           const cmp = afterDiscard(d.before!, after, d.path)
-          s.discard.set(ws, { ...d, phase: 'done', after: { ...cmp, warnings: after.warnings } })
+          // craftar's own report of the run (its sync report, a file kept as changed while it was writing) is kept, as it words it.
+          const report = [r.stdout, r.stderr].filter((x) => x.trim() !== '').map((x) => x.replace(/\n+$/, '')).join('\n')
+          s.discard.set(ws, { ...d, phase: 'done', after: { ...cmp, warnings: after.warnings, report } })
         })
       } catch (e) {
         s.orca.log(failed('discard', e))

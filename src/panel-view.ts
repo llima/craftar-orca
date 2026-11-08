@@ -7,6 +7,7 @@
 import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
+import { EXAMPLE_SETTINGS } from './discard'
 import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
 
 const SVG = 'http://www.w3.org/2000/svg'
@@ -787,7 +788,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   // Discard (spec 60 §8a): offered on a `drift` or `orphan-drift` row, never on the example settings file or a collision; with
   // anything pending it reads "Update first". The worker checks it all again; the panel only draws it.
   function withDiscard(row: { path: string; state: string }, m: PanelModel, right: HTMLElement): HTMLElement {
-    if (typeof a.discardOpen !== 'function' || (row.state !== 'drift' && row.state !== 'orphan-drift') || row.path === '.claude/settings.craftar.example.json') return right
+    if (typeof a.discardOpen !== 'function' || (row.state !== 'drift' && row.state !== 'orphan-drift') || row.path === EXAMPLE_SETTINGS) return right
     const pending = m.pending.length
     const busyHere = !!v.discard && (v.discard.phase === 'checking' || v.discard.phase === 'running')
     const attrs: Record<string, string> = { class: 'btn ghost act', 'data-action': 'discard-file', 'data-path': row.path }
@@ -798,7 +799,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       attrs.disabled = ''
       attrs.title = 'a discard is running'
     } else attrs.title = row.state === 'orphan-drift' ? 'Delete this file, which craftar no longer writes' : 'Put back what craftar writes for this file'
-    return h('span', { class: 'acts' }, right, button('Discard', attrs, null, pending > 0 || busyHere ? null : () => a.discardOpen?.(row.path)))
+    // With files pending the action reads "Update first", pointing at Bring (Update and stage) in the toolbar.
+    return h('span', { class: 'acts' }, right, button(pending > 0 ? 'Update first' : 'Discard', attrs, null, pending > 0 || busyHere ? null : () => a.discardOpen?.(row.path)))
   }
 
   function drawDiscardScreen(d: NonNullable<View['discard']>): void {
@@ -808,9 +810,19 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
     const back = (label: string): HTMLButtonElement => button(label, { class: 'btn ghost', 'data-action': 'discard-cancel' }, null, () => a.discardCancel?.())
     if (d.phase === 'done') {
-      box.setAttribute('class', 'ok-banner')
-      box.appendChild(icon('check'))
-      box.appendChild(h('div', {}, t('strong', d.deleted ? `${name} was deleted` : `${name} reads as craftar writes it`), t('div', `Now: ${d.after?.file ?? 'not read'}. Nothing was staged or committed.`, { class: 'muted', 'data-role': 'discard-after' })))
+      const took = d.after?.file === (d.deleted ? 'gone' : 'unchanged')
+      if (took) {
+        box.setAttribute('class', 'ok-banner')
+        box.appendChild(icon('check'))
+        box.appendChild(h('div', {}, t('strong', d.deleted ? `${name} was deleted` : `${name} reads as craftar writes it`), t('div', `Now: ${d.after?.file ?? 'not read'}. Nothing was staged or committed.`, { class: 'muted', 'data-role': 'discard-after' })))
+      } else {
+        // craftar kept the file (it changed while craftar was writing, for one): said, with the discard offered again.
+        box.setAttribute('class', 'card warn')
+        box.appendChild(t('h2', `${name} was not put back`))
+        box.appendChild(t('p', `Now: ${d.after?.file ?? 'not read'}. craftar's report below says why. Nothing was staged or committed.`, { class: 'muted', 'data-role': 'discard-after' }))
+        if (typeof a.discardOpen === 'function') box.appendChild(h('div', { class: 'row' }, button('Discard again', { class: 'btn ember', 'data-action': 'discard-again' }, null, () => a.discardOpen?.(d.path))))
+      }
+      if (d.after && d.after.report !== '') body.appendChild(sec('craftar reported', null, t('pre', d.after.report, { class: 'words', 'data-role': 'discard-report' })))
       if (d.after && d.after.others.length > 0) {
         const ul = h('ul', { class: 'lines' })
         for (const o of d.after.others) ul.appendChild(t('li', o, { class: 'warn', 'data-role': 'discard-other' }))

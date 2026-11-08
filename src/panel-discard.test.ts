@@ -41,11 +41,12 @@ test('Discard is on a drift and an orphan-drift row, never on the example settin
   assert.deepEqual(calls, [`open ${EDITED}`])
 })
 
-test('with anything pending, Discard reads Update first and is off', () => {
+test('with anything pending, the action reads Update first and is off', () => {
   const { root } = draw(view())
   const b = byAction(root, 'discard-file')[0]
   assert.equal(b.attrs.disabled, '')
-  assert.match(b.attrs.title, /^Update first/)
+  assert.equal(b.textContent, 'Update first')
+  assert.match(b.attrs.title, /Update and stage/)
 })
 
 test('the confirmation names the file, shows the diff, says the edit is lost, and the second click runs it', () => {
@@ -69,9 +70,17 @@ test("while it runs, nothing to click; after it, the outcome, what else moved an
   const running = draw(view(quiet, { discard: { ...base, phase: 'running' } })).root
   assert.equal(byAction(running, 'discard-confirm').length, 0)
   assert.ok(all(running).some((e) => e.attrs['aria-busy'] === 'true'))
-  const done = draw(view(quiet, { discard: { ...base, phase: 'done', after: { file: 'unchanged', others: ['b.md: unchanged → update'], warnings: ['a warning'] } } })).root
+  const done = draw(view(quiet, { discard: { ...base, phase: 'done', after: { file: 'unchanged', others: ['b.md: unchanged → update'], warnings: ['a warning'], report: 'wrote x' } } })).root
   assert.match(role(done, 'discard-after')[0].textContent, /Now: unchanged\. Nothing was staged or committed\./)
   assert.deepEqual(role(done, 'discard-other').map((e) => e.textContent), ['b.md: unchanged → update'])
+  assert.equal(role(done, 'discard-report')[0].textContent, 'wrote x')
+  assert.equal(byAction(done, 'discard-again').length, 0)
+  // craftar kept the file: no success, its report, and the discard offered again.
+  const kept = draw(view(quiet, { discard: { ...base, phase: 'done', after: { file: 'drift', others: [], warnings: [], report: 'changed while craftar was writing: kept; run craftar sync again' } } }))
+  assert.match(kept.root.textContent, /was not put back/)
+  assert.match(role(kept.root, 'discard-report')[0].textContent, /changed while craftar was writing/)
+  click(byAction(kept.root, 'discard-again')[0])
+  assert.deepEqual(kept.calls, [`open ${EDITED}`])
   const err = draw(view(quiet, { discard: { ...base, phase: 'error', message: 'error: not drifted: x (unchanged)' } })).root
   assert.equal(role(err, 'discard-message')[0].textContent, 'error: not drifted: x (unchanged)')
 })
