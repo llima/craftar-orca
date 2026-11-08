@@ -1308,6 +1308,9 @@ function consentSteps(ws: string, craftar: Craftar, home: string, why: string | 
   ]
 }
 
+/** A Try again's periodic check in flight (one at a time). */
+let checkingNow = false
+
 export default function activate(orca: OrcaWorkerApi): void {
   const startedAt = Date.now()
   const tick = (): Promise<void> => beat(orca, startedAt).catch((e) => orca.log(failed('heartbeat', e)))
@@ -1370,6 +1373,19 @@ export default function activate(orca: OrcaWorkerApi): void {
     track(s, s.queue.run(FOCUS_QUEUE, () => refreshFocus(s, ctx, recheck))).catch((e) => orca.log(failed('refresh', e)))
   orca.events.on('workspace.changed', (payload) => refresh((payload as { context: Context | null }).context))
   orca.panels.handle('state.get', async () => view(s) as never)
+  // The fetch-failed card's Try again: the periodic check, run now and tracked (it fetches, and may take longer than a
+  // panel request may wait), answered at once. One at a time: a click while one runs starts nothing more.
+  orca.panels.handle('check.now', async () => {
+    if (!checkingNow) {
+      checkingNow = true
+      void track(s, periodic())
+        .catch((e) => orca.log(failed('periodic check', e)))
+        .finally(() => {
+          checkingNow = false
+        })
+    }
+    return view(s) as never
+  })
   orca.panels.handle('state.refresh', async () => {
     // Check again asks craftar anew: a refusal to send is no longer shown as its answer, so Send is offered again.
     const focused = focusedPath(s)

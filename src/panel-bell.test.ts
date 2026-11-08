@@ -185,3 +185,78 @@ test('a diff shown in the panel has a × that closes it', () => {
   click(byAction(box, 'dismiss')[0])
   assert.deepEqual(calls, ['close'])
 })
+
+// The user's report of 2026-11-08: Try again redrew the bell open over the card it sits on.
+function drawKept(v: PanelView, kept: { left: { key: string; open: boolean } | null }) {
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  const calls: string[] = []
+  render(doc as never, root as never, v, {
+    choose: () => undefined, refresh: () => calls.push('refresh'), showDiff: () => undefined,
+    checkNow: () => calls.push('check now'),
+    bellState: () => kept.left, bellSet: (key, open) => { kept.left = { key, open } },
+  })
+  return { root, calls }
+}
+const fire = (e: FakeEl, ev: string, arg?: unknown): void => {
+  for (const f of e.listeners[ev] ?? []) (f as (x?: unknown) => void)(arg)
+}
+const cachedView = () => view((m) => { m.forge = { ...m.forge!, freshness: 'cached', fetchedAt: Date.now() - 8 * 60_000 }; m.errors = [] })
+
+test('a cached copy does not open the bell: its card holds Try again, which runs the periodic check now', () => {
+  const kept = { left: null }
+  const { root, calls } = drawKept(cachedView(), kept)
+  assert.equal(role(root, 'messages')[0].attrs.class, 'pop')
+  const card = role(root, 'fetch-failed')[0]
+  click(byAction(card, 'check-now')[0])
+  assert.deepEqual(calls, ['check now'])
+  assert.equal(byAction(card, 'refresh').length, 0, 'not the offline focus read, which could never clear the card')
+})
+
+test('a redraw keeps the bell as the person left it for the same messages; a new error opens it again', () => {
+  const kept: { left: { key: string; open: boolean } | null } = { left: null }
+  const err = () => view((m) => (m.errors = ['drift show: failed']))
+  let d = drawKept(err(), kept)
+  assert.equal(role(d.root, 'messages')[0].attrs.class, 'pop open')
+  click(byAction(d.root, 'messages')[0])
+  assert.equal(role(d.root, 'messages')[0].attrs.class, 'pop')
+  d = drawKept(err(), kept)
+  assert.equal(role(d.root, 'messages')[0].attrs.class, 'pop', 'a redraw does not reopen a bell the person closed')
+  d = drawKept(view((m) => (m.errors = ['drift show: failed', 'repos: failed'])), kept)
+  assert.equal(role(d.root, 'messages')[0].attrs.class, 'pop open', 'a different message set may open it')
+  // Opened by hand on a cached copy, it stays open on the next redraw too.
+  const c = { left: null as { key: string; open: boolean } | null }
+  d = drawKept(cachedView(), c)
+  click(byAction(d.root, 'messages')[0])
+  assert.equal(role(drawKept(cachedView(), c).root, 'messages')[0].attrs.class, 'pop open')
+})
+
+test('the open bell closes on a press anywhere in the panel body or toolbar, on Esc, and on the header buttons', () => {
+  const kept: { left: { key: string; open: boolean } | null } = { left: null }
+  const err = () => view((m) => (m.errors = ['drift show: failed']))
+  let d = drawKept(err(), kept)
+  const pop = () => role(d.root, 'messages')[0]
+  const body = all(d.root).find((e) => e.attrs.class === 'body')!
+  assert.equal(pop().attrs.class, 'pop open')
+  fire(body, 'pointerdown')
+  assert.equal(pop().attrs.class, 'pop')
+  assert.equal(byAction(d.root, 'messages')[0].attrs['aria-expanded'], 'false')
+  assert.deepEqual(kept.left && kept.left.open, false)
+  kept.left = null
+  d = drawKept(err(), kept)
+  fire(pop(), 'keydown', { key: 'a' })
+  assert.equal(pop().attrs.class, 'pop open', 'another key leaves it')
+  fire(pop(), 'keydown', { key: 'Escape' })
+  assert.equal(pop().attrs.class, 'pop')
+  kept.left = null
+  d = drawKept(err(), kept)
+  fire(byAction(d.root, 'refresh')[0], 'pointerdown')
+  assert.equal(pop().attrs.class, 'pop')
+  kept.left = null
+  d = drawKept(err(), kept)
+  const toolbar = all(d.root).find((e) => e.attrs['data-role'] === 'toolbar')
+  if (toolbar) {
+    fire(toolbar, 'pointerdown')
+    assert.equal(pop().attrs.class, 'pop')
+  }
+})

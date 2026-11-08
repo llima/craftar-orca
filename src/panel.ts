@@ -266,6 +266,8 @@ let prDraft: { branch?: string; title?: string } | null = null
 let diff: DiffShown = null
 // The worker's refusal of the panel's last request, shown until the next request (nothing is dropped).
 let notice: string | null = null
+// The bell as the person last left it, for the message set it was left on: memory only, so a redraw keeps it.
+let bellLeft: { key: string; open: boolean } | null = null
 
 function draw(): void {
   if (!view) {
@@ -306,6 +308,24 @@ const actions = {
             }
           }),
       )
+  },
+  bellState(): { key: string; open: boolean } | null {
+    return bellLeft
+  },
+  bellSet(key: string, open: boolean): void {
+    bellLeft = { key, open }
+  },
+  checkNow(): void {
+    // The fetch-failed card's Try again: the worker runs the periodic check now and answers at once; the result comes
+    // on state.changed. A refusal is shown in its words.
+    notice = null
+    void orca.plugin
+      .request('check.now', undefined, { timeoutMs: 60_000 })
+      .then((v) => {
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
   },
   refresh(): void {
     notice = null

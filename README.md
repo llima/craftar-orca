@@ -41,7 +41,9 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   services, with its state: up to date, outdated, drift or kept apart) and the workspace below with its profile; then the files coming
   from the Forge and the files edited here; and the actions in a fixed toolbar at the bottom, Bring (from the Forge) and Send (to the
   Forge). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
-  read gave an error, the sync is refused, a check fails or the Forge could not be fetched; the registry's lines about other workspaces stay out of its panel). Each message is marked
+  read gave an error, the sync is refused or a check fails; the registry's lines about other workspaces stay out of its panel). A cached
+  copy does not open it: its card says so, and its *Try again* runs the periodic check now, the one read that fetches. Once you open or
+  close the bell, a redraw keeps it so for the same messages, and a press anywhere outside it, or Esc, closes it. Each message is marked
   *error*, *to look at* or *info* (`--offline`'s note, or the age of a cached copy, which the plugin adds as its own line); where the plugin
   knows a fix it adds one under craftar's words, never in their place; for a target that skips an ingredient type it says what else the
   workspace writes for, never that another target writes the ingredient. The bell also holds a refused sync's lines, the self-check's

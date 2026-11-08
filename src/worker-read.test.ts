@@ -869,3 +869,14 @@ test('a named clone that is not a git repository gives no pinned line, and is as
   v = (await worker.request('state.get')) as { model: { forge: { pinned: string | null } } }
   assert.equal(v.model.forge.pinned, 'tag')
 })
+
+test("the fetch-failed card's Try again runs the periodic check now: it fetches, answers at once, and one at a time", async () => {
+  const { s, worker, web } = await setup()
+  const before = s.calls().length
+  await worker.request('check.now')
+  await worker.request('check.now')
+  await main.settled()
+  const fetching = s.calls().slice(before).filter((c) => c.argv[0] === 'status' && !c.argv.includes('--offline'))
+  assert.deepEqual(fetching.map((c) => c.argv), [['status', '--json', '--workspace', web]])
+  assert.ok(worker.logs.some((l) => l.includes('periodic check: 1 workspace read')))
+})
