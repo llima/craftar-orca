@@ -160,6 +160,7 @@ input[type='text'] { width: 100%; font: 12px var(--mono); padding: 6px 8px; bord
 .sec[data-role='diff'] h3 > span:first-child { text-transform: none; letter-spacing: .02em; }
 .sec h3 .n { color: var(--orca-foreground); }
 .sec h3 .x-btn { margin-left: auto; }
+.files .acts { display: inline-flex; align-items: center; gap: 6px; }
 [data-role='forgepr-box'] input[type='text'] { margin-bottom: 4px; }
 .sec h4 { margin: 8px 0 4px; font: 500 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--orca-muted-foreground); }
 
@@ -335,6 +336,18 @@ const actions = {
   sendCancel(): void {
     notice = null
     call('send.cancel', {}, 30_000)
+  },
+  discardOpen(path: string): void {
+    notice = null
+    call('discard.open', { path }, 120_000)
+  },
+  discardRun(path: string): void {
+    notice = null
+    call('discard.run', { path }, 120_000)
+  },
+  discardCancel(): void {
+    notice = null
+    call('discard.cancel', {}, 30_000)
   },
   forgePrPrepare(): void {
     notice = null
