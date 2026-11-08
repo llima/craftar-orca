@@ -66,7 +66,7 @@ test('the plan lists every file with its outcome and what craftar would write; W
 
 test('a stop shows craftar\'s words, the files not written, and the PR for what was written', () => {
   const written = { ...plan(A, 'commit-conventions'), dryRun: false }
-  const stopped = sa({ phase: 'stopped', items: [{ path: A, plan: plan(A, 'commit-conventions'), result: written, refused: null }, { path: B, plan: plan(B, 'frontend-react'), result: null, refused: null }], stopped: { path: B, message: 'error: recipes/base.yaml is not held by git' }, remaining: [B] })
+  const stopped = sa({ phase: 'stopped', items: [{ path: A, plan: plan(A, 'commit-conventions'), result: written, refused: null }, { path: B, plan: plan(B, 'frontend-react'), result: null, refused: null }], stopped: { path: B, message: 'error: recipes/base.yaml is not held by git', craftar: true }, remaining: [B] })
   const { root, calls } = draw(view({ sendAll: stopped }))
   assert.match(role(root, 'sendall-title')[0].textContent, /stopped at \.claude\/rules\/frontend-react\.md: 1 of 2 written/)
   assert.equal(role(root, 'sendall-stopped')[0].textContent, 'error: recipes/base.yaml is not held by git')
@@ -96,4 +96,38 @@ test('the PR committed with files left offers Send the rest before the push, and
   assert.equal(byAction(root, 'forgepr-push').length, 1, 'the push stays offered')
   const none = draw(view({ forgePr: { ...pr, rest: [] } }))
   assert.equal(byAction(none.root, 'sendall-rest').length, 0)
+})
+
+test('the stopped screen words what was written and what was not; the plugin\'s own line is not drawn as craftar\'s', () => {
+  const written = { ...plan(A, 'commit-conventions'), dryRun: false }
+  const base = sa({ phase: 'stopped', items: [{ path: A, plan: plan(A, 'commit-conventions'), result: written, refused: null }, { path: B, plan: plan(B, 'frontend-react'), result: null, refused: null }], stopped: { path: B, message: 'error: refused', craftar: true }, remaining: [B] })
+  const some = draw(view({ sendAll: base }))
+  assert.match(some.root.textContent, /What was written stays in the Forge\. Commit it with the PR's first step, then Send the rest/)
+  assert.equal(role(some.root, 'sendall-stopped')[0].tag, 'pre')
+  const none = draw(view({ sendAll: { ...base, items: base.items.map((x) => ({ ...x, result: null })), remaining: [A, B] } }))
+  assert.match(none.root.textContent, /Nothing was written\. The files are back on the workspace/)
+  const plugin = draw(view({ sendAll: { ...base, stopped: { path: B, message: 'craftar drift promote did not run', craftar: false } } }))
+  assert.match(role(plugin.root, 'sendall-title')[0].textContent, /^craftar did not run at /)
+  assert.equal(role(plugin.root, 'sendall-stopped')[0].tag, 'p')
+})
+
+test('a rest added to the PR: its screen names the branch and the next paths, the commit is the next click, and the push waits', () => {
+  const pr: NonNullable<View['forgePr']> = {
+    open: true, phase: 'committed', step: null, waiting: false, forge: '/home/acme/forge', paths: ['a.md', 'b.md'],
+    branch: 'craftar-acme-2-changes', title: 't', body: 'b', identity: 'Acme Dev <dev@acme.example>', forgeBranch: 'main', authorDiffers: null, url: null, attached: null, steps: [], note: null,
+    rest: [], more: true, next: ['b.md'],
+  }
+  const { root, calls } = draw(view({ forgePr: pr }))
+  const b = byAction(root, 'forgepr-commit-more')[0]
+  assert.equal(b.textContent.trim(), 'Commit 1 path on craftar-acme-2-changes')
+  assert.deepEqual(role(root, 'forgepr-next').map((e) => e.textContent), ['b.md'])
+  assert.equal(role(root, 'forgepr-branch-text')[0].textContent, 'craftar-acme-2-changes')
+  assert.equal(byAction(root, 'forgepr-push').length, 0)
+  assert.equal(byAction(root, 'sendall-rest').length, 0)
+  click(b)
+  assert.deepEqual(calls, ['step commit'])
+  // The Send all screen's button adds the rest to the PR; it commits nothing itself.
+  const written = { ...plan(B, 'frontend-react'), dryRun: false }
+  const more = draw(view({ sendAll: sa({ phase: 'done', more: true, items: [{ path: B, plan: plan(B, 'frontend-react'), result: written, refused: null }] }) }))
+  assert.equal(byAction(more.root, 'forgepr-more')[0].textContent.trim(), 'Add 1 file to the PR')
 })

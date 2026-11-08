@@ -84,8 +84,9 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   at the first refusal: craftar's words are shown, with the files not written. A refusal over a Forge file the write before left
   uncommitted (craftar's git gate) clears once that is committed, so the PR comes next: *Prepare the PR* covers every file written (a
   branch `craftar-<profile>-<n>-changes` and a title for several), and after **1 Branch and commit**, **Send the rest (N)** plans and writes
-  the files left; their commit goes on the same branch (`git switch <branch>`, never `-c`, with only the paths that batch wrote), then
-  push and the PR carry everything. The PR body lists each send's outcome, ref and paths, one line, cut with "and N more" past 1,500
+  the files left; *Add N files to the PR* takes you back to the PR screen, which names the branch, the title and the next paths, and
+  **Commit N paths on <branch>** is the next click there (`git switch <branch>`, never `-c`, with only the paths that batch wrote; the push
+  waits for it). A title still the plugin's default follows the count. Then push and the PR carry everything. The PR body lists each send's outcome, ref and paths, one line, cut with "and N more" past 1,500
   characters. Bring needs nothing of this: it already brings every pending file in one click.
 - **Discard** (spec 60 §8a) puts back what craftar writes for one file you edited by hand by mistake. It is on a `drift` row of "Edited
   here" and an `orphan-drift` row of "Kept apart", never on `.claude/settings.craftar.example.json` (a value may have been typed there) or a
