@@ -232,7 +232,9 @@ orca-ide plugin inspect .
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
 The catalog images (`assets/cover.png`, `assets/screenshots/`) are the plugin's own panel, drawn by its renderer
 (`src/panel-view.ts`) and stylesheet (`src/panel.ts`) on synthetic `acme` data, with Orca's dark theme values, in a browser outside
-Orca (the Orca this is built in lists client workspaces, so no `plugin shot` is taken). Redraw them when the panel changes.
+Orca (the Orca this is built in lists client workspaces, so no `plugin shot` is taken): a throwaway test calls `render` with
+`buildModel` over the fixtures in `test-support/fixtures/` (an `acme-portal` workspace on `git.acme.example`), writes each scene's HTML
+with the panel's `STYLE`, and `google-chrome --headless --screenshot` takes it at 1600x1000 or 1280x800. Redraw them when the panel changes.
 
 ## License
 
