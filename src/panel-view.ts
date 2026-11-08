@@ -30,7 +30,12 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating'> & S2View & S3View & BellView
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr'> & S2View & S3View & BellView & PrView
+
+/** S3b's addition: the PR in the Forge (optional, as the others). */
+export interface PrView {
+  forgePr?: View['forgePr']
+}
 
 /** The bell's additions (the user's request of 2026-11-08): optional, as S2's and S3a's. */
 export interface BellView {
@@ -52,6 +57,14 @@ export interface Actions {
   forgeDirEdit?(draft: string | null): void
   /** What the person typed in that box, kept without a redraw. */
   forgeDirDraft?(value: string): void
+  /** S3b: prepare the PR after a Send, run a step, read a waiting terminal again, show or leave the PR screen, drop the steps left. */
+  forgePrPrepare?(): void
+  forgePrStep?(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void
+  forgePrCheck?(): void
+  forgePrShow?(open: boolean): void
+  forgePrDrop?(): void
+  /** What the person typed in the branch or title fields, kept across redraws by panel.ts. */
+  forgePrDraft?(field: 'branch' | 'title', value: string): void
   /** The diff shown in the panel closed (its ×, its row's button again, or Esc). */
   closeDiff?(): void
   /** S2: `update.run` with the paths the confirm listed. */
@@ -148,7 +161,7 @@ const short = (c: string | null): string | null => (c ? c.slice(0, 7) : null)
 
 /** `notice`: the worker's refusal of the panel's last request, drawn as text whatever the focus (nothing is dropped). */
 /** `forgeEdit`: the Forge clone box the person opened with Change, and what they typed in it, kept by panel.ts across redraws; null when closed. */
-export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null, forgeEdit: string | null = null): void {
+export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null, forgeEdit: string | null = null, prDraft: { branch?: string; title?: string } | null = null): void {
   const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: Kid[]): HTMLElementTagNameMap[K] => {
     const e = doc.createElement(tag)
     for (const [k, val] of Object.entries(attrs)) e.setAttribute(k, val)
@@ -355,7 +368,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   if (m) {
-    if (v.send) drawSendScreen(m, v.send)
+    if (v.forgePr?.open) drawPrScreen(v.forgePr)
+    else if (v.send) drawSendScreen(m, v.send)
     else drawMain(m)
     root.appendChild(toolbar)
   }
@@ -470,6 +484,17 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const box = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'marked-box' }))
       const ul = box.appendChild(h('ul', { class: 'lines plain' }))
       for (const p of v.marked) ul.appendChild(t('li', `${p}: edited, not yet in the Forge`, { 'data-role': 'marked' }))
+    }
+
+    // S3b: a Forge PR left waiting (Back on its screen): continue it, or drop the steps left.
+    if (v.forgePr && !v.forgePr.open) {
+      const f = v.forgePr
+      const box = body.appendChild(h('section', { class: 'card up', 'data-role': 'forgepr-waiting' }))
+      box.appendChild(t('h2', 'A PR in the Forge waits'))
+      box.appendChild(t('p', `${f.title} (${f.phase})`, { class: 'muted' }))
+      box.appendChild(h('div', { class: 'row' },
+        button('Continue', { class: 'btn ember', 'data-action': 'forgepr-show' }, 'up', () => a.forgePrShow?.(true)),
+        button('Drop the steps left', { class: 'btn ghost', 'data-action': 'forgepr-drop', title: 'What is already done in the Forge stays as it is' }, null, () => a.forgePrDrop?.())))
     }
 
     // ---- the files, both directions (item 6) ----
@@ -736,13 +761,80 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (plan.warnings.length === 0) says.appendChild(t('li', 'no warnings', { class: 'quiet' }))
       body.appendChild(sec('craftar says', plan.warnings.length, says))
     }
-    if (sd.phase === 'done') body.appendChild(h('section', { class: 'card' }, t('p', 'Next: commit and open a PR in the Forge, a later step, in a terminal you see, one click each. Until then, use git in the Forge.', { class: 'muted' })))
+    if (sd.phase === 'done') body.appendChild(h('section', { class: 'card' }, t('p', 'Next: a PR in the Forge, in three clicks (branch and commit, push, open the PR), each in a terminal you see, after a preview of the identity git will use.', { class: 'muted' })))
     if (sd.phase === 'preview') {
       row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.()))
       row.appendChild(button('Write to the Forge', { class: 'btn ember', 'data-action': 'send-confirm' }, 'up', () => a.sendRun?.(sd.path)))
       toolbar.appendChild(t('p', "writes the Forge's working tree · nothing is committed, pushed or opened as a PR", { class: 'fnote' }))
-    } else if (sd.phase === 'done') row.appendChild(back())
+    } else if (sd.phase === 'done') {
+      row.appendChild(back())
+      if (typeof a.forgePrPrepare === 'function') row.appendChild(button('Prepare the PR', { class: 'btn ember', 'data-action': 'forgepr-prepare' }, 'up', () => a.forgePrPrepare?.()))
+    }
     else row.appendChild(button(sd.phase === 'writing' ? 'Writing…' : 'Checking…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, 'up', null))
+    tail()
+  }
+
+  // S3b: the PR in the Forge (spec 60 §8 step 4, O6): the preview, then three clicks, each in a terminal the person sees.
+  function drawPrScreen(f: NonNullable<View['forgePr']>): void {
+    const order: [string, string[]][] = [['1 branch and commit', ['committed', 'pushing', 'pushed', 'opening', 'opened']], ['2 push', ['pushed', 'opening', 'opened']], ['3 open the PR', ['opened']]]
+    const runningAt: Record<string, number> = { committing: 0, pushing: 1, opening: 2 }
+    const steps = body.appendChild(h('div', { class: 'steps', 'data-role': 'forgepr-steps' }))
+    order.forEach(([name, done], i) => steps.appendChild(t('span', name, { class: done.includes(f.phase) ? 'done' : runningAt[f.phase] === i ? 'on' : '' })))
+    const box = body.appendChild(h('section', { class: f.phase === 'failed' ? 'card bad' : 'card up', 'data-role': 'forgepr-box' }))
+    box.appendChild(t('h2', f.phase === 'opened' ? 'The PR is open in the Forge' : 'A PR in the Forge'))
+    const kv = box.appendChild(h('dl', { class: 'kv' }))
+    const pair = (k: string, val: string, role: string): void => {
+      kv.appendChild(t('dt', k))
+      kv.appendChild(t('dd', val, { 'data-role': role }))
+    }
+    pair('identity', f.identity ?? (f.phase === 'preparing' ? 'reading it in a terminal…' : 'not read'), 'forgepr-identity')
+    pair('from', f.forgeBranch ?? '(not read)', 'forgepr-from')
+    pair('Forge', f.forge, 'forgepr-forge')
+    const editing = f.phase === 'ready'
+    let branchInput: HTMLInputElement | null = null
+    let titleInput: HTMLInputElement | null = null
+    if (editing) {
+      branchInput = h('input', { type: 'text', 'data-role': 'forgepr-branch', 'aria-label': 'Branch in the Forge (lowercase letters, digits and hyphens)' }) as HTMLInputElement
+      branchInput.value = prDraft?.branch ?? f.branch
+      branchInput.addEventListener('input', () => a.forgePrDraft?.('branch', branchInput!.value))
+      titleInput = h('input', { type: 'text', 'data-role': 'forgepr-title', 'aria-label': 'Commit subject and PR title' }) as HTMLInputElement
+      titleInput.value = prDraft?.title ?? f.title
+      titleInput.addEventListener('input', () => a.forgePrDraft?.('title', titleInput!.value))
+      box.appendChild(t('p', 'Branch in the Forge', { class: 'muted' }))
+      box.appendChild(branchInput)
+      box.appendChild(t('p', 'Commit subject and PR title', { class: 'muted' }))
+      box.appendChild(titleInput)
+    } else {
+      pair('branch', f.branch, 'forgepr-branch-text')
+      pair('title', f.title, 'forgepr-title-text')
+    }
+    if (f.authorDiffers) box.appendChild(t('p', `The commit was made as ${f.authorDiffers}, not as the identity shown above.`, { class: 'note bad', 'data-role': 'forgepr-author' }))
+    if (f.url) box.appendChild(t('p', `${f.url}${f.attached === true ? ' (attached to this workspace)' : f.attached === false ? ' (not attached: orca-ide reference add did not work)' : ''}`, { class: 'muted', 'data-role': 'forgepr-url' }))
+    if (f.note) box.appendChild(t('p', f.note, { class: f.phase === 'failed' ? 'note bad' : 'note', 'data-role': 'forgepr-note' }))
+    if (f.phase === 'words') {
+      const ol = box.appendChild(h('ol', { class: 'lines plain' }))
+      for (const step of f.steps) ol.appendChild(t('li', step, { 'data-role': 'forgepr-word' }))
+    }
+    const ul = h('ul', { class: 'lst' })
+    for (const p of f.paths) ul.appendChild(h('li', { 'data-role': 'forgepr-path' }, t('span', p, { class: 'x' })))
+    body.appendChild(sec('Committed, exactly these paths', f.paths.length, ul))
+    body.appendChild(sec('PR body, written by the plugin', null, t('pre', f.body, { class: 'words', 'data-role': 'forgepr-body' })))
+
+    toolbar.replaceChildren()
+    const row = toolbar.appendChild(h('div', { class: 'tb' }))
+    row.appendChild(button('Back to the workspace', { class: 'btn ghost', 'data-action': 'forgepr-back' }, null, () => a.forgePrShow?.(false)))
+    const label: Record<string, [string, 'commit' | 'push' | 'pr']> = { ready: ['1 Branch and commit', 'commit'], committed: ['2 Push', 'push'], pushed: ['3 Open the PR', 'pr'] }
+    const busy: Record<string, string> = { preparing: 'Reading…', committing: 'Committing…', pushing: 'Pushing…', opening: 'Opening…' }
+    if (f.waiting) row.appendChild(button('Check the terminal', { class: 'btn ember', 'data-action': 'forgepr-check' }, 'term', () => a.forgePrCheck?.()))
+    else if (label[f.phase]) {
+      const [text, step] = label[f.phase]
+      row.appendChild(button(text, { class: 'btn ember', 'data-action': `forgepr-${step}` }, 'up', () => a.forgePrStep?.(step, branchInput?.value.trim(), titleInput?.value.trim())))
+    } else if (f.phase === 'failed' && f.step) {
+      const step = f.step
+      row.appendChild(button(`Try ${step === 'pr' ? 'the PR' : step === 'prepare' ? 'the preview' : step} again`, { class: 'btn ember', 'data-action': `forgepr-${step}` }, 'up', () => a.forgePrStep?.(step)))
+    } else if (busy[f.phase]) row.appendChild(button(busy[f.phase], { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, 'up', null))
+    if (f.phase === 'words' || f.phase === 'failed') row.appendChild(button('Drop', { class: 'btn ghost', 'data-action': 'forgepr-drop', title: 'What is already done in the Forge stays as it is' }, null, () => a.forgePrDrop?.()))
+    toolbar.appendChild(t('p', 'each step in a terminal you see · push and PR are separate clicks · the plugin never commits by itself', { class: 'fnote' }))
     tail()
   }
 
