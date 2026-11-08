@@ -23,7 +23,7 @@ import { promote, PromoteRefused, type PromoteResult } from './promote'
 import { isAbsolute } from 'node:path'
 import { createHash } from 'node:crypto'
 import { allowWritesCommand, answered, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
-import { branchFault, defaultBranch, defaultTitle, prBody, quotable, readStep, remoteHost, stepCommand, titleFault, type Step } from './forge-pr'
+import { branchFault, defaultBranch, defaultBranchAll, defaultTitle, defaultTitleAll, prBody, prBodyAll, quotable, readStep, remoteHost, stepCommand, titleFault, type Step } from './forge-pr'
 import { randomBytes } from 'node:crypto'
 
 const ITEM = 'craftar'
@@ -245,6 +245,8 @@ interface State {
   fetchState: Map<string, 'fetched' | 'failed' | 'off'>
   /** S3a, per workspace path: the Send to Forge in progress (the dry run's plan, then the write's result). */
   send: Map<string, SendView>
+  /** Send all (the user's design A of 2026-11-08), per workspace path: one plan for every file, then the writes in order. */
+  sendAll: Map<string, SendAllView>
   /** Per workspace path: the files craftar refused to send, with its words — kept here, no Send, until the file is saved again. */
   sendRefused: Map<string, Map<string, string>>
   /** The machine's registry and each workspace's repos, as the last read gave them: a focus read reuses them (the switch waits only for status and drift show). */
@@ -348,6 +350,12 @@ export interface ForgePr {
   /** The steps in words when no terminal can be opened (a shell the plugin does not quote for). */
   steps: string[]
   note: string | null
+  /** Send all: the files not written yet (Send the rest offers them after a commit), and what was sent, for the body. */
+  rest?: string[]
+  sent?: { outcome: string; promoted: string; written: { path: string; action: string }[] }[]
+  /** Send the rest: the next commit goes on the branch already made, with only these paths. */
+  more?: boolean
+  next?: string[] | null
   /** Internal: the marker nonce and the terminal of the step that runs, and the Forge remote's host. */
   nonce?: string
   terminalId?: string
@@ -370,6 +378,26 @@ export interface SendView {
 }
 
 let sendToken = 0
+
+/** Send all's state for one workspace (design A): the dry runs of every file, one plan, then the writes in order. */
+export interface SendAllView {
+  phase: 'checking' | 'plan' | 'writing' | 'stopped' | 'done' | 'error'
+  /** The files of this batch in order: the dry run's plan, the write's result, craftar's refusal of the dry run. */
+  items: { path: string; plan: PromoteResult | null; result: PromoteResult | null; refused: string | null }[]
+  /** The file craftar works on now. */
+  current: string | null
+  /** The write craftar refused, in its words: the batch stopped there. */
+  stopped: { path: string; message: string } | null
+  /** The files not written: the one craftar refused and those after it. */
+  remaining: string[]
+  /** The plugin's own reason when craftar did not run. */
+  message: string | null
+  /** The Forge clone the dry runs used (null for a local Forge): the writes use the same one. */
+  forge: string | null
+  /** This batch continues a Forge PR already committed: its commit goes on the same branch (Send the rest). */
+  more: boolean
+  token: number
+}
 
 export interface SyncView {
   phase: 'idle' | 'running' | 'consent' | 'done' | 'error'
@@ -699,7 +727,8 @@ function sendable(s: State, path: unknown): { ws: string; path: string } {
 /** One send at a time per workspace: nothing changes it while craftar checks or writes. */
 function refuseWhileBusy(s: State, ws: string): void {
   const now = s.send.get(ws)?.phase
-  if (now === 'checking' || now === 'writing') throw new Error('craftar is already working on a send for this workspace: wait for it')
+  const all = s.sendAll.get(ws)?.phase
+  if (now === 'checking' || now === 'writing' || all === 'checking' || all === 'writing') throw new Error('craftar is already working on a send for this workspace: wait for it')
 }
 
 /** --forge only for a URL Forge (O5): a Forge on this machine needs nothing. */
@@ -772,6 +801,102 @@ async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendVi
   await publish(s)
 }
 
+/** The files Send all would carry now: every edited file craftar can send, less the ones it refused (kept until saved again). */
+function sendAllPaths(s: State, ws: string): string[] {
+  const m = s.models.get(ws)
+  const refused = s.sendRefused.get(ws)
+  return m ? m.edited.filter((e) => e.promotable && !refused?.has(e.path)).map((e) => e.path) : []
+}
+
+/** Starts Send all's dry runs over `paths` (design A): nothing is written; each file's plan, or craftar's refusal, in order. */
+function sendAllStart(s: State, ws: string, paths: string[], more: boolean): () => Promise<void> {
+  if (paths.length === 0) throw new Error('no file this workspace can send to the Forge: check again')
+  for (const p of paths) sendable(s, p)
+  const craftar = s.craftar as Craftar
+  const token = ++sendToken
+  const forge = forgeFor(s, ws)
+  s.sendAll.set(ws, { phase: 'checking', items: paths.map((path) => ({ path, plan: null, result: null, refused: null })), current: paths[0], stopped: null, remaining: [], message: null, forge, more, token })
+  return () => sendAllPreview(s, ws, craftar, token)
+}
+
+/** Sets Send all's state only while it is still the run that started it (a Cancel or a newer run wins). */
+function setAllIfCurrent(s: State, ws: string, token: number, next: (cur: SendAllView) => SendAllView): boolean {
+  const cur = s.sendAll.get(ws)
+  if (!cur || cur.token !== token) return false
+  s.sendAll.set(ws, next(cur))
+  return true
+}
+
+async function sendAllPreview(s: State, ws: string, craftar: Craftar, token: number): Promise<void> {
+  const start = s.sendAll.get(ws)
+  if (!start) return
+  await s.queue.run(ws, async () => {
+    for (const { path } of start.items) {
+      if (!setAllIfCurrent(s, ws, token, (c) => ({ ...c, current: path }))) return
+      await publish(s)
+      try {
+        const plan = await promote(craftar, ws, path, { dryRun: true, forge: start.forge })
+        setAllIfCurrent(s, ws, token, (c) => ({ ...c, items: c.items.map((x) => (x.path === path ? { ...x, plan } : x)) }))
+      } catch (e) {
+        if (!(e instanceof PromoteRefused)) {
+          setAllIfCurrent(s, ws, token, (c) => ({ ...c, phase: 'error', current: null, message: 'craftar drift promote did not run: nothing was written' }))
+          return
+        }
+        // craftar's refusal of the dry run: the file is kept here in its words, as a single Send keeps it, and leaves the batch.
+        if (s.sendAll.get(ws)?.token === token) refuseSend(s, ws, path, e.message)
+        setAllIfCurrent(s, ws, token, (c) => ({ ...c, items: c.items.map((x) => (x.path === path ? { ...x, refused: e.message } : x)) }))
+      }
+    }
+    setAllIfCurrent(s, ws, token, (c) => ({ ...c, phase: 'plan', current: null }))
+  })
+  await publish(s)
+}
+
+/** Write all, on the second click, only over the plan shown: each planned file in order; the first refusal stops the batch. */
+function sendAllRun(s: State, ws: string, paths: unknown): () => Promise<void> {
+  const cur = s.sendAll.get(ws)
+  if (!cur || cur.phase !== 'plan') throw new Error('look at the plan first: click Send all')
+  const planned = cur.items.filter((x) => x.plan).map((x) => x.path)
+  const given = Array.isArray(paths) ? paths.filter((p): p is string => typeof p === 'string') : null
+  if (!given || given.length !== planned.length || given.some((p, i) => p !== planned[i])) throw new Error('the files changed since the panel showed them: look again')
+  if (planned.length === 0) throw new Error('craftar would send none of these files')
+  for (const p of planned) sendable(s, p)
+  const craftar = s.craftar as Craftar
+  s.sendAll.set(ws, { ...cur, phase: 'writing', current: planned[0] })
+  return () => sendAllWrite(s, ws, planned, craftar, cur.token)
+}
+
+async function sendAllWrite(s: State, ws: string, planned: string[], craftar: Craftar, token: number): Promise<void> {
+  const forge = s.sendAll.get(ws)?.forge ?? null
+  await s.queue.run(ws, async () => {
+    for (let i = 0; i < planned.length; i++) {
+      const path = planned[i]
+      if (!setAllIfCurrent(s, ws, token, (c) => ({ ...c, current: path }))) return
+      await publish(s)
+      try {
+        const result = await promote(craftar, ws, path, { dryRun: false, forge })
+        setAllIfCurrent(s, ws, token, (c) => ({ ...c, items: c.items.map((x) => (x.path === path ? { ...x, result } : x)) }))
+      } catch (e) {
+        // The first refusal stops the batch, in craftar's words; nothing after it is tried. A gate refusal (a Forge file the
+        // write before left uncommitted) clears once what was written is committed: Send the rest offers the others then.
+        const message = e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run'
+        setAllIfCurrent(s, ws, token, (c) => ({ ...c, phase: 'stopped', current: null, stopped: { path, message }, remaining: planned.slice(i) }))
+        return
+      }
+    }
+    setAllIfCurrent(s, ws, token, (c) => ({ ...c, phase: 'done', current: null }))
+  })
+  // Read again the workspace that was written, once, whichever has the focus now.
+  const row = [...s.rowsById.values()].find((r) => r.path === ws)
+  if (row) await readWorkspace(s, row, 'focus', await readSettings(s.orca))
+  await publish(s)
+}
+
+/** What a batch wrote, in order. */
+function writtenOf(sa: SendAllView): PromoteResult[] {
+  return sa.items.map((x) => x.result).filter((r): r is PromoteResult => r !== null)
+}
+
 export interface View {
   focus: Focus['kind']
   selfCheck: Line[]
@@ -785,6 +910,7 @@ export interface View {
   consent: ConsentView | null
   lastSync: LastSync | null
   send: SendView | null
+  sendAll: SendAllView | null
   /** A URL Forge needs a local clone named once per workspace (O5); a local Forge needs nothing. */
   forgeDir: { needed: boolean; dir: string | null }
   marked: string[]
@@ -842,6 +968,7 @@ function view(s: State): View {
     consent: ws ? (s.consent.get(ws) ?? null) : null,
     lastSync: ws ? (s.lastSync.get(ws) ?? null) : null,
     send: ws ? (s.send.get(ws) ?? null) : null,
+    sendAll: ws ? (s.sendAll.get(ws) ?? null) : null,
     forgeDir: { needed: forgeIsRemote(s, ws), dir: ws ? (s.forgeDirs[ws] ?? null) : null },
     marked: ws ? [...(s.marked.get(ws) ?? [])].sort() : [],
     sendRefused: ws ? [...(s.sendRefused.get(ws) ?? new Map<string, string>())].map(([path, message]) => ({ path, message })).sort((a, b) => a.path.localeCompare(b.path)) : [],
@@ -891,7 +1018,9 @@ function forgePrSteps(f: ForgePr): string[] {
   return [
     "No terminal was opened: the plugin does not recognise this terminal's shell, or cannot quote a command for it yet (cmd).",
     `In a terminal, in the Forge's folder (${f.forge}), check the identity git will use for the commit.`,
-    `Create the branch ${f.branch}, add and commit exactly these paths: ${f.paths.join(', ')}.`,
+    f.more && f.next
+      ? `Switch to the branch ${f.branch}, add and commit exactly these paths: ${f.next.join(', ')}.`
+      : `Create the branch ${f.branch}, add and commit exactly these paths: ${f.paths.join(', ')}.`,
     `Push the branch to origin, then open a pull request titled: ${f.title}`,
   ]
 }
@@ -914,7 +1043,8 @@ async function runForgePrStep(s: State, ws: string, step: Step): Promise<void> {
     return publish(s)
   }
   const nonce = nonceOf()
-  const command = stepCommand(shell, step, { forge: f.forge, nonce, branch: f.branch, title: f.title, body: f.body, paths: f.paths })
+  const more = step === 'commit' && f.more === true
+  const command = stepCommand(shell, step, { forge: f.forge, nonce, branch: f.branch, title: f.title, body: f.body, paths: more && f.next ? f.next : f.paths, existing: more })
   if (command === null) {
     s.forgePr.set(ws, { ...f, phase: 'failed', step, note: 'A value cannot go into a terminal command (the branch, the title, the Forge folder or a path holds a character a command cannot carry): drop the steps left and finish in a terminal.' })
     return publish(s)
@@ -961,6 +1091,7 @@ async function followForgePrStep(s: State, ws: string, step: Step, nonce: string
         next.phase = NEXT[step]
         next.step = null
         next.note = null
+        if (step === 'commit') next.next = null
         if (step === 'prepare') {
           next.identity = r.identity
           next.forgeBranch = r.branch
@@ -1351,6 +1482,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     lastSync: new Map(),
     fetchState: new Map(),
     send: new Map(),
+    sendAll: new Map(),
     sendRefused: new Map(),
     registryDoc: null,
     reposDocs: new Map(),
@@ -1470,25 +1602,36 @@ export default function activate(orca: OrcaWorkerApi): void {
     const ws = focusedPath(s)
     if (ws && forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is already starting')
     const sd = ws ? s.send.get(ws) : undefined
+    const sa = ws ? s.sendAll.get(ws) : undefined
     const m = ws ? s.models.get(ws) : undefined
-    if (!ws || !sd || sd.phase !== 'done' || !sd.result) throw new Error('nothing was written to the Forge to open a PR for')
+    // From one Send, or from a Send all batch that wrote at least one file (done, or stopped at a refusal).
+    const batch = sa && !sa.more && (sa.phase === 'done' || sa.phase === 'stopped') ? writtenOf(sa) : []
+    const results = sd && sd.phase === 'done' && sd.result ? [sd.result] : batch
+    if (!ws || results.length === 0) throw new Error('nothing was written to the Forge to open a PR for')
     const existing = s.forgePr.get(ws)
     if (existing && existing.phase !== 'opened') throw new Error('a Forge PR is already being prepared for this workspace: continue it first')
-    const r = sd.result
-    if (!isAbsolute(r.forge)) throw new Error('craftar did not name the Forge as an absolute path: open the PR from a terminal')
+    const r = results[0]
+    if (results.some((x) => !isAbsolute(x.forge) || x.forge !== r.forge)) throw new Error('craftar did not name one Forge as an absolute path: open the PR from a terminal')
     const name = m?.name ?? ws
+    const sent = results.map((x) => ({ outcome: x.outcome, promoted: x.promoted, written: x.written }))
+    const others = Math.max(...results.map((x) => x.impact.workspaces.length))
+    const paths = [...new Set(results.flatMap((x) => x.written.map((w) => w.path)))]
+    const rest = results === batch && sa ? sa.remaining : []
     // Busy from here: the origin is read before the first terminal opens, and a second click must start nothing.
     return busyFor(ws, async () => {
       const f: ForgePr = {
         open: true, phase: 'preparing', step: 'prepare', waiting: false,
-        forge: r.forge, paths: r.written.map((w) => w.path), branch: defaultBranch(r.profile, r.ingredient),
-        title: defaultTitle(r.promoted, name),
-        body: prBody({ outcome: r.outcome, promoted: r.promoted, written: r.written, others: r.impact.workspaces.length, workspaceName: name }),
+        forge: r.forge, paths,
+        branch: results.length === 1 ? defaultBranch(r.profile, r.ingredient) : defaultBranchAll(r.profile, results.length),
+        title: results.length === 1 ? defaultTitle(r.promoted, name) : defaultTitleAll(results.length, name),
+        body: results.length === 1 ? prBody({ outcome: r.outcome, promoted: r.promoted, written: r.written, others: r.impact.workspaces.length, workspaceName: name }) : prBodyAll(sent, others, name),
         identity: null, forgeBranch: null, authorDiffers: null, url: null, attached: null, steps: [], note: null,
+        rest, sent,
         host: await originHost(r.forge),
       }
       s.forgePr.set(ws, f)
       s.send.delete(ws)
+      s.sendAll.delete(ws)
       await runForgePrStep(s, ws, 'prepare')
     })
   })
@@ -1698,6 +1841,73 @@ export default function activate(orca: OrcaWorkerApi): void {
     const d = ws ? s.discard.get(ws) : undefined
     if (ws && d && (d.phase === 'checking' || d.phase === 'running')) throw new Error('the discard is running: wait for it')
     if (ws) s.discard.delete(ws)
+    await publish(s)
+    return view(s) as never
+  })
+  // Send all (design A): the dry runs of every file, one plan, then Write all on a second click. Both answer at once and
+  // run on, tracked (each promote proves against every registered workspace); the panel follows on state.changed.
+  orca.panels.handle('sendall.preview', async () => {
+    const ws = focusedPath(s)
+    if (!ws) throw new Error('no craftar workspace has the focus')
+    refuseWhileBusy(s, ws)
+    const f = s.forgePr.get(ws)
+    if (f && f.phase !== 'opened') throw new Error('a Forge PR is being prepared for this workspace: finish it or drop it first')
+    const go = sendAllStart(s, ws, sendAllPaths(s, ws), false)
+    void track(s, go()).catch((e) => orca.log(failed('send all', e)))
+    return view(s) as never
+  })
+  orca.panels.handle('sendall.run', async (input) => {
+    const ws = focusedPath(s)
+    if (!ws) throw new Error('no craftar workspace has the focus')
+    const go = sendAllRun(s, ws, (input as { paths?: unknown } | undefined)?.paths)
+    void track(s, go()).catch((e) => orca.log(failed('send all', e)))
+    return view(s) as never
+  })
+  // Send the rest: after "1 Branch and commit", the files left are planned and written again; their commit goes on the same branch.
+  orca.panels.handle('sendall.rest', async () => {
+    const ws = focusedPath(s)
+    const f = ws ? s.forgePr.get(ws) : undefined
+    if (!ws || !f || f.phase !== 'committed' || !f.rest || f.rest.length === 0) throw new Error('nothing is left to send for this Forge PR')
+    if (forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is already starting')
+    refuseWhileBusy(s, ws)
+    // Only files craftar can still send: one sent since, or saved back, leaves the list.
+    const now = new Set(sendAllPaths(s, ws))
+    const paths = f.rest.filter((p) => now.has(p))
+    s.forgePr.set(ws, { ...f, open: false, rest: paths })
+    const go = sendAllStart(s, ws, paths, true)
+    void track(s, go()).catch((e) => orca.log(failed('send all', e)))
+    return view(s) as never
+  })
+  // The rest's commit, on the branch the first commit made: exactly the paths this batch wrote.
+  orca.panels.handle('forgepr.more', async () => {
+    const ws = focusedPath(s)
+    const f = ws ? s.forgePr.get(ws) : undefined
+    const sa = ws ? s.sendAll.get(ws) : undefined
+    if (!ws || !f || f.phase !== 'committed' || !sa || !sa.more || (sa.phase !== 'done' && sa.phase !== 'stopped')) throw new Error('nothing was written to add to this Forge PR')
+    if (forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is already starting')
+    const results = writtenOf(sa)
+    if (results.length === 0) throw new Error('nothing was written to add to this Forge PR')
+    if (results.some((x) => x.forge !== f.forge)) throw new Error('craftar wrote another Forge folder than the PR\'s: finish in a terminal')
+    const next = [...new Set(results.flatMap((x) => x.written.map((w) => w.path)))]
+    const sent = [...(f.sent ?? []), ...results.map((x) => ({ outcome: x.outcome, promoted: x.promoted, written: x.written }))]
+    const others = Math.max(0, ...results.map((x) => x.impact.workspaces.length))
+    const name = s.models.get(ws)?.name ?? ws
+    s.forgePr.set(ws, {
+      ...f, open: true, more: true, next, paths: [...new Set([...f.paths, ...next])], rest: sa.remaining, sent,
+      body: prBodyAll(sent, others, name),
+    })
+    s.sendAll.delete(ws)
+    return busyFor(ws, () => runForgePrStep(s, ws, 'commit'))
+  })
+  orca.panels.handle('sendall.cancel', async () => {
+    const ws = focusedPath(s)
+    const sa = ws ? s.sendAll.get(ws) : undefined
+    if (!ws || !sa) return view(s) as never
+    if (sa.phase === 'writing') throw new Error('craftar is writing the Forge: wait for it')
+    s.sendAll.delete(ws)
+    // Back to the PR this batch continued, which stays as it was.
+    const f = s.forgePr.get(ws)
+    if (sa.more && f) s.forgePr.set(ws, { ...f, open: true })
     await publish(s)
     return view(s) as never
   })
