@@ -209,6 +209,28 @@ test('a focus change reads the newly focused workspace offline', async () => {
   assert.deepEqual(last?.argv, ['status', '--json', '--offline', '--workspace', api])
 })
 
+test('a switch to a workspace read before asks only status and drift show, and the self-check only after them', async () => {
+  const api = craftarDir()
+  const { s, h, worker, web } = await setup()
+  h.respond('workspace.list', {
+    workspaces: [
+      { id: 'w1', kind: 'folder', name: 'web', path: web, branch: 'main', hostId: null },
+      { id: 'w2', kind: 'folder', name: 'api', path: api, branch: 'dev', hostId: null },
+    ],
+    truncated: false,
+  })
+  await worker.emit('workspace.changed', { context: { branch: 'dev', displayName: 'api', terminals: [] } })
+  await main.settled()
+  const mark = s.calls().length
+  h.respond('workspace.readContext', { branch: 'main', displayName: 'web', terminals: [] })
+  await worker.emit('workspace.changed', { context: { branch: 'main', displayName: 'web', terminals: [] } })
+  await main.settled()
+  const after = s.calls().slice(mark).map((c) => c.argv[0] === 'drift' ? 'drift' : c.argv[0])
+  // The self-check (doctor, then the registry count) runs once the panel already shows the new workspace.
+  assert.deepEqual(after, ['status', 'drift', 'doctor', 'workspaces'])
+  assert.equal(((await worker.request('state.get')) as View).model?.ws, web)
+})
+
 test('a diff is asked only for a path the last read listed; the mcp child never gets --fetch or --allow-writes', async () => {
   const { s, worker } = await setup()
   const r = (await worker.request('diff.get', { path: '.claude/rules/workflow.md' })) as { files: { diff: string }[] }

@@ -232,6 +232,9 @@ interface State {
   send: Map<string, SendView>
   /** Per workspace path: the files craftar refused to send, with its words — kept here, no Send, until the file is saved again. */
   sendRefused: Map<string, Map<string, string>>
+  /** The machine's registry and each workspace's repos, as the last read gave them: a focus read reuses them (the switch waits only for status and drift show). */
+  registryDoc: WorkspacesDoc | null
+  reposDocs: Map<string, ReposDoc | null>
   /** Per workspace path: every path craftar's status lists — what the save hook may mark (O7). */
   known: Map<string, Set<string>>
   /** Per workspace path: files saved since the last read, marked "edited — not yet in the Forge" (O7). */
@@ -413,8 +416,15 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
       await s.orca.storage.set(FETCHED_AT, fetched)
     }
     const drift: DriftDoc | null = await optional('drift show', driftShow(craftar, row.path), errors)
-    const rp: ReposDoc | null = await optional('repos', repos(craftar, row.path), errors)
-    const registry: WorkspacesDoc | null = await optional('workspaces', registryRead(craftar), errors)
+    // A focus read asks only status and drift show when an earlier read gave the rest: `workspaces` plans every registered
+    // workspace and grows with the machine, and neither it nor `repos` draws anything the switch needs. The periodic read refreshes both.
+    const reuse = reason === 'focus' && s.registryDoc !== null && s.reposDocs.has(row.path)
+    const rp: ReposDoc | null = reuse ? (s.reposDocs.get(row.path) ?? null) : await optional('repos', repos(craftar, row.path), errors)
+    const registry: WorkspacesDoc | null = reuse ? s.registryDoc : await optional('workspaces', registryRead(craftar), errors)
+    if (!reuse) {
+      s.reposDocs.set(row.path, rp)
+      if (registry) s.registryDoc = registry
+    }
     const model = buildModel({ ws: row.path, name: row.name, status, drift, repos: rp, registry, fetchedAt: fetched[row.path] ?? null, readAt: Date.now(), errors })
     // An offline read of a remote Forge reads the copy the last periodic check fetched: when that fetch
     // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
@@ -666,6 +676,7 @@ async function focusSource(ctx: Context | null): Promise<FocusSource> {
 }
 
 async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Promise<void> {
+  const startedSwitch = Date.now()
   const settings = await readSettings(s.orca)
   const { local, remote } = await listRows(s.orca)
   s.remote = remote
@@ -676,9 +687,24 @@ async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Pr
   s.focus = focusedBy(await focusSource(context), context, local, typeof stored === 'string' ? stored : null)
   const ws = focusedPath(s)
   if (s.diff && s.diff.ws !== ws) await stopDiff(s)
-  await ensureCheck(s, settings, local, recheck || before !== ws)
+  // The switch first: the panel shows the new workspace at once, from its last read, while craftar reads it again.
+  // The self-check runs before only when none ran yet or the settings changed (the reads need its craftar).
+  const checked = await ensureCheck(s, settings, local, false)
+  if (before !== ws) await publish(s)
+  const shownAt = Date.now()
   if (s.focus.kind === 'one') await readWorkspace(s, s.focus.row, 'focus', settings)
   await publish(s)
+  // Numbers only: how long a switch took to show and to read, for the live run.
+  if (before !== ws) s.orca.log(`focus switch: shown in ${shownAt - startedSwitch} ms, read in ${Date.now() - startedSwitch} ms`)
+  // A new focus or Check again re-asks doctor about the workspace in focus — after the read, so the switch never waits
+  // for it, and skipped when the focus moved on in the meantime.
+  if (!checked && (recheck || before !== ws)) {
+    void track(s, s.queue.run(FOCUS_QUEUE, async () => {
+      if (focusedPath(s) !== ws) return
+      await ensureCheck(s, settings, local, true)
+      await publish(s)
+    })).catch((e) => s.orca.log(failed('self-check', e)))
+  }
 }
 
 function settingsKey(st: Settings): string {
@@ -697,11 +723,11 @@ async function stopDiff(s: State): Promise<void> {
  * diff child built from the old settings is stopped too (O1). doctor is asked about the focused workspace,
  * else any local one, and runs in that workspace's queue so it never overlaps a read of it.
  */
-async function ensureCheck(s: State, settings: Settings, local: Row[], force: boolean): Promise<void> {
+async function ensureCheck(s: State, settings: Settings, local: Row[], force: boolean): Promise<boolean> {
   const key = settingsKey(settings)
   const changed = s.usedKey !== null && s.usedKey !== key
   const appeared = s.checkedWs === null && local.length > 0
-  if (!force && !changed && !appeared && s.selfCheck.length > 0) return
+  if (!force && !changed && !appeared && s.selfCheck.length > 0) return false
   if (changed) await stopDiff(s)
   const focusedWs = focusedPath(s)
   const ws = focusedWs ?? local[0]?.path ?? null
@@ -715,6 +741,7 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   s.version = r.version ?? null
   s.usedKey = key
   s.checkedWs = ws
+  return true
 }
 
 /** The periodic check: every local craftar workspace, the only read that may fetch (spec 60 §7.1). */
@@ -928,6 +955,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     fetchState: new Map(),
     send: new Map(),
     sendRefused: new Map(),
+    registryDoc: null,
+    reposDocs: new Map(),
     known: new Map(),
     marked: new Map(),
     forgeDirs: {},
