@@ -6,12 +6,19 @@
   "description": "See which Forge a workspace follows, the surfaces craftar writes and the files coming and going, with the craftar you installed.",
   "author": { "name": "Luiz Lima" },
   "repository": "https://github.com/llima/craftar-orca",
+  "homepage": "https://craftar.dev",
   "license": "MIT",
   "engines": { "orca": ">=1.4.248" },
   "execution": "trusted-worker",
   "pluginApi": 1,
   "main": "src/worker.ts",
   "icon": "assets/icon.png",
+  "cover": { "path": "assets/cover.png", "alt": "craftar for Orca: the plugin's panel beside its name, on a synthetic acme workspace" },
+  "screenshots": [
+    { "path": "assets/screenshots/1-forge.png", "alt": "The craftar panel: the Forge a workspace follows, a newer tag on it, the files coming down and going up", "caption": "See where the harness comes from", "theme": "dark" },
+    { "path": "assets/screenshots/2-send-all.png", "alt": "Send all: one plan from craftar's dry run of every file edited by hand", "caption": "Send every hand edit back in one plan", "theme": "dark" },
+    { "path": "assets/screenshots/3-pr.png", "alt": "The PR in the Forge: identity, branch, title, the paths craftar wrote and the body", "caption": "Open the PR in the Forge, step by step", "theme": "dark" }
+  ],
   "capabilities": [
     { "kind": "workspace:read" },
     { "kind": "workspace:write" },
