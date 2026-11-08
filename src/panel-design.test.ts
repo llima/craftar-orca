@@ -354,3 +354,14 @@ test('the Bring screen lists every file, craftar.lock and what stays as edited, 
   assert.deepEqual(all(bar).filter((e) => e.attrs['data-action']).map((e) => e.attrs['data-action']), ['update-cancel', 'update-confirm'])
   assert.deepEqual(calls, [])
 })
+
+test("the Forge card shows where it was read from on a line of its own, under its path, not in the title row", () => {
+  const { root } = draw(view())
+  const forge = role(root, 'forge')[0]
+  const title = all(forge).find((e) => (e.attrs.class ?? '').split(/\s+/).includes('t'))!
+  assert.equal(all(title).filter((e) => e.attrs['data-role'] === 'freshness').length, 0)
+  const lines = forge.children.map((e) => e.attrs['data-role'] ?? e.attrs.class)
+  assert.equal(lines[lines.length - 1], 'freshness')
+  assert.ok(lines.includes('s src'))
+  assert.ok(lines.indexOf('s src') < lines.indexOf('freshness'))
+})
