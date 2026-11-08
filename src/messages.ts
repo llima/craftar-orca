@@ -27,8 +27,8 @@ const SKIP_TYPE = /^([a-z][a-z-]*): \d+ ([a-z]+) ingredient\(s\) have no .+ equi
 const SKIP_ONE = /^([a-z][a-z-]*): ([a-z]+) \S+ has no .+ equivalent — skipped/
 
 /**
- * One message as the bell shows it. `owners` are the targets this workspace writes (the panel's surfaces): a fix that
- * says "another target writes it" is offered only when one does.
+ * One message as the bell shows it. `owners` are the targets this workspace writes (the panel's surfaces): a skip's fix
+ * names them as what the workspace also writes for, never as writing the skipped ingredient.
  */
 export function classify(text: string, err: boolean, owners: string[]): Message {
   if (err) return { text, level: 'error', from: 'craftar' }
