@@ -46,6 +46,8 @@ export interface Actions {
   choose(id: string): void
   refresh(): void
   showDiff(path: string): void
+  /** `file.open`: the file in an editor tab of Orca (`editor.open`). */
+  openFile?(path: string): void
   /** S2: `update.run` with the paths the confirm listed. */
   updateRun?(files: string[]): void
   /** S2: `consent.terminal`. */
@@ -481,7 +483,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         box.appendChild(t('p', e.path, { class: 'muted' }))
         box.appendChild(t('pre', refusedSend.get(e.path) ?? '', { class: 'words', 'data-role': 'send-refused-message' }))
       }
-      box.appendChild(t('p', 'Kept here as you edited it. Save the file again to ask craftar once more.', { class: 'muted' }))
+      box.appendChild(t('p', 'Kept here as you edited it. Save the file again, or click Check again, to ask craftar once more.', { class: 'muted' }))
     }
     fileList('Kept apart', 'apart', m.apart, (row) => t('span', row.state, { class: 'st' }))
     if (v.lastSync) drawLastSync(v.lastSync)
@@ -798,11 +800,19 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const i = row.path.lastIndexOf('/')
       const [folder, fn] = i < 0 ? ['', row.path] : [row.path.slice(0, i + 1), row.path.slice(i + 1)]
       const [c, mark] = STATE_ICON[row.state] ?? STATE_ICON.update
-      const b = li.appendChild(h('button', { class: 'file', type: 'button', title: 'Show the diff', 'data-action': 'diff', 'data-path': row.path }))
+      // A click opens the file in Orca's editor (the user's ask of 2026-11-08); a file the Forge brings that is not here yet
+      // has nothing to open, so its click shows craftar's diff. The diff stays one small button away on every row.
+      const opens = typeof a.openFile === 'function' && row.state !== 'new'
+      const b = li.appendChild(h('button', { class: 'file', type: 'button', title: opens ? 'Open in Orca' : 'Show the diff', 'data-action': opens ? 'open' : 'diff', 'data-path': row.path }))
       b.appendChild(t('span', dir === 'down' ? '↓' : dir === 'up' ? '↑' : '!', { class: `arrow ${dir}`, 'aria-hidden': 'true' }))
       b.appendChild(t('span', mark, { class: `ic ${c}`, 'aria-hidden': 'true' }))
       b.appendChild(h('span', { class: 'name' }, t('span', fn, { class: 'fn' }), folder ? t('span', folder, { class: 'dir' }) : null))
-      b.addEventListener('click', () => a.showDiff(row.path))
+      b.addEventListener('click', () => (opens ? a.openFile?.(row.path) : a.showDiff(row.path)))
+      if (opens) {
+        const d = li.appendChild(h('button', { class: 'icon-btn row-diff', type: 'button', title: "Show craftar's diff", 'aria-label': `Show craftar's diff of ${row.path}`, 'data-action': 'diff', 'data-path': row.path }))
+        d.appendChild(icon('diff'))
+        d.addEventListener('click', () => a.showDiff(row.path))
+      }
       li.appendChild(right(row))
     }
     body.appendChild(sec(title, rows.length, ul, { 'data-role': `list-${dir}` }))

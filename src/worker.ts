@@ -796,6 +796,8 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   const r = ws === null ? await check() : await s.queue.run(ws, check)
   s.selfCheck = r.lines
   s.craftar = r.craftar
+  // Another craftar may answer differently: refusals given by the previous one are not kept as this one's.
+  if (s.version !== null && (r.version ?? null) !== s.version) s.sendRefused.clear()
   s.version = r.version ?? null
   s.usedKey = key
   s.checkedWs = ws
@@ -1045,7 +1047,24 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.events.on('workspace.changed', (payload) => refresh((payload as { context: Context | null }).context))
   orca.panels.handle('state.get', async () => view(s) as never)
   orca.panels.handle('state.refresh', async () => {
+    // Check again asks craftar anew: a refusal to send is no longer shown as its answer, so Send is offered again.
+    const focused = focusedPath(s)
+    if (focused) s.sendRefused.delete(focused)
     await refresh(undefined, true)
+    return view(s) as never
+  })
+  // A click on a file: it opens in an editor tab of Orca, in the focused workspace, at the path craftar lists.
+  orca.panels.handle('file.open', async (input) => {
+    const path = (input as { path?: unknown } | undefined)?.path
+    const ws = focusedPath(s)
+    const m = ws ? (s.models.get(ws) ?? null) : null
+    if (s.focus.kind !== 'one' || typeof path !== 'string' || !listed(m, path)) throw new Error('not a file this workspace lists: refresh the panel')
+    try {
+      await orca.host.call('editor.open', { workspaceId: s.focus.row.id, path })
+    } catch (e) {
+      orca.log(failed('open a file', e))
+      throw new Error('Orca did not open the file: open it from the explorer')
+    }
     return view(s) as never
   })
   orca.panels.handle('focus.choose', async (input) => {

@@ -219,3 +219,21 @@ test('while the write runs, Change and Cancel are refused, and the write keeps i
   await main.settled()
   assert.equal(((await worker.request('state.get')) as View).send?.phase, 'done')
 })
+
+test('Check again clears a refusal to send, so Send is offered again and craftar answers anew', async () => {
+  const { worker } = await setup({ extra: { 'drift promote': { stdout: '', code: 1, stderr: 'error: D16: promote refused\n' } } })
+  const v = await sendAndWait(worker, 'send.preview', { path: EDITED })
+  assert.equal(v.sendRefused.length, 1)
+  await worker.request('state.refresh')
+  await main.settled()
+  assert.deepEqual(((await worker.request('state.get')) as View).sendRefused, [])
+})
+
+test('a click on a file opens it in an editor tab of Orca, in the focused workspace; a path the workspace does not list is refused', async () => {
+  const { h, worker } = await setup()
+  h.respond('editor.open', { opened: true })
+  await worker.request('file.open', { path: EDITED })
+  assert.deepEqual(h.callsOf('editor.open'), [{ workspaceId: 'w1', path: EDITED }])
+  await assert.rejects(worker.request('file.open', { path: '../outside.md' }), /not a file this workspace lists/)
+  assert.equal(h.callsOf('editor.open').length, 1)
+})

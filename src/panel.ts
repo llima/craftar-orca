@@ -163,7 +163,9 @@ input[type='text'] { width: 100%; font: 12px var(--mono); padding: 6px 8px; bord
 
 /* Item 6: the files, both directions. */
 .files { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
-.files li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-right: 9px; background: var(--orca-card); border: 1px solid var(--line); border-radius: 6px; }
+.files li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding-right: 9px; background: var(--orca-card); border: 1px solid var(--line); border-radius: 6px; }
+.files li .row-diff { width: 22px; height: 22px; }
+.files li .row-diff svg { width: 12px; height: 12px; }
 .files li:hover { background: var(--orca-accent); }
 .file { display: grid; grid-template-columns: 12px 16px minmax(0, 1fr); align-items: center; gap: 7px; width: 100%; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 6px 0 6px 9px; }
 .arrow { font: 600 12px/1 var(--mono); text-align: center; }
@@ -356,6 +358,10 @@ const actions = {
   clearNotice(): void {
     notice = null
     draw()
+  },
+  openFile(path: string): void {
+    notice = null
+    call('file.open', { path }, 30_000)
   },
   showDiff(path: string): void {
     void orca.plugin.request('diff.get', { path }, { timeoutMs: 60_000 }).then((r) => {

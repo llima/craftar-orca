@@ -160,3 +160,17 @@ test('Clear is not offered when the only line is the plugin\'s own (a cached cop
   assert.equal(role(root, 'plugin-line').length, 1)
   assert.equal(byAction(root, 'messages-clear').length, 0)
 })
+
+test('a click on a file name opens it in Orca; its diff is the small button on the row; a file not here yet shows the diff', () => {
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  const calls: string[] = []
+  const v = view((m) => { m.pending = [{ path: '.claude/rules/new-one.md', state: 'new' }, { path: '.claude/rules/workflow.md', state: 'update' }] })
+  render(doc as never, root as never, v, { choose: () => undefined, refresh: () => undefined, showDiff: (p) => calls.push(`diff ${p}`), openFile: (p) => calls.push(`open ${p}`) })
+  for (const b of byAction(root, 'open')) click(b)
+  for (const b of byAction(root, 'diff')) click(b)
+  assert.deepEqual(calls, [
+    'open .claude/rules/workflow.md', `open ${EDITED}`,
+    'diff .claude/rules/new-one.md', 'diff .claude/rules/workflow.md', `diff ${EDITED}`,
+  ])
+})
