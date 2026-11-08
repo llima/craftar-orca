@@ -26,6 +26,8 @@ export interface PanelModel {
      * new ref is set in craftar.yaml, and the Forge card says so.
      */
     pinned: 'tag' | 'commit' | null
+    /** craftar's `newerTag` (1.9.0): a higher `vX.Y.Z` tag on the Forge than the ref; null otherwise or with an older craftar. */
+    newerTag: string | null
   } | null
   outputs: { owner: string; counts: Record<string, number> }[]
   pending: { path: string; state: FileState }[]
@@ -100,7 +102,9 @@ export function buildModel(i: ModelInput): PanelModel {
       profile: str(i.drift?.profile),
       freshness,
       fetchedAt: remote ? i.fetchedAt : null,
-      pinned: remote && FULL_ID.test(str(f.ref) ?? '') ? 'commit' : null,
+      // craftar names a newer tag only for a ref that is a `vX.Y.Z` tag: the ref is a tag then, with no clone to ask.
+      pinned: remote && FULL_ID.test(str(f.ref) ?? '') ? 'commit' : remote && str(f.newerTag) ? 'tag' : null,
+      newerTag: remote ? str(f.newerTag) : null,
     },
     outputs: owners.map((owner) => ({ owner, counts: byOwner.get(owner) as Record<string, number> })),
     pending: i.status.statuses.filter((s) => PENDING.includes(s.state)).map((s) => ({ path: s.path, state: s.state })),
