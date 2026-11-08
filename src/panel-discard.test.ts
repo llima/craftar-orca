@@ -84,3 +84,11 @@ test("while it runs, nothing to click; after it, the outcome, what else moved an
   const err = draw(view(quiet, { discard: { ...base, phase: 'error', message: 'error: not drifted: x (unchanged)' } })).root
   assert.equal(role(err, 'discard-message')[0].textContent, 'error: not drifted: x (unchanged)')
 })
+
+test('with "Fetch a remote Forge" off for a remote Forge, Discard is off with the reason', () => {
+  const { root } = draw(view(quiet, { discardOff: 'Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings' }))
+  const b = byAction(root, 'discard-file')[0]
+  assert.equal(b.attrs.disabled, '')
+  assert.equal(b.textContent, 'Discard')
+  assert.match(b.attrs.title, /Fetch a remote Forge/)
+})

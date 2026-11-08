@@ -31,11 +31,12 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr' | 'discard'> & S2View & S3View & BellView & PrView & DiscardView
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr' | 'discard' | 'discardOff'> & S2View & S3View & BellView & PrView & DiscardView
 
 /** Discard's addition (spec 60 §8a): optional, as the others. */
 export interface DiscardView {
   discard?: View['discard']
+  discardOff?: string | null
 }
 
 /** S3b's addition: the PR in the Forge (optional, as the others). */
@@ -792,7 +793,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const pending = m.pending.length
     const busyHere = !!v.discard && (v.discard.phase === 'checking' || v.discard.phase === 'running')
     const attrs: Record<string, string> = { class: 'btn ghost act', 'data-action': 'discard-file', 'data-path': row.path }
-    if (pending > 0) {
+    const off = v.discardOff ?? null
+    if (off) {
+      attrs.disabled = ''
+      attrs.title = off
+    } else if (pending > 0) {
       attrs.disabled = ''
       attrs.title = 'Update first: bring the files coming from the Forge with Update and stage, then discard'
     } else if (busyHere) {
@@ -800,7 +805,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       attrs.title = 'a discard is running'
     } else attrs.title = row.state === 'orphan-drift' ? 'Delete this file, which craftar no longer writes' : 'Put back what craftar writes for this file'
     // With files pending the action reads "Update first", pointing at Bring (Update and stage) in the toolbar.
-    return h('span', { class: 'acts' }, right, button(pending > 0 ? 'Update first' : 'Discard', attrs, null, pending > 0 || busyHere ? null : () => a.discardOpen?.(row.path)))
+    return h('span', { class: 'acts' }, right, button(!off && pending > 0 ? 'Update first' : 'Discard', attrs, null, off || pending > 0 || busyHere ? null : () => a.discardOpen?.(row.path)))
   }
 
   function drawDiscardScreen(d: NonNullable<View['discard']>): void {

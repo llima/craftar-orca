@@ -722,6 +722,8 @@ export interface View {
   forgePr: Omit<ForgePr, 'nonce' | 'terminalId' | 'host'> | null
   /** Discard of a hand edit, for the focused workspace. */
   discard: Omit<DiscardState, 'before' | 'rowForge'> | null
+  /** Why Discard stays off here (a remote Forge with "Fetch a remote Forge" off), or null. */
+  discardOff: string | null
 }
 
 /** craftar's words for this workspace, as the bell lists them: its warnings, its errors and its refusals to send. */
@@ -770,7 +772,15 @@ function view(s: State): View {
     validating: s.validating,
     forgePr: ws ? shownForgePr(s.forgePr.get(ws)) : null,
     discard: ws ? shownDiscard(s.discard.get(ws)) : null,
+    discardOff: discardOff(s, ws),
   }
+}
+
+/** Discard stays off for a remote Forge while "Fetch a remote Forge" is off (spec 60 §8a item 2, O10), as Update does. */
+function discardOff(s: State, ws: string | null): string | null {
+  const f = ws ? s.models.get(ws)?.forge : null
+  if (!ws || !f || f.freshness === 'local') return null
+  return s.fetchState.get(ws) === 'off' ? 'Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings' : null
 }
 
 function shownDiscard(d: DiscardState | undefined): View['discard'] {
@@ -1301,6 +1311,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     const asked = u.files.map((f) => f.path).sort()
     const given = Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string').sort() : null
     if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
+    // A discard on the same Forge holds its fetches until it ends (spec 60 §8a item 4): Update, which fetches, waits for it.
+    const heldSrc = focusedPath(s) ? s.models.get(focusedPath(s)!)?.forge?.source : null
+    if (heldSrc && s.discardHold.has(heldSrc)) throw new Error('a discard on this Forge is running: update once it ends')
     if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them: look again and confirm')
     // Answered at once (plugin.request's ceiling is 120 s, measured): the update runs on, tracked, and the
     // panel follows it on state.changed.
@@ -1525,7 +1538,7 @@ export default function activate(orca: OrcaWorkerApi): void {
         })
       } catch (e) {
         s.orca.log(failed('discard', e))
-        s.discard.set(ws, { ...d, phase: 'error', message: 'the discard stopped on an unexpected error: see the plugin log' })
+        s.discard.set(ws, { ...d, phase: 'error', message: e instanceof ReadFailure ? `Nothing was written: ${e.message}.` : 'the discard stopped on an unexpected error: see the plugin log' })
       } finally {
         if (src) s.discardHold.delete(src)
       }
