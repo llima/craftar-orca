@@ -159,11 +159,14 @@ input[type='text'] { width: 100%; font: 12px var(--mono); padding: 6px 8px; bord
 .sec h3 > span:first-child { overflow-wrap: anywhere; min-width: 0; }
 .sec[data-role='diff'] h3 > span:first-child { text-transform: none; letter-spacing: .02em; }
 .sec h3 .n { color: var(--orca-foreground); }
+.sec h3 .x-btn { margin-left: auto; }
 .sec h4 { margin: 8px 0 4px; font: 500 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--orca-muted-foreground); }
 
 /* Item 6: the files, both directions. */
 .files { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
-.files li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-right: 9px; background: var(--orca-card); border: 1px solid var(--line); border-radius: 6px; }
+.files li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding-right: 9px; background: var(--orca-card); border: 1px solid var(--line); border-radius: 6px; }
+.files li .row-diff { width: 22px; height: 22px; }
+.files li .row-diff svg { width: 12px; height: 12px; }
 .files li:hover { background: var(--orca-accent); }
 .file { display: grid; grid-template-columns: 12px 16px minmax(0, 1fr); align-items: center; gap: 7px; width: 100%; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 6px 0 6px 9px; }
 .arrow { font: 600 12px/1 var(--mono); text-align: center; }
@@ -253,6 +256,8 @@ const root = document.createElement('main')
 document.body.appendChild(root)
 
 let view: PanelView | null = null
+// The Forge clone box opened with Change, with its draft: kept across redraws until Cancel, a save or another workspace.
+let forgeEdit: string | null = null
 let diff: DiffShown = null
 // The worker's refusal of the panel's last request, shown until the next request (nothing is dropped).
 let notice: string | null = null
@@ -262,7 +267,7 @@ function draw(): void {
     root.textContent = 'Reading…'
     return
   }
-  render(document, root, view, actions, diff, notice)
+  render(document, root, view, actions, diff, notice, forgeEdit)
 }
 
 const actions = {
@@ -328,9 +333,25 @@ const actions = {
     notice = null
     call('send.cancel', {}, 30_000)
   },
+  forgeDirEdit(draft: string | null): void {
+    forgeEdit = draft
+    draw()
+  },
+  forgeDirDraft(value: string): void {
+    // The first box too (no folder stored yet): what is typed survives a redraw.
+    forgeEdit = value
+  },
   forgeDirSet(dir: string): void {
     notice = null
-    call('forge.dir.set', { dir }, 30_000)
+    // The draft is dropped only once the worker took the folder: a refusal keeps what was typed.
+    void orca.plugin
+      .request('forge.dir.set', { dir }, { timeoutMs: 30_000 })
+      .then((v) => {
+        forgeEdit = null
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
   },
   consentTerminal(): void {
     notice = null
@@ -357,7 +378,21 @@ const actions = {
     notice = null
     draw()
   },
+  openFile(path: string): void {
+    notice = null
+    call('file.open', { path }, 30_000)
+  },
+  closeDiff(): void {
+    diff = null
+    draw()
+  },
   showDiff(path: string): void {
+    // The same row's diff button again closes it.
+    if (diff && diff.path === path) {
+      diff = null
+      draw()
+      return
+    }
     void orca.plugin.request('diff.get', { path }, { timeoutMs: 60_000 }).then((r) => {
       const res = r as { refused?: string; files?: { path: string; diff: string | null; note: string | null }[]; warnings?: string[] }
       if (typeof res.refused === 'string') diff = { path, refused: res.refused }
@@ -393,9 +428,21 @@ function refused(e: unknown): void {
     .catch(() => draw())
 }
 
+// Esc closes the diff, when the panel has the keyboard.
+document.addEventListener('keydown', (e) => {
+  // An Esc typed in a field belongs to the field.
+  if (e.key === 'Escape' && diff && !(e.target instanceof HTMLInputElement)) {
+    diff = null
+    draw()
+  }
+})
+
 orca.plugin.on('state.changed', (payload) => {
   const next = payload as PanelView
-  if (view?.model?.ws !== next.model?.ws) diff = null
+  if (view?.model?.ws !== next.model?.ws) {
+    diff = null
+    forgeEdit = null
+  }
   view = next
   draw()
 })

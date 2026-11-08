@@ -50,13 +50,14 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   restarts (kept in memory, never stored); closing it changes nothing craftar refused (a refused file stays "kept here", its words on its row and
   behind the bell). *Validate*, the shield beside the bell, runs the self-check again and the probe below on demand, with no notification (each click opens
   a new "craftar probe" terminal), and shows both in a card at the top of the panel. With no craftar workspace in focus the panel shows the logo, animated (still when the system asks for
-  reduced motion). Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
+  reduced motion). Clicking a file opens it in an editor tab of Orca (`editor.open`; a file the Forge brings that is not here yet shows its diff
+  instead), and the small diff button on its row shows craftar's diff from a `craftar mcp` child started without `--fetch` and never with
   `--allow-writes`.
 - **Send to Forge** (spec 60 §8) is offered for a file you edited by hand that craftar can carry up (`drift show --json`'s
   `promotable`); a file it will not carry shows craftar's reason. The first click runs `craftar drift promote <file> --workspace <dir>
   --dry-run --json` and shows its plan as text: the outcome, the Forge files it would write, the values it would set, the other
   workspaces that will see it, craftar's warnings; **Write to the Forge**, a second click, runs it for real. craftar proves the change,
-  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words: after a refused dry run the panel returns to the workspace and the file stays "kept here", with craftar's words and no Send, until you save it again. A Forge given as a git URL
+  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words: after a refused dry run the panel returns to the workspace and the file stays "kept here", with craftar's words and no Send, until you save it again or click Check again (a different craftar version clears it too). A Forge given as a git URL
   needs a local clone of it: the panel asks for its folder once per workspace, in its footer toolbar above the Send button, and keeps only that path (`--forge <dir>`); a Forge on
   this machine needs nothing. One notification per file you newly edit by hand that craftar can carry: "<file> belongs to Forge <x>:
   send the change to the Forge? Open the craftar panel."

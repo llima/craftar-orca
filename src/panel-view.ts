@@ -46,6 +46,14 @@ export interface Actions {
   choose(id: string): void
   refresh(): void
   showDiff(path: string): void
+  /** `file.open`: the file in an editor tab of Orca (`editor.open`). */
+  openFile?(path: string): void
+  /** Change opened the Forge clone box with this draft, or Cancel closed it (null); the panel keeps it across redraws. */
+  forgeDirEdit?(draft: string | null): void
+  /** What the person typed in that box, kept without a redraw. */
+  forgeDirDraft?(value: string): void
+  /** The diff shown in the panel closed (its ×, its row's button again, or Esc). */
+  closeDiff?(): void
   /** S2: `update.run` with the paths the confirm listed. */
   updateRun?(files: string[]): void
   /** S2: `consent.terminal`. */
@@ -139,7 +147,8 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 const short = (c: string | null): string | null => (c ? c.slice(0, 7) : null)
 
 /** `notice`: the worker's refusal of the panel's last request, drawn as text whatever the focus (nothing is dropped). */
-export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null): void {
+/** `forgeEdit`: the Forge clone box the person opened with Change, and what they typed in it, kept by panel.ts across redraws; null when closed. */
+export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null, forgeEdit: string | null = null): void {
   const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: Kid[]): HTMLElementTagNameMap[K] => {
     const e = doc.createElement(tag)
     for (const [k, val] of Object.entries(attrs)) e.setAttribute(k, val)
@@ -371,7 +380,12 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           for (const w of diff.warnings ?? []) ul.appendChild(t('li', w, { class: 'warn', 'data-role': 'warning' }))
         }
       }
-      body.appendChild(sec(diff.path, null, box, { 'data-role': 'diff' }))
+      // The diff closes with its ×, with the row's diff button clicked again, or with Esc (panel.ts).
+      const shownDiff = h('section', { class: 'sec', 'data-role': 'diff' })
+      const head = shownDiff.appendChild(heading(diff.path, null))
+      if (typeof a.closeDiff === 'function') head.appendChild(closer(`Close the diff of ${diff.path}`, () => a.closeDiff?.()))
+      shownDiff.appendChild(box)
+      body.appendChild(shownDiff)
     }
     if (v.remote.length > 0) {
       const ul = h('ul', { class: 'lst' })
@@ -481,7 +495,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         box.appendChild(t('p', e.path, { class: 'muted' }))
         box.appendChild(t('pre', refusedSend.get(e.path) ?? '', { class: 'words', 'data-role': 'send-refused-message' }))
       }
-      box.appendChild(t('p', 'Kept here as you edited it. Save the file again to ask craftar once more.', { class: 'muted' }))
+      box.appendChild(t('p', 'Kept here as you edited it. Save the file again, or click Check again, to ask craftar once more.', { class: 'muted' }))
     }
     fileList('Kept apart', 'apart', m.apart, (row) => t('span', row.state, { class: 'st' }))
     if (v.lastSync) drawLastSync(v.lastSync)
@@ -656,7 +670,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
     toolbar.replaceChildren()
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
-    row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'update-cancel' }, null, () => render(doc, root, v, a, diff, notice)))
+    row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'update-cancel' }, null, () => render(doc, root, v, a, diff, notice, forgeEdit)))
     row.appendChild(button('Update and stage', { class: 'btn down', 'data-action': 'update-confirm' }, 'down', () => a.updateRun?.(files)))
     toolbar.appendChild(t('p', 'never --overwrite-drift · never a commit', { class: 'fnote' }))
   }
@@ -733,21 +747,34 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   function drawForgeDir(dir: string | null): void {
-    if (dir) {
-      toolbar.appendChild(
+    // One slot in the toolbar: the stored folder with Change, or the box to type one. Change opens the box filled with the
+    // stored folder, and Cancel puts the stored folder back without changing anything (the user's ask of 2026-11-08).
+    const slot = toolbar.appendChild(h('div', { class: 'tb-clone-slot' }))
+    const stored = (): void => {
+      if (!dir) return
+      slot.replaceChildren(
         h(
           'div',
           { class: 'row clone', 'data-role': 'forge-dir-stored' },
           t('span', `Forge clone: ${dir}`, { class: 'muted' }),
-          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => a.forgeDirSet?.('')),
+          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => (a.forgeDirEdit ? a.forgeDirEdit(dir) : edit(dir))),
         ),
       )
-      return
     }
-    const box = toolbar.appendChild(h('div', { class: 'tb-clone', 'data-role': 'forge-dir' }))
-    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it: craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
-    const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' })
-    box.appendChild(h('div', { class: 'tb' }, input, button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.((input as HTMLInputElement).value.trim()))))
+    const edit = (draft: string | null): void => {
+      const box = h('div', { class: 'tb-clone', 'data-role': 'forge-dir' })
+      box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it: craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
+      const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' }) as HTMLInputElement
+      if (draft) input.value = draft
+      input.addEventListener('input', () => a.forgeDirDraft?.(input.value))
+      const row = box.appendChild(h('div', { class: 'tb' }, input))
+      if (dir) row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'forge-dir-cancel' }, null, () => (a.forgeDirEdit ? a.forgeDirEdit(null) : stored())))
+      row.appendChild(button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.(input.value.trim())))
+      slot.replaceChildren(box)
+    }
+    // The box Change opened survives every redraw (a periodic read, a save): panel.ts keeps it in `forgeEdit`.
+    if (dir && forgeEdit === null) stored()
+    else edit(forgeEdit ?? dir)
   }
 
   function counted(n: number, rest: string): HTMLElement {
@@ -798,11 +825,19 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const i = row.path.lastIndexOf('/')
       const [folder, fn] = i < 0 ? ['', row.path] : [row.path.slice(0, i + 1), row.path.slice(i + 1)]
       const [c, mark] = STATE_ICON[row.state] ?? STATE_ICON.update
-      const b = li.appendChild(h('button', { class: 'file', type: 'button', title: 'Show the diff', 'data-action': 'diff', 'data-path': row.path }))
+      // A click opens the file in Orca's editor (the user's ask of 2026-11-08); a file the Forge brings that is not here yet
+      // has nothing to open, so its click shows craftar's diff. The diff stays one small button away on every row.
+      const opens = typeof a.openFile === 'function' && row.state !== 'new'
+      const b = li.appendChild(h('button', { class: 'file', type: 'button', title: opens ? 'Open in Orca' : 'Show the diff', 'data-action': opens ? 'open' : 'diff', 'data-path': row.path }))
       b.appendChild(t('span', dir === 'down' ? '↓' : dir === 'up' ? '↑' : '!', { class: `arrow ${dir}`, 'aria-hidden': 'true' }))
       b.appendChild(t('span', mark, { class: `ic ${c}`, 'aria-hidden': 'true' }))
       b.appendChild(h('span', { class: 'name' }, t('span', fn, { class: 'fn' }), folder ? t('span', folder, { class: 'dir' }) : null))
-      b.addEventListener('click', () => a.showDiff(row.path))
+      b.addEventListener('click', () => (opens ? a.openFile?.(row.path) : a.showDiff(row.path)))
+      if (opens) {
+        const d = li.appendChild(h('button', { class: 'icon-btn row-diff', type: 'button', title: "Show craftar's diff", 'aria-label': `Show craftar's diff of ${row.path}`, 'data-action': 'diff', 'data-path': row.path }))
+        d.appendChild(icon('diff'))
+        d.addEventListener('click', () => a.showDiff(row.path))
+      }
       li.appendChild(right(row))
     }
     body.appendChild(sec(title, rows.length, ul, { 'data-role': `list-${dir}` }))
