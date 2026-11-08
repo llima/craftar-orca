@@ -5,7 +5,7 @@
 // words (its stderr); the result is shown and kept in memory only — `params` carries values.
 import { isAbsolute } from 'node:path'
 import type { Craftar } from './craftar'
-import { run } from './run'
+import { CMD_REFUSED, run } from './run'
 
 // A promote proves the change against every registered workspace: longer than a read.
 const PROMOTE_TIMEOUT_MS = 180_000
@@ -50,6 +50,8 @@ export async function promote(craftar: Craftar, ws: string, path: string, opts: 
     }
   }
   // A write stopped before it finished may have written some Forge files and not others.
+  // cmd refused the values (S4): nothing was started, nothing written.
+  if (r.code === null && r.stderr === CMD_REFUSED) throw new PromoteRefused(CMD_REFUSED)
   if (r.code === null && !opts.dryRun) throw new PromoteRefused("craftar drift promote did not finish in time. The Forge's working tree may be partly written: look at git status in the Forge before sending again")
   const words = r.stderr.trim()
   throw new PromoteRefused(words !== '' ? words : `craftar drift promote failed (exit ${r.code ?? 'none'})`)

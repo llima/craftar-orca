@@ -3,6 +3,7 @@
 // overwrite a hand edit: every drift, orphan-drift and collision is skipped and listed as kept. Never
 // `craftar sync` directly, never --offline for a write. The consent stays craftar's: with none recorded, or
 // one for other values, the tool refuses and nothing is written — the refusal is relayed in craftar's words.
+import { CMD_REFUSED } from './run'
 import { isAbsolute } from 'node:path'
 import type { Craftar } from './craftar'
 import { McpSession, toolDocument, toolText } from './mcp-client'
@@ -47,8 +48,8 @@ export async function syncOnce(craftar: Craftar, ws: string): Promise<SyncOutcom
   let s: McpSession
   try {
     s = await McpSession.open(craftar, ['mcp', '--workspace', ws, '--allow-writes', '--fetch'], SYNC_TIMEOUT_MS)
-  } catch {
-    return { kind: 'error', text: 'craftar mcp did not start or did not answer' }
+  } catch (e) {
+    return { kind: 'error', text: e instanceof Error && e.message === CMD_REFUSED ? CMD_REFUSED : 'craftar mcp did not start or did not answer' }
   }
   try {
     const r = await s.call('sync', {})

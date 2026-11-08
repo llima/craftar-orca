@@ -4,6 +4,7 @@
 // (the one write, under --allow-writes).
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import type { Craftar } from './craftar'
+import { invocation } from './run'
 
 const PROTOCOL = '2025-06-18'
 
@@ -41,7 +42,10 @@ export class McpSession {
 
   /** Starts `craftar <args>` and completes the MCP handshake; rejects when the child does not answer. */
   static async open(craftar: Craftar, args: readonly string[], timeoutMs: number): Promise<McpSession> {
-    const proc = spawn(craftar.bin, [...args], { env: craftar.env, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
+    // A craftar.cmd on Windows goes through cmd, as every craftar child does (src/run.ts, S4).
+    const how = invocation(craftar.bin, args)
+    if ('refused' in how) throw new Error(how.refused)
+    const proc = spawn(how.file, how.args, { env: craftar.env, shell: false, windowsHide: true, windowsVerbatimArguments: how.verbatim, stdio: ['pipe', 'pipe', 'pipe'] })
     const s = new McpSession(proc, timeoutMs)
     try {
       await s.request('initialize', { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: 'craftar-orca', version: '0.1.0' } })

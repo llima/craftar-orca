@@ -3,6 +3,7 @@
 // for bash, zsh and sh, nothing for PowerShell (an unset variable), the literal `$0` for cmd — read back from
 // the probe terminal (terminal.read returns its lines, measured in Orca 1.4.250). cmd's quoting is S4's
 // (§11), and a shell the probe does not recognise gets no terminal: the panel shows the steps in words.
+import { cmdSafe } from './run'
 export type Shell = 'bash' | 'zsh' | 'sh' | 'pwsh' | 'cmd' | 'unknown'
 
 export const PROBE_SHELL_COMMAND = 'echo craftar-shell:$0'
@@ -39,6 +40,9 @@ export function allowWritesCommand(shell: Shell, craftar: { bin: string; home: s
   if (shell === 'cmd' || shell === 'unknown') return null
   // A line break or another control character has no place in a path: no command rather than a quoted one.
   if ([craftar.bin, craftar.home, ws].some((v) => /[\u0000-\u001f\u007f]/.test(v))) return null
+  // A craftar.cmd is run by cmd even from PowerShell, which passes it the values unquoted for cmd: only values cmd carries safely
+  // get a command; any other leaves the steps in words (S4, spec 60 §11).
+  if (/\.(cmd|bat)$/i.test(craftar.bin) && ![craftar.bin, craftar.home, ws].filter((v) => v.trim() !== '').every(cmdSafe)) return null
   const run = `${shell === 'pwsh' ? '& ' : ''}${quote(shell, craftar.bin)} mcp allow-writes --workspace ${quote(shell, ws)}`
   const home = craftar.home.trim()
   if (home === '') return run
