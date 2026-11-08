@@ -742,21 +742,32 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   function drawForgeDir(dir: string | null): void {
-    if (dir) {
-      toolbar.appendChild(
+    // One slot in the toolbar: the stored folder with Change, or the box to type one. Change opens the box filled with the
+    // stored folder, and Cancel puts the stored folder back without changing anything (the user's ask of 2026-11-08).
+    const slot = toolbar.appendChild(h('div', { class: 'tb-clone-slot' }))
+    const stored = (): void => {
+      if (!dir) return
+      slot.replaceChildren(
         h(
           'div',
           { class: 'row clone', 'data-role': 'forge-dir-stored' },
           t('span', `Forge clone: ${dir}`, { class: 'muted' }),
-          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => a.forgeDirSet?.('')),
+          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => edit()),
         ),
       )
-      return
     }
-    const box = toolbar.appendChild(h('div', { class: 'tb-clone', 'data-role': 'forge-dir' }))
-    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it: craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
-    const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' })
-    box.appendChild(h('div', { class: 'tb' }, input, button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.((input as HTMLInputElement).value.trim()))))
+    const edit = (): void => {
+      const box = h('div', { class: 'tb-clone', 'data-role': 'forge-dir' })
+      box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it: craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
+      const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' }) as HTMLInputElement
+      if (dir) input.value = dir
+      const row = box.appendChild(h('div', { class: 'tb' }, input))
+      if (dir) row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'forge-dir-cancel' }, null, () => stored()))
+      row.appendChild(button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.(input.value.trim())))
+      slot.replaceChildren(box)
+    }
+    if (dir) stored()
+    else edit()
   }
 
   function counted(n: number, rest: string): HTMLElement {

@@ -114,8 +114,21 @@ test('a stored clone folder is shown with a way to change it', () => {
   assert.match(root.textContent, /\/home\/acme\/forge-clone/)
   const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
   assert.ok(all(bar).some((e) => e.attrs['data-role'] === 'forge-dir-stored'))
+  // Change opens the box filled with the stored folder, and changes nothing by itself.
   click(byAction(root, 'forge-dir-change')[0])
-  assert.deepEqual(calls, ['dir '])
+  assert.deepEqual(calls, [])
+  const input = all(bar).find((e) => e.attrs['data-role'] === 'forge-dir-input')!
+  assert.equal(input.value, '/home/acme/forge-clone')
+  // Cancel puts the stored folder back, still with nothing sent.
+  click(byAction(root, 'forge-dir-cancel')[0])
+  assert.deepEqual(calls, [])
+  assert.ok(all(bar).some((e) => e.attrs['data-role'] === 'forge-dir-stored'))
+  assert.equal(all(bar).filter((e) => e.attrs['data-role'] === 'forge-dir-input').length, 0)
+  // Change again, edit, save: the new folder is sent.
+  click(byAction(root, 'forge-dir-change')[0])
+  all(bar).find((e) => e.attrs['data-role'] === 'forge-dir-input')!.value = '/home/acme/other-clone'
+  click(byAction(root, 'forge-dir-save')[0])
+  assert.deepEqual(calls, ['dir /home/acme/other-clone'])
 })
 
 test('the send screen takes the body over: its steps, and its own toolbar per phase', () => {
