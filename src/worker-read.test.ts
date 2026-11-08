@@ -85,6 +85,11 @@ async function setup(opts: { rows?: Ws[]; ctx?: { branch: string; displayName: s
   return { s, h, worker, web, rows }
 }
 
+/** The growth notifications only (the edited-file ones are S3's). */
+function growth(h: { callsOf: (m: string) => unknown[] }) {
+  return (h.callsOf('notifications.show') as { title: string; body?: string }[]).filter((n) => String(n.body).includes(' changed '))
+}
+
 type View = {
   focus: string
   selfCheck: { level: string; message: string }[]
@@ -127,14 +132,14 @@ test('a read writes nothing: no terminal, no typing into one, no sync child', as
 test('a periodic read whose pending set grew notifies once, with the Forge, the count and the workspace only', async () => {
   const { h, worker } = await setup()
   await worker.request('state.refresh')
-  assert.equal(h.callsOf('notifications.show').length, 0, 'a focus read does not notify')
+  assert.equal(growth(h).length, 0, 'a focus read does not notify')
   await main.periodic()
-  const shown = h.callsOf('notifications.show') as { title: string; body?: string }[]
+  const shown = growth(h)
   assert.equal(shown.length, 1)
   assert.equal(shown[0].title, 'craftar')
   assert.equal(shown[0].body, 'Forge ../forge2 changed 1 file for web — update 1 file and add it to the commit? Open the craftar panel.')
   await main.periodic()
-  assert.equal(h.callsOf('notifications.show').length, 1, 'the same count again does not notify')
+  assert.equal(growth(h).length, 1, 'the same count again does not notify')
   const stored = h.data().storage['notified'] as Record<string, Record<string, unknown>>
   for (const v of Object.values(stored)) assert.deepEqual(Object.keys(v).sort(), ['at', 'count'])
 })
@@ -232,8 +237,10 @@ test('a status read that fails turns the bar to error and keeps nothing of craft
 
 test('storage holds paths, timestamps and an id only — no document from craftar', async () => {
   const { h } = await setup()
-  const stored = JSON.stringify(h.data().storage)
-  assert.doesNotMatch(stored, /commit-conventions|d2309dc2|warnings/)
+  const { ['notified.edited']: edited, ...rest } = h.data().storage as Record<string, unknown>
+  assert.doesNotMatch(JSON.stringify(rest), /commit-conventions|d2309dc2|warnings/)
+  // The edited files already notified: workspace paths to lists of file paths, nothing else.
+  for (const v of Object.values((edited ?? {}) as Record<string, unknown>)) assert.ok(Array.isArray(v) && v.every((x) => typeof x === 'string'))
 })
 
 test("the self-check's doctor never overlaps a read of the same workspace", async () => {
@@ -582,7 +589,7 @@ test('a notification is not sent for a workspace Update could not run on: a refu
   status.unsetParams = [{ key: 'acme.key', declaredBy: ['rule/a'], citedBy: ['rule/a'] }]
   const { h } = await updateSetup({ 'status --json': { stdout: JSON.stringify(status), code: 1 } })
   await main.periodic()
-  assert.equal(h.callsOf('notifications.show').length, 0)
+  assert.equal(growth(h).length, 0)
 })
 
 test('update.run answers at once with the update running; the panel follows on state.changed', async () => {
@@ -605,7 +612,7 @@ test('with "Fetch a remote Forge" off, Update for a remote Forge stays off and s
 test('no notification after a periodic fetch that fell back to the cached copy', async () => {
   const { h } = await updateSetup({ 'status --json': remoteStatus(false) })
   await main.periodic()
-  assert.equal(h.callsOf('notifications.show').length, 0)
+  assert.equal(growth(h).length, 0)
 })
 
 test('no notification for a craftar older than 0.35.0: Update could not run', async () => {
@@ -613,7 +620,7 @@ test('no notification for a craftar older than 0.35.0: Update could not run', as
   doctor.version = '0.34.0'
   const { h, worker } = await updateSetup({ 'doctor --json': { stdout: JSON.stringify(doctor), code: 0 } })
   await main.periodic()
-  assert.equal(h.callsOf('notifications.show').length, 0)
+  assert.equal(growth(h).length, 0)
   const v = (await worker.request('state.get')) as View
   assert.match(String(v.update.reason), /0\.35\.0/)
 })

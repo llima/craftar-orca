@@ -30,6 +30,7 @@
       { "id": "craftar.probe", "title": "craftar: run the probe (measures what the plugin needs from Orca)" }
     ],
     "events": [{ "on": "workspace.changed" }],
+    "hooks": [{ "event": "editor.save.before" }],
     "statusBarItems": [
       { "id": "craftar", "text": "craftar", "icon": "package", "tooltip": "craftar — reading · click: show or hide the craftar panel", "command": "craftar.open" }
     ],
