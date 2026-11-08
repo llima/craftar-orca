@@ -60,13 +60,11 @@ export function findCraftar(opts: FindOptions): Found {
   const setting = opts.craftarPath.trim()
   if (setting !== '') {
     if (!isAbsolute(setting)) return { found: null, reason: 'craftarPath must be an absolute path' }
-    if (platform === 'win32' && /\.(cmd|bat)$/i.test(setting)) {
-      return { found: null, reason: 'craftarPath names a .cmd or .bat shim, which this build cannot start yet (Windows support comes later)' }
-    }
     if (!runnable(setting, platform)) return { found: null, reason: 'craftarPath names no runnable file' }
     return { found: setting, shim: shimOf(setting) }
   }
   const file = findOnPath('craftar', opts.path, platform)
   if (file) return { found: file, shim: shimOf(file) }
-  return { found: null, reason: `craftar not found on the absolute entries of PATH (set craftarPath${platform === 'win32' ? '; Windows support comes later' : ''})` }
+  // On Windows npm installs craftar.cmd, which the lookup does not start by itself: craftarPath names it (S4, spec 60 §11).
+  return { found: null, reason: `craftar not found on the absolute entries of PATH (set craftarPath${platform === 'win32' ? ' to your craftar.cmd, for one' : ''})` }
 }

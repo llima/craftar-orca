@@ -55,8 +55,12 @@ test('a binary under a version manager shim directory is found and named as such
   assert.equal(r.shim, 'asdf')
 })
 
-test('on Windows a .cmd shim named by craftarPath is refused in words, not started', () => {
-  const r = findCraftar({ craftarPath: '/opt/npm/craftar.cmd', path: '', platform: 'win32' })
-  assert.equal(r.found, null)
-  assert.match(r.reason ?? '', /\.cmd or \.bat/)
+test('on Windows a .cmd shim named by craftarPath is found (it runs through cmd, src/run.ts); the PATH lookup still takes .exe only', () => {
+  const dir = tempDir('craftar-orca-win-')
+  const shim = join(dir, 'craftar.cmd')
+  writeFileSync(shim, '@echo off\n')
+  const r = findCraftar({ craftarPath: shim, path: '', platform: 'win32' })
+  assert.equal(r.found, shim)
+  assert.equal(findCraftar({ craftarPath: '', path: dir, platform: 'win32' }).found, null)
+  assert.match(findCraftar({ craftarPath: '', path: '', platform: 'win32' }).reason ?? '', /craftar\.cmd/)
 })
