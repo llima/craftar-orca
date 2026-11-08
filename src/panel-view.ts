@@ -48,6 +48,8 @@ export interface Actions {
   showDiff(path: string): void
   /** `file.open`: the file in an editor tab of Orca (`editor.open`). */
   openFile?(path: string): void
+  /** The diff shown in the panel closed (its ×, its row's button again, or Esc). */
+  closeDiff?(): void
   /** S2: `update.run` with the paths the confirm listed. */
   updateRun?(files: string[]): void
   /** S2: `consent.terminal`. */
@@ -373,7 +375,12 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           for (const w of diff.warnings ?? []) ul.appendChild(t('li', w, { class: 'warn', 'data-role': 'warning' }))
         }
       }
-      body.appendChild(sec(diff.path, null, box, { 'data-role': 'diff' }))
+      // The diff closes with its ×, with the row's diff button clicked again, or with Esc (panel.ts).
+      const shownDiff = h('section', { class: 'sec', 'data-role': 'diff' })
+      const head = shownDiff.appendChild(heading(diff.path, null))
+      if (typeof a.closeDiff === 'function') head.appendChild(closer(`Close the diff of ${diff.path}`, () => a.closeDiff?.()))
+      shownDiff.appendChild(box)
+      body.appendChild(shownDiff)
     }
     if (v.remote.length > 0) {
       const ul = h('ul', { class: 'lst' })

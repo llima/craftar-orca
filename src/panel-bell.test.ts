@@ -174,3 +174,14 @@ test('a click on a file name opens it in Orca; its diff is the small button on t
     'diff .claude/rules/new-one.md', 'diff .claude/rules/workflow.md', `diff ${EDITED}`,
   ])
 })
+
+test('a diff shown in the panel has a × that closes it', () => {
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  const calls: string[] = []
+  render(doc as never, root as never, view(), { choose: () => undefined, refresh: () => undefined, showDiff: () => undefined, closeDiff: () => calls.push('close') }, { path: EDITED, text: '+ a line' })
+  const box = role(root, 'diff')[0]
+  assert.ok(box)
+  click(byAction(box, 'dismiss')[0])
+  assert.deepEqual(calls, ['close'])
+})

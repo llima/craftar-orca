@@ -159,6 +159,7 @@ input[type='text'] { width: 100%; font: 12px var(--mono); padding: 6px 8px; bord
 .sec h3 > span:first-child { overflow-wrap: anywhere; min-width: 0; }
 .sec[data-role='diff'] h3 > span:first-child { text-transform: none; letter-spacing: .02em; }
 .sec h3 .n { color: var(--orca-foreground); }
+.sec h3 .x-btn { margin-left: auto; }
 .sec h4 { margin: 8px 0 4px; font: 500 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--orca-muted-foreground); }
 
 /* Item 6: the files, both directions. */
@@ -363,7 +364,17 @@ const actions = {
     notice = null
     call('file.open', { path }, 30_000)
   },
+  closeDiff(): void {
+    diff = null
+    draw()
+  },
   showDiff(path: string): void {
+    // The same row's diff button again closes it.
+    if (diff && diff.path === path) {
+      diff = null
+      draw()
+      return
+    }
     void orca.plugin.request('diff.get', { path }, { timeoutMs: 60_000 }).then((r) => {
       const res = r as { refused?: string; files?: { path: string; diff: string | null; note: string | null }[]; warnings?: string[] }
       if (typeof res.refused === 'string') diff = { path, refused: res.refused }
@@ -398,6 +409,14 @@ function refused(e: unknown): void {
     })
     .catch(() => draw())
 }
+
+// Esc closes the diff, when the panel has the keyboard.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && diff) {
+    diff = null
+    draw()
+  }
+})
 
 orca.plugin.on('state.changed', (payload) => {
   const next = payload as PanelView
