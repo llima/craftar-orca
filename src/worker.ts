@@ -22,6 +22,8 @@ import { promote, PromoteRefused, type PromoteResult } from './promote'
 import { isAbsolute } from 'node:path'
 import { createHash } from 'node:crypto'
 import { allowWritesCommand, answered, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
+import { branchFault, defaultBranch, defaultTitle, prBody, quotable, readStep, remoteHost, stepCommand, titleFault, type Step } from './forge-pr'
+import { randomBytes } from 'node:crypto'
 
 const ITEM = 'craftar'
 const HEARTBEAT = 'probe.heartbeat'
@@ -263,6 +265,38 @@ interface State {
   cleared: Record<string, string>
   /** Validate in flight: the forced self-check, then the probe. */
   validating: boolean
+  /** S3b, per workspace path: the PR in the Forge after a Send (memory only). */
+  forgePr: Map<string, ForgePr>
+}
+
+/** S3b's state for one workspace: what the PR carries, where its three steps stand, and what the terminals said that is kept. */
+export interface ForgePr {
+  /** The PR screen is shown (false: back on the workspace, the steps waiting). */
+  open: boolean
+  phase: 'preparing' | 'ready' | 'committing' | 'committed' | 'pushing' | 'pushed' | 'opening' | 'opened' | 'failed' | 'words'
+  /** The step that failed or still runs, and whether its terminal said nothing yet after the wait. */
+  step: Step | null
+  waiting: boolean
+  /** The Forge's folder, and the paths craftar wrote there (relative to it). */
+  forge: string
+  paths: string[]
+  branch: string
+  title: string
+  body: string
+  /** The identity git uses in this workspace's terminals, and the Forge's branch before the new one. */
+  identity: string | null
+  forgeBranch: string | null
+  /** The commit's author when it differs from the identity shown. */
+  authorDiffers: string | null
+  url: string | null
+  attached: boolean | null
+  /** The steps in words when no terminal can be opened (a shell the plugin does not quote for). */
+  steps: string[]
+  note: string | null
+  /** Internal: the marker nonce and the terminal of the step that runs, and the Forge remote's host. */
+  nonce?: string
+  terminalId?: string
+  host?: string | null
 }
 
 export interface SendView {
@@ -662,6 +696,8 @@ export interface View {
   messagesCleared: boolean
   /** Validate is running (the self-check, then the probe). */
   validating: boolean
+  /** S3b: the PR in the Forge, for the focused workspace. */
+  forgePr: Omit<ForgePr, 'nonce' | 'terminalId' | 'host'> | null
 }
 
 /** craftar's words for this workspace, as the bell lists them: its warnings, its errors and its refusals to send. */
@@ -708,7 +744,124 @@ function view(s: State): View {
     dismissed: [...s.dismissed],
     messagesCleared: cleared(s, ws),
     validating: s.validating,
+    forgePr: ws ? shownForgePr(s.forgePr.get(ws)) : null,
   }
+}
+
+function shownForgePr(f: ForgePr | undefined): View['forgePr'] {
+  if (!f) return null
+  const { nonce: _n, terminalId: _t, host: _h, ...shown } = f
+  return shown
+}
+
+// S3b's terminal reads: every second, for at most 5 minutes (a push or gh can wait on a credential prompt). Tests shorten them.
+let STEP_POLL_MS = 1_000
+let STEP_WAIT_MS = 300_000
+let nonceOf = (): string => randomBytes(4).toString('hex')
+export function __forgePrTiming(poll: number, wait: number, nonce?: () => string): void {
+  STEP_POLL_MS = poll
+  STEP_WAIT_MS = wait
+  if (nonce) nonceOf = nonce
+}
+
+const NEXT: Record<Step, ForgePr['phase']> = { prepare: 'ready', commit: 'committed', push: 'pushed', pr: 'opened' }
+const RUNNING: Record<Step, ForgePr['phase']> = { prepare: 'preparing', commit: 'committing', push: 'pushing', pr: 'opening' }
+
+/** The steps in words (no command to paste) for a terminal the plugin cannot open (spec 60 §10). */
+function forgePrSteps(f: ForgePr): string[] {
+  return [
+    "No terminal was opened: the plugin does not recognise this terminal's shell, or cannot quote a command for it yet (cmd).",
+    `In a terminal, in the Forge's folder (${f.forge}), check the identity git will use for the commit.`,
+    `Create the branch ${f.branch}, add and commit exactly these paths: ${f.paths.join(', ')}.`,
+    `Push the branch to origin, then open a pull request titled: ${f.title}`,
+  ]
+}
+
+/** Runs one step in a new visible terminal and follows it by its marker. The worker itself never commits. */
+async function runForgePrStep(s: State, ws: string, step: Step): Promise<void> {
+  const f = s.forgePr.get(ws)
+  const row = [...s.rowsById.values()].find((r) => r.path === ws)
+  if (!f || !row) return
+  const shell = await shellOf(s, row.id)
+  if (!quotable(shell)) {
+    s.forgePr.set(ws, { ...f, phase: 'words', step, steps: forgePrSteps(f) })
+    return publish(s)
+  }
+  const nonce = nonceOf()
+  const command = stepCommand(shell, step, { forge: f.forge, nonce, branch: f.branch, title: f.title, body: f.body, paths: f.paths })
+  if (command === null) {
+    s.forgePr.set(ws, { ...f, phase: 'failed', step, note: 'a value cannot go into a terminal command: check the branch and the title' })
+    return publish(s)
+  }
+  const { terminalId } = (await s.orca.host.call('terminal.create', { workspaceId: row.id, title: `craftar forge PR: ${step}`, command })) as { terminalId: string }
+  const cli = findOrcaCli(process.env.PATH ?? '')
+  const shown = cli ? await switchToTerminal(cli, terminalId) : false
+  s.forgePr.set(ws, {
+    ...f, phase: RUNNING[step], step, waiting: false, nonce, terminalId,
+    note: shown ? null : `A terminal titled "craftar forge PR: ${step}" was opened in this workspace, in the background. Switch to it in Orca's terminal tabs.`,
+  })
+  await publish(s)
+  void track(s, followForgePrStep(s, ws, step, nonce, terminalId))
+}
+
+/** Reads the step's terminal until its marker, for at most STEP_WAIT_MS; only the identity, the branch and the PR URL are kept. */
+async function followForgePrStep(s: State, ws: string, step: Step, nonce: string, terminalId: string): Promise<void> {
+  const started = Date.now()
+  for (;;) {
+    const f = s.forgePr.get(ws)
+    if (!f || f.nonce !== nonce) return
+    let lines: string[] = []
+    try {
+      lines = ((await s.orca.host.call('terminal.read', { terminalId, maxLines: 60 })) as { lines: string[] }).lines
+    } catch (e) {
+      s.orca.log(failed('forge PR terminal', e))
+    }
+    const r = readStep(lines, step, nonce, f.host ?? null)
+    if (r.done !== null) {
+      const next: ForgePr = { ...f, waiting: false }
+      if (r.done === 'failed') {
+        next.phase = 'failed'
+        next.note = `The ${step} step failed: its terminal says why. Fix it there, then try the step again.`
+      } else {
+        next.phase = NEXT[step]
+        next.step = null
+        next.note = null
+        if (step === 'prepare') {
+          next.identity = r.identity
+          next.forgeBranch = r.branch
+        }
+        if (step === 'commit' && r.identity && f.identity && r.identity !== f.identity) next.authorDiffers = r.identity
+        if (step === 'pr') {
+          next.url = r.url
+          next.attached = r.url ? await attachUrl(ws, r.url) : null
+          if (!r.url) next.note = "gh opened the PR, but its URL was not read from the terminal: copy it from there."
+        }
+      }
+      s.forgePr.set(ws, next)
+      return publish(s)
+    }
+    if (Date.now() - started >= STEP_WAIT_MS) {
+      s.forgePr.set(ws, { ...f, waiting: true, note: `The terminal "craftar forge PR: ${step}" has not finished: it may wait for your answer there. Check the terminal again after it.` })
+      return publish(s)
+    }
+    await new Promise((res) => setTimeout(res, STEP_POLL_MS))
+  }
+}
+
+/** The PR URL attached to the Orca workspace (orca-ide reference add, a child with an argument array): whether it worked. */
+async function attachUrl(ws: string, url: string): Promise<boolean> {
+  const cli = findOrcaCli(process.env.PATH ?? '')
+  if (!cli) return false
+  const r = await run(cli.bin, ['reference', 'add', url, '--worktree', `path:${ws}`, '--json'], cli.env, 10_000)
+  return r.code === 0
+}
+
+/** The Forge's origin host (for the PR URL check), asked of git as a child; null when it cannot be read. */
+async function originHost(forge: string): Promise<string | null> {
+  const git = findGit(process.env.PATH ?? '')
+  if (!git) return null
+  const r = await run(git, ['-C', forge, 'remote', 'get-url', 'origin'], process.env, 10_000)
+  return r.code === 0 ? remoteHost(r.stdout.trim()) : null
 }
 
 async function publish(s: State): Promise<void> {
@@ -1026,6 +1179,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     dismissed: new Set(),
     cleared: {},
     validating: false,
+    forgePr: new Map(),
   }
   st = s
   orca.host
@@ -1101,6 +1255,80 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('send.run', async (input) => {
     const go = await sendRun(s, (input as { path?: unknown } | undefined)?.path)
     void track(s, go()).catch((e) => orca.log(failed('send', e)))
+    return view(s) as never
+  })
+  // S3b: the PR in the Forge, after a Send wrote it. Each step its own click and its own visible terminal (O6).
+  orca.panels.handle('forgepr.prepare', async () => {
+    const ws = focusedPath(s)
+    const sd = ws ? s.send.get(ws) : undefined
+    const m = ws ? s.models.get(ws) : undefined
+    if (!ws || !sd || sd.phase !== 'done' || !sd.result) throw new Error('nothing was written to the Forge to open a PR for')
+    const existing = s.forgePr.get(ws)
+    if (existing && existing.phase !== 'opened') throw new Error('a Forge PR is already being prepared for this workspace: continue it first')
+    const r = sd.result
+    const name = m?.name ?? ws
+    const f: ForgePr = {
+      open: true, phase: 'preparing', step: 'prepare', waiting: false,
+      forge: r.forge, paths: r.written.map((w) => w.path), branch: defaultBranch(r.profile, r.ingredient),
+      title: defaultTitle(r.promoted, name),
+      body: prBody({ outcome: r.outcome, promoted: r.promoted, written: r.written, others: r.impact.workspaces.length, workspaceName: name }),
+      identity: null, forgeBranch: null, authorDiffers: null, url: null, attached: null, steps: [], note: null,
+      host: await originHost(r.forge),
+    }
+    s.forgePr.set(ws, f)
+    s.send.delete(ws)
+    await runForgePrStep(s, ws, 'prepare')
+    return view(s) as never
+  })
+  orca.panels.handle('forgepr.step', async (input) => {
+    const ws = focusedPath(s)
+    const f = ws ? s.forgePr.get(ws) : undefined
+    const i = (input ?? {}) as { step?: unknown; branch?: unknown; title?: unknown }
+    if (!ws || !f) throw new Error('no Forge PR is being prepared here')
+    const step = i.step
+    const after: Record<string, ForgePr['phase']> = { commit: 'ready', push: 'committed', pr: 'pushed' }
+    if (step !== 'prepare' && step !== 'commit' && step !== 'push' && step !== 'pr') throw new Error('not a step of the Forge PR')
+    if (step === 'prepare' && !(f.phase === 'failed' && f.step === 'prepare')) throw new Error('the preview is read once')
+    // A failed step can be tried again; otherwise only the next step, in order.
+    const retry = f.phase === 'failed' && f.step === step
+    if (!retry && step !== 'prepare' && f.phase !== after[step]) throw new Error('that step waits for the one before it')
+    let next = f
+    if (step === 'commit') {
+      const branch = typeof i.branch === 'string' ? i.branch.trim() : f.branch
+      const title = typeof i.title === 'string' ? i.title.trim() : f.title
+      const fault = branchFault(branch) ?? titleFault(title)
+      if (fault) throw new Error(fault)
+      next = { ...f, branch, title }
+    }
+    s.forgePr.set(ws, next)
+    await runForgePrStep(s, ws, step)
+    return view(s) as never
+  })
+  // After the wait, the person reads the terminal again: the same step is followed once more.
+  orca.panels.handle('forgepr.check', async () => {
+    const ws = focusedPath(s)
+    const f = ws ? s.forgePr.get(ws) : undefined
+    if (!ws || !f || !f.waiting || !f.step || !f.nonce || !f.terminalId) throw new Error('no step is waiting')
+    s.forgePr.set(ws, { ...f, waiting: false, note: null })
+    void track(s, followForgePrStep(s, ws, f.step, f.nonce, f.terminalId))
+    return view(s) as never
+  })
+  orca.panels.handle('forgepr.show', async (input) => {
+    const ws = focusedPath(s)
+    const f = ws ? s.forgePr.get(ws) : undefined
+    if (!ws || !f) throw new Error('no Forge PR is being prepared here')
+    const open = (input as { open?: unknown } | null)?.open === true
+    // Back from a PR that is open on the Forge: nothing is left to do here.
+    if (!open && f.phase === 'opened') s.forgePr.delete(ws)
+    else s.forgePr.set(ws, { ...f, open })
+    await publish(s)
+    return view(s) as never
+  })
+  // Drop the steps that are left: what is already done in the Forge (a branch, a commit) stays as it is.
+  orca.panels.handle('forgepr.drop', async () => {
+    const ws = focusedPath(s)
+    if (ws) s.forgePr.delete(ws)
+    await publish(s)
     return view(s) as never
   })
   orca.panels.handle('send.cancel', async () => {
