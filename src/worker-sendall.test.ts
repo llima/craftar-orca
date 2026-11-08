@@ -5,7 +5,7 @@ import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
-import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
 import { marker } from './forge-pr'
 import * as main from './worker'
 import type { View } from './worker'
@@ -61,7 +61,7 @@ async function setup(over: (web: string) => Record<string, unknown> = () => ({})
   const s = stubCraftar({})
   const web = tempDir('craftar-orca-ws-')
   writeFileSync(join(web, 'craftar.yaml'), 'forge: ../forge\nprofile: acme-web\n')
-  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table(web, over(web))))
+  writeTable(String(s.env.CRAFTAR_STUB_TABLE), table(web, over(web)))
   const h = mockHost({
     capabilities: CAPS,
     settings: { craftarPath: s.bin, craftarHome: '', intervalMinutes: 5, fetch: true },
@@ -85,7 +85,7 @@ async function setup(over: (web: string) => Record<string, unknown> = () => ({})
     },
   })
   await main.settled()
-  const retable = (more: Record<string, unknown>) => writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify({ ...JSON.parse(readFileSync(String(s.env.CRAFTAR_STUB_TABLE), 'utf8')), ...more }))
+  const retable = (more: Record<string, unknown>) => writeTable(String(s.env.CRAFTAR_STUB_TABLE), { ...JSON.parse(readFileSync(String(s.env.CRAFTAR_STUB_TABLE), 'utf8')), ...more })
   return { s, h, worker, web, retable }
 }
 

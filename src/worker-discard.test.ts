@@ -5,7 +5,7 @@ import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
-import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
 import * as main from './worker'
 import type { View } from './worker'
 
@@ -82,7 +82,7 @@ async function setup(extra: Record<string, unknown> = {}) {
   const answer = (key: string, value: unknown) => {
     const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
     t[key] = value
-    writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(t))
+    writeTable(s.env.CRAFTAR_STUB_TABLE, t)
   }
   return { s, h, worker, web, answer }
 }
@@ -267,11 +267,13 @@ test('an orphan-drift row: the file is deleted, and it reads gone', async () => 
   await worker.request('discard.open', { path: EDITED })
   assert.equal((await state(worker))?.deleted, true)
   answer('drift discard', { stdout: 'removed .claude/rules/commit-conventions.md\n', code: 0 })
-  // The read after the run sees the file gone.
+  // The read after the run sees the file gone. The table is set before the run starts: discard.run answers at once and the run
+  // goes on, so a table changed after that answer could be read by the run half-written (or too late). Between the click and
+  // the read after the run, nothing reads `status --json --offline`: the second read is `status --json`, which fetches.
   const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
-  await worker.request('discard.run', { path: EDITED })
   t['status --json --offline'] = { stdout: JSON.stringify(after), code: 0 }
-  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(t))
+  writeTable(s.env.CRAFTAR_STUB_TABLE, t)
+  await worker.request('discard.run', { path: EDITED })
   await main.settled()
   const d = await state(worker)
   assert.equal(d?.phase, 'done')

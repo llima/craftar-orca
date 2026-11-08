@@ -5,7 +5,7 @@
 // `craftar mcp` is answered line by line on stdin: initialize from the table's `mcp initialize`, each
 // tools/call from `mcp call <n>` (n counted across every mcp child of the test, so a restarted child
 // gets the next answer). Each request line is recorded with the argv of the child that received it.
-import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tmp'
@@ -81,6 +81,25 @@ if (path.basename(process.execPath).toLowerCase().replace(/\\.exe$/, "") === "cr
   process.exit(answer.code);
 }
 `
+
+// Rewrites the stub's answer table while a run may be reading it: each stub child parses the whole file, so a plain
+// writeFileSync (truncate, then write) can hand a child an empty or half-written table and fail a read that should pass.
+// The table is written to a sibling file and renamed over it, so a child reads the old table or the new one, never a part.
+// On Windows a rename over a file another process holds open is refused for a moment: it is retried briefly.
+export function writeTable(file: string, table: unknown): void {
+  const tmp = `${file}.${process.pid}-${Math.random().toString(16).slice(2)}.tmp`
+  writeFileSync(tmp, JSON.stringify(table))
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(tmp, file)
+      return
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (attempt >= 50 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20)
+    }
+  }
+}
 
 export function fixture(name: string): string {
   return readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), 'utf8')
