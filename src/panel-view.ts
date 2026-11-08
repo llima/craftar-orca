@@ -833,7 +833,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       const step = f.step
       row.appendChild(button(`Try ${step === 'pr' ? 'the PR' : step === 'prepare' ? 'the preview' : step} again`, { class: 'btn ember', 'data-action': `forgepr-${step}` }, 'up', () => a.forgePrStep?.(step)))
     } else if (busy[f.phase]) row.appendChild(button(busy[f.phase], { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, 'up', null))
-    if (f.phase === 'words' || f.phase === 'failed') row.appendChild(button('Drop', { class: 'btn ghost', 'data-action': 'forgepr-drop', title: 'What is already done in the Forge stays as it is' }, null, () => a.forgePrDrop?.()))
+    if (f.phase === 'words' || f.phase === 'failed' || f.waiting) row.appendChild(button('Drop', { class: 'btn ghost', 'data-action': 'forgepr-drop', title: 'What is already done in the Forge stays as it is' }, null, () => a.forgePrDrop?.()))
     toolbar.appendChild(t('p', 'each step in a terminal you see · push and PR are separate clicks · the plugin never commits by itself', { class: 'fnote' }))
     tail()
   }

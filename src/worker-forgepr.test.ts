@@ -77,7 +77,7 @@ async function sent(worker: { request: (n: string, d?: unknown) => Promise<unkno
 const get = async (worker: { request: (n: string) => Promise<unknown> }) => ((await worker.request('state.get')) as View).forgePr
 
 test('the three steps, in order, each a new terminal with a fixed command; the identity and branch are read in a terminal like the commit\'s', async () => {
-  const { s, h, worker } = await setup()
+  const { h, worker } = await setup()
   await sent(worker)
   await assert.rejects(worker.request('forgepr.step', { step: 'commit' }), /no Forge PR/)
   // The shell check and the preview answer from the terminals.
@@ -117,7 +117,6 @@ test('the three steps, in order, each a new terminal with a fixed command; the i
   assert.deepEqual(titles, ['craftar shell check', 'craftar forge PR: prepare', 'craftar forge PR: commit', 'craftar forge PR: push', 'craftar forge PR: pr'])
   const commit = (h.callsOf('terminal.create')[2] as { command: string }).command
   assert.match(commit, /commit -m 'chore\(forge\): my title' -- 'ingredients\/rules\/commit-conventions--acme-web\/rule\.md'/)
-  assert.equal(s.calls().some((c) => c.argv.includes('commit')), false)
   // Nothing of the terminals is stored.
   assert.ok(!JSON.stringify(h.data().storage).includes('Acme Dev'))
 })

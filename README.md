@@ -73,7 +73,8 @@ you see, never a commit by the plugin itself.
   there; then *Check the terminal*), and keeps only the identity, the branch and the PR URL, attached to this Orca workspace with
   `orca-ide reference add`. A failed step can be tried again; *Back* keeps the steps waiting on the workspace (*Continue*, *Drop the steps
   left*; what is already done in the Forge stays). With cmd or a shell the probe does not recognise, no terminal is opened and the steps are
-  shown in words. PowerShell needs version 7 for `&&`.
+  shown in words. Measured with bash; PowerShell 7 (`&&`, `$( )`) is reasoned, not run. The Orca workspace's name goes into the PR
+  title (editable) and body (not editable): in a shared Forge, edit the title if that name should not appear.
 - **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
   a second later. It never refuses or delays the save beyond reading the event's path, and never keeps, logs or sends the text; the
   next `drift show` decides. Orca names the editor's workspace with an id `workspace.list` does not hold (measured in Orca 1.4.250),

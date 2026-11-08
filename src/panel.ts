@@ -342,8 +342,15 @@ const actions = {
   },
   forgePrStep(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void {
     notice = null
-    prDraft = null
-    call('forgepr.step', { step, branch, title }, 60_000)
+    // The draft is dropped only once the worker took the step: a refusal keeps what was typed.
+    void orca.plugin
+      .request('forgepr.step', { step, branch, title }, { timeoutMs: 60_000 })
+      .then((v) => {
+        prDraft = null
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
   },
   forgePrCheck(): void {
     notice = null

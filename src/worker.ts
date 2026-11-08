@@ -782,7 +782,14 @@ async function runForgePrStep(s: State, ws: string, step: Step): Promise<void> {
   const f = s.forgePr.get(ws)
   const row = [...s.rowsById.values()].find((r) => r.path === ws)
   if (!f || !row) return
-  const shell = await shellOf(s, row.id)
+  let shell: Shell
+  try {
+    shell = await shellOf(s, row.id)
+  } catch (e) {
+    s.orca.log(failed('forge PR shell', e))
+    s.forgePr.set(ws, { ...f, phase: 'failed', step, note: 'No terminal could be opened for this step: try it again, or drop the steps left.' })
+    return publish(s)
+  }
   if (!quotable(shell)) {
     s.forgePr.set(ws, { ...f, phase: 'words', step, steps: forgePrSteps(f) })
     return publish(s)
@@ -793,7 +800,14 @@ async function runForgePrStep(s: State, ws: string, step: Step): Promise<void> {
     s.forgePr.set(ws, { ...f, phase: 'failed', step, note: 'a value cannot go into a terminal command: check the branch and the title' })
     return publish(s)
   }
-  const { terminalId } = (await s.orca.host.call('terminal.create', { workspaceId: row.id, title: `craftar forge PR: ${step}`, command })) as { terminalId: string }
+  let terminalId: string
+  try {
+    ;({ terminalId } = (await s.orca.host.call('terminal.create', { workspaceId: row.id, title: `craftar forge PR: ${step}`, command })) as { terminalId: string })
+  } catch (e) {
+    s.orca.log(failed('forge PR terminal', e))
+    s.forgePr.set(ws, { ...f, phase: 'failed', step, note: 'No terminal could be opened for this step: try it again, or drop the steps left.' })
+    return publish(s)
+  }
   const cli = findOrcaCli(process.env.PATH ?? '')
   const shown = cli ? await switchToTerminal(cli, terminalId) : false
   s.forgePr.set(ws, {
@@ -821,7 +835,9 @@ async function followForgePrStep(s: State, ws: string, step: Step, nonce: string
       const next: ForgePr = { ...f, waiting: false }
       if (r.done === 'failed') {
         next.phase = 'failed'
-        next.note = `The ${step} step failed: its terminal says why. Fix it there, then try the step again.`
+        next.note = step === 'commit'
+          ? 'The commit step failed: its terminal says why, in git\'s words. If the branch was created before the failure, trying again fails on it: delete the branch in the Forge, or finish the commit there, then drop the steps left.'
+          : `The ${step} step failed: its terminal says why. Fix it there, then try the step again.`
       } else {
         next.phase = NEXT[step]
         next.step = null
@@ -837,6 +853,8 @@ async function followForgePrStep(s: State, ws: string, step: Step, nonce: string
           if (!r.url) next.note = "gh opened the PR, but its URL was not read from the terminal: copy it from there."
         }
       }
+      // Dropped while the URL was being attached: nothing comes back.
+      if (s.forgePr.get(ws)?.nonce !== nonce) return
       s.forgePr.set(ws, next)
       return publish(s)
     }
@@ -1266,6 +1284,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const existing = s.forgePr.get(ws)
     if (existing && existing.phase !== 'opened') throw new Error('a Forge PR is already being prepared for this workspace: continue it first')
     const r = sd.result
+    if (!isAbsolute(r.forge)) throw new Error('craftar did not name the Forge as an absolute path: open the PR from a terminal')
     const name = m?.name ?? ws
     const f: ForgePr = {
       open: true, phase: 'preparing', step: 'prepare', waiting: false,
