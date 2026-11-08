@@ -31,7 +31,7 @@ export interface S2View {
 
 // The panel reads S2's fields as optional (a panel can meet an older worker), so they are taken out of the
 // worker's View rather than intersected with it: the two shapes never contradict each other.
-export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr' | 'discard' | 'discardOff'> & S2View & S3View & BellView & PrView & DiscardView
+export type PanelView = Omit<View, 'update' | 'sync' | 'consent' | 'lastSync' | 'send' | 'sendAll' | 'forgeDir' | 'marked' | 'sendRefused' | 'dismissed' | 'messagesCleared' | 'validating' | 'forgePr' | 'discard' | 'discardOff'> & S2View & S3View & BellView & PrView & DiscardView
 
 /** Discard's addition (spec 60 §8a): optional, as the others. */
 export interface DiscardView {
@@ -85,6 +85,12 @@ export interface Actions {
   /** S3a: `send.preview` (the dry run), `send.run` (the write, second click), `send.cancel`, `forge.dir.set`. */
   sendPreview?(path: string): void
   sendRun?(path: string): void
+  /** Send all: `sendall.preview`, `sendall.run` (the planned paths, second click), `sendall.cancel`, `sendall.rest`, `forgepr.more`. */
+  sendAllPreview?(): void
+  sendAllRun?(paths: string[]): void
+  sendAllCancel?(): void
+  sendAllRest?(): void
+  forgePrMore?(): void
   sendCancel?(): void
   forgeDirSet?(dir: string): void
   /** The bell: `card.dismiss` (a card closed with ×), `messages.clear`, `validate.run`; the panel's own notice closed. */
@@ -115,6 +121,16 @@ export interface S3View {
   marked?: string[]
   /** The files craftar refused to send, in its words: kept here, no Send, until the file is saved again. */
   sendRefused?: { path: string; message: string }[]
+  /** Send all (the user's design A of 2026-11-08): one plan for every file, the writes in order, a stop at a refusal. */
+  sendAll?: {
+    phase: 'checking' | 'plan' | 'writing' | 'stopped' | 'done' | 'error'
+    items: { path: string; plan: PromotePlan | null; result: PromotePlan | null; refused: string | null }[]
+    current: string | null
+    stopped: { path: string; message: string; craftar: boolean } | null
+    remaining: string[]
+    message: string | null
+    more: boolean
+  } | null
 }
 
 export interface PromotePlan {
@@ -409,6 +425,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   if (m) {
     if (v.forgePr?.open) drawPrScreen(v.forgePr)
     else if (v.discard) drawDiscardScreen(v.discard)
+    else if (v.sendAll) drawSendAllScreen(v.sendAll)
     else if (v.send) drawSendScreen(m, v.send)
     else drawMain(m)
     root.appendChild(toolbar)
@@ -668,7 +685,84 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (typeof a.sendPreview !== 'function') return NOT_BUILT_SEND
     if (v.forgeDir?.needed === true && !v.forgeDir.dir) return NEEDS_CLONE
     if (v.send?.phase === 'writing' || v.send?.phase === 'checking') return 'craftar is working on a send'
+    if (v.sendAll?.phase === 'writing' || v.sendAll?.phase === 'checking') return 'craftar is working on a send'
     return null
+  }
+
+  // Send all (design A, 2026-11-08): the dry run of every file and one plan; Write all writes them in order and stops at the
+  // first refusal, in craftar's words, with the files not written listed; then the PR, and Send the rest after its commit.
+  function drawSendAllScreen(sa: NonNullable<S3View['sendAll']>): void {
+    const steps = body.appendChild(h('div', { class: 'steps', 'data-role': 'sendall-steps' }))
+    const at = sa.phase === 'checking' ? 0 : sa.phase === 'plan' || sa.phase === 'writing' ? 1 : sa.phase === 'done' || sa.phase === 'stopped' ? 3 : -1
+    ;['dry runs', 'write all', 'done'].forEach((name, i) => steps.appendChild(t('span', `${i + 1} ${name}`, { class: at < 0 ? '' : i < at ? 'done' : i === at ? 'on' : '' })))
+    const planned = sa.items.filter((x) => x.plan)
+    const written = sa.items.filter((x) => x.result)
+    const refused = sa.items.filter((x) => x.refused !== null)
+    const box = body.appendChild(h('section', { class: sa.phase === 'error' || sa.phase === 'stopped' ? 'card bad' : 'card up', 'data-role': 'sendall-box' }))
+    const n = sa.items.length
+    const title =
+      sa.phase === 'checking' ? `craftar is checking ${n === 1 ? '1 file' : `${n} files`}: ${sa.current ?? ''}`
+        : sa.phase === 'plan' ? `Send ${planned.length === 1 ? '1 file' : `${planned.length} files`} to the Forge?`
+        : sa.phase === 'writing' ? `Writing ${written.length + 1} of ${planned.length}: ${sa.current ?? ''}`
+        : sa.phase === 'done' ? `Written to the Forge's working tree: ${written.length === 1 ? '1 file' : `${written.length} files`}`
+        : sa.phase === 'stopped' ? `${sa.stopped?.craftar === false ? 'craftar did not run' : 'craftar stopped'} at ${sa.stopped?.path ?? 'a file'}: ${written.length} of ${planned.length} written`
+        : 'craftar did not run'
+    box.appendChild(t('h2', title, { 'data-role': 'sendall-title' }))
+    if (sa.phase === 'plan') box.appendChild(t('p', "Each plan is craftar's dry run against the Forge as it is now; the writes change it, so a later file can still be refused. Nothing is committed.", { class: 'muted' }))
+    if (sa.phase === 'stopped' && sa.stopped) {
+      // craftar's words in a block of their own; the plugin's own sentence (craftar did not run) as a plain line.
+      box.appendChild(t(sa.stopped.craftar ? 'pre' : 'p', sa.stopped.message, { class: sa.stopped.craftar ? 'words' : 'note bad', 'data-role': 'sendall-stopped' }))
+      box.appendChild(t('p', written.length > 0
+        ? 'What was written stays in the Forge. Commit it with the PR\'s first step, then Send the rest: a refusal over a Forge file the write before left uncommitted clears once it is committed.'
+        : 'Nothing was written. The files are back on the workspace; send them again after you looked at why.', { class: 'muted' }))
+    }
+    if (sa.phase === 'error' && sa.message) box.appendChild(t('pre', sa.message, { class: 'words', 'data-role': 'sendall-message' }))
+    if (sa.more) box.appendChild(t('p', 'The rest of a Forge PR: its commit goes on the same branch.', { class: 'muted', 'data-role': 'sendall-more' }))
+    // One section per file, in order: its plan (or result), or craftar's refusal of its dry run.
+    for (const x of sa.items) {
+      const p = x.result ?? x.plan
+      const state = x.result ? 'written' : x.refused !== null ? 'refused' : sa.stopped?.path === x.path ? 'stopped here' : sa.remaining.includes(x.path) ? 'not written' : sa.current === x.path ? 'working' : x.plan ? 'planned' : 'waiting'
+      const ul = h('ul', { class: 'lst' })
+      if (p) {
+        ul.appendChild(h('li', {}, t('span', `${p.outcome}: ${p.promoted}`, { class: 'x', 'data-role': 'sendall-outcome' })))
+        for (const w of p.written) ul.appendChild(h('li', { 'data-role': 'sendall-written' }, t('span', w.path, { class: 'x' }), t('span', w.action, { class: 'a' })))
+        for (const w of p.warnings) ul.appendChild(t('li', w, { class: 'warn', 'data-role': 'warning' }))
+      }
+      if (x.refused !== null) ul.appendChild(h('li', {}, t('pre', x.refused, { class: 'words', 'data-role': 'sendall-refused' })))
+      body.appendChild(sec(`${x.path} · ${state}`, null, ul, { 'data-role': 'sendall-item' }))
+    }
+    if (sa.remaining.length > 0) {
+      const ul = h('ul', { class: 'lst' })
+      for (const p of sa.remaining) ul.appendChild(h('li', { 'data-role': 'sendall-remaining' }, t('span', p, { class: 'x' })))
+      body.appendChild(sec('Not written yet', sa.remaining.length, ul))
+    }
+    toolbar.replaceChildren()
+    const row = toolbar.appendChild(h('div', { class: 'tb' }))
+    const cancel = (label: string): HTMLButtonElement => button(label, { class: 'btn ghost', 'data-action': 'sendall-cancel' }, null, () => a.sendAllCancel?.())
+    if (sa.phase === 'plan') {
+      row.appendChild(cancel('Cancel'))
+      const attrs: Record<string, string> = { class: 'btn ember', 'data-action': 'sendall-confirm' }
+      if (planned.length === 0) {
+        attrs.disabled = ''
+        attrs.title = 'craftar would send none of these files'
+      }
+      row.appendChild(button(`Write all ${planned.length}`, attrs, 'up', planned.length > 0 ? () => a.sendAllRun?.(planned.map((x) => x.path)) : null))
+      toolbar.appendChild(t('p', `${refused.length > 0 ? `${refused.length} refused by craftar, kept here · ` : ''}writes the Forge's working tree, one file after another · nothing is committed`, { class: 'fnote' }))
+    } else if (sa.phase === 'done' || sa.phase === 'stopped') {
+      if (written.length > 0 && sa.more) {
+        row.appendChild(cancel('Back to the PR'))
+        row.appendChild(button(`Add ${written.length === 1 ? '1 file' : `${written.length} files`} to the PR`, { class: 'btn ember', 'data-action': 'forgepr-more' }, 'up', () => a.forgePrMore?.()))
+      } else if (written.length > 0) {
+        row.appendChild(cancel('Back to the workspace'))
+        if (typeof a.forgePrPrepare === 'function') row.appendChild(button(`Prepare the PR for ${written.length === 1 ? '1 file' : `${written.length} files`}`, { class: 'btn ember', 'data-action': 'forgepr-prepare' }, 'up', () => a.forgePrPrepare?.()))
+      } else row.appendChild(cancel(sa.more ? 'Back to the PR' : 'Back to the workspace'))
+      toolbar.appendChild(t('p', 'each step of the PR in a terminal you see · the plugin never commits by itself', { class: 'fnote' }))
+    } else if (sa.phase === 'error') row.appendChild(cancel(sa.more ? 'Back to the PR' : 'Back to the workspace'))
+    else {
+      if (sa.phase === 'checking') row.appendChild(cancel('Cancel'))
+      row.appendChild(button(sa.phase === 'writing' ? 'Writing…' : 'Checking…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, 'up', null))
+    }
+    tail()
   }
 
   // Item 5: the actions in a fixed footer toolbar, flat — bring from the Forge, send to the Forge.
@@ -705,10 +799,16 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         attrs.disabled = ''
         attrs.title = why
       }
-      // drift promote carries one file at a time: with several, the button names the one it sends (the rows send the others).
-      const label = promotable === 1 ? 'Send 1 to the Forge' : `Send ${target ? target.path.slice(target.path.lastIndexOf('/') + 1) : 'a file'} to the Forge`
-      if (target) attrs['data-path'] = target.path
-      row.appendChild(button(label, attrs, 'up', !why && target ? () => a.sendPreview?.(target.path) : null))
+      // drift promote carries one file at a time. With several, the footer sends them all (design A: one plan, the writes in
+      // order); each row still sends its own file.
+      if (promotable > 1 && typeof a.sendAllPreview === 'function') {
+        attrs['data-action'] = 'send-all'
+        row.appendChild(button(`Send all ${promotable} to the Forge`, attrs, 'up', !why ? () => a.sendAllPreview?.() : null))
+      } else {
+        const label = promotable === 1 ? 'Send 1 to the Forge' : `Send ${target ? target.path.slice(target.path.lastIndexOf('/') + 1) : 'a file'} to the Forge`
+        if (target) attrs['data-path'] = target.path
+        row.appendChild(button(label, attrs, 'up', !why && target ? () => a.sendPreview?.(target.path) : null))
+      }
     }
     if (m.pending.length === 0 && promotable === 0) row.appendChild(t('span', 'Nothing to bring or send', { class: 'tb-empty', 'data-role': 'toolbar-empty' }))
     const notes: string[] = []
@@ -948,8 +1048,21 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     row.appendChild(button('Back to the workspace', { class: 'btn ghost', 'data-action': 'forgepr-back' }, null, () => a.forgePrShow?.(false)))
     const label: Record<string, [string, 'commit' | 'push' | 'pr']> = { ready: ['1 Branch and commit', 'commit'], committed: ['2 Push', 'push'], pushed: ['3 Open the PR', 'pr'] }
     const busy: Record<string, string> = { preparing: 'Reading…', committing: 'Committing…', pushing: 'Pushing…', opening: 'Opening…' }
+    // Send all: after the commit, the files left go first (their commit joins the same branch), before the push.
+    const rest = f.rest ?? []
+    const adding = f.next ?? []
+    if (!f.waiting && f.phase === 'committed' && adding.length > 0) {
+      // The rest was added to the PR: its commit on the branch shown above is the next click, before the push.
+      row.appendChild(button(`Commit ${adding.length === 1 ? '1 path' : `${adding.length} paths`} on ${f.branch}`, { class: 'btn ember', 'data-action': 'forgepr-commit-more' }, 'up', () => a.forgePrStep?.('commit')))
+      const ul = h('ul', { class: 'lst' })
+      for (const p of adding) ul.appendChild(h('li', { 'data-role': 'forgepr-next' }, t('span', p, { class: 'x' })))
+      body.appendChild(sec('Next commit, on the same branch', adding.length, ul))
+    } else if (!f.waiting && f.phase === 'committed' && rest.length > 0 && typeof a.sendAllRest === 'function') {
+      row.appendChild(button(`Send the rest (${rest.length})`, { class: 'btn ember', 'data-action': 'sendall-rest' }, 'up', () => a.sendAllRest?.()))
+      box.appendChild(t('p', `${rest.length === 1 ? '1 file was' : `${rest.length} files were`} not written yet: ${rest.join(', ')}. Send the rest before the push, or push without ${rest.length === 1 ? 'it' : 'them'}.`, { class: 'note', 'data-role': 'forgepr-rest' }))
+    }
     if (f.waiting) row.appendChild(button('Check the terminal', { class: 'btn ember', 'data-action': 'forgepr-check' }, 'term', () => a.forgePrCheck?.()))
-    else if (label[f.phase]) {
+    else if (label[f.phase] && !(f.phase === 'committed' && adding.length > 0)) {
       const [text, step] = label[f.phase]
       row.appendChild(button(text, { class: 'btn ember', 'data-action': `forgepr-${step}` }, 'up', () => a.forgePrStep?.(step, branchInput?.value.trim(), titleInput?.value.trim())))
     } else if (f.phase === 'failed' && f.step) {

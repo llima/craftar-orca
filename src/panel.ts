@@ -374,6 +374,28 @@ const actions = {
     notice = null
     call('forgepr.prepare', {}, 60_000)
   },
+  // Send all (design A): each answers at once; the dry runs and the writes run on and come back on state.changed.
+  sendAllPreview(): void {
+    notice = null
+    call('sendall.preview', {}, 60_000)
+  },
+  sendAllRun(paths: string[]): void {
+    notice = null
+    call('sendall.run', { paths }, 60_000)
+  },
+  sendAllCancel(): void {
+    notice = null
+    call('sendall.cancel', {}, 30_000)
+  },
+  sendAllRest(): void {
+    notice = null
+    call('sendall.rest', {}, 60_000)
+  },
+  forgePrMore(): void {
+    notice = null
+    prDraft = null
+    call('forgepr.more', {}, 60_000)
+  },
   forgePrStep(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void {
     notice = null
     // The draft is dropped only once the worker took the step: a refusal keeps what was typed.

@@ -47,6 +47,32 @@ export function prBody(r: { outcome: string; promoted: string; written: { path: 
   return `Sent from the workspace ${r.workspaceName} with craftar drift promote (the craftar plugin for Orca). Outcome: ${r.outcome}, ${r.promoted}. Files: ${files}. After it: ${others}.`
 }
 
+/** Send all (the user's design A of 2026-11-08): the branch for several files, `craftar-<profile>-<n>-changes`. */
+export function defaultBranchAll(profile: string, n: number): string {
+  const slug = `craftar-${profile}-${n}-changes`.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  return slug.slice(0, 63).replace(/-$/, '') || 'craftar-forge-changes'
+}
+
+export function defaultTitleAll(n: number, workspaceName: string): string {
+  return `chore(forge): ${n} changes from ${workspaceName}`
+}
+
+/** A PR body over several sends stays one line, and short enough for a command line: past this, the list says "and N more". */
+const BODY_MAX = 1500
+
+/** The PR body over several sends: refs, paths, outcomes and a count only, one line. One send keeps prBody's text. */
+export function prBodyAll(sent: { outcome: string; promoted: string; written: { path: string; action: string }[] }[], others: number, workspaceName: string): string {
+  if (sent.length === 1) return prBody({ ...sent[0], others, workspaceName })
+  const after = others === 0 ? 'no other registered workspace sees them' : `${others} other registered workspace${others === 1 ? '' : 's'} see them on their next sync`
+  const head = `Sent from the workspace ${workspaceName} with craftar drift promote (the craftar plugin for Orca), ${sent.length} changes:`
+  const tail = `After them: ${after}.`
+  const items = sent.map((x) => `${x.outcome}, ${x.promoted} (${x.written.map((w) => `${w.path} ${w.action}`).join(', ')})`)
+  let kept = items.length
+  const text = (k: number): string => `${head} ${items.slice(0, k).join('; ')}${k < items.length ? `; and ${items.length - k} more` : ''}. ${tail}`
+  while (kept > 1 && text(kept).length > BODY_MAX) kept--
+  return text(kept)
+}
+
 export function marker(step: Step, nonce: string, ok: boolean): string {
   return `craftar-step-${ok ? 'ok' : 'failed'}:${step}:${nonce}`
 }
@@ -98,6 +124,8 @@ export interface StepInput {
   title: string
   body: string
   paths: string[]
+  /** Send the rest (design A): the commit goes on the branch an earlier commit step created, never a new one. */
+  existing?: boolean
 }
 
 /**
@@ -124,7 +152,7 @@ export function stepCommand(shell: Quotable, step: Step, i: StepInput): string |
       case 'prepare':
         return `${git} var GIT_AUTHOR_IDENT && echo craftar-branch:$(${git} rev-parse --abbrev-ref HEAD)`
       case 'commit':
-        return `${git} var GIT_AUTHOR_IDENT && ${git} switch -c ${i.branch} && ${lit} add -- ${paths} && ${lit} commit -m ${q(i.title)} -- ${paths} && ${git} log -1 --format=%an%x20%x3C%ae%x3E%x200%x20+0000`
+        return `${git} var GIT_AUTHOR_IDENT && ${git} switch ${i.existing ? '' : '-c '}${i.branch} && ${lit} add -- ${paths} && ${lit} commit -m ${q(i.title)} -- ${paths} && ${git} log -1 --format=%an%x20%x3C%ae%x3E%x200%x20+0000`
       case 'push':
         return `${git} push -u origin ${i.branch}`
       case 'pr':
