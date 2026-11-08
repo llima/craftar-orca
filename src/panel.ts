@@ -76,7 +76,7 @@ ul.msgs.cleared { opacity: .6; }
 .node.forge { border-color: color-mix(in srgb, var(--ember) 70%, var(--line)); }
 .node .t { font-family: var(--mono); font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .node .t .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.node .fresh { font-weight: 400; font-size: 10.5px; color: var(--orca-muted-foreground); display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; overflow-wrap: anywhere; }
+.node .fresh { font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--orca-muted-foreground); display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; overflow-wrap: anywhere; }
 .node .s { font-family: var(--mono); font-size: 11px; color: var(--orca-muted-foreground); margin-top: 2px; overflow-wrap: anywhere; }
 .node .s.src { font-size: 10.5px; opacity: .85; }
 .em { color: var(--ember); }

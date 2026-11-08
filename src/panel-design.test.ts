@@ -362,5 +362,6 @@ test("the Forge card shows where it was read from on a line of its own, under it
   assert.equal(all(title).filter((e) => e.attrs['data-role'] === 'freshness').length, 0)
   const lines = forge.children.map((e) => e.attrs['data-role'] ?? e.attrs.class)
   assert.equal(lines[lines.length - 1], 'freshness')
+  assert.ok(lines.includes('s src'))
   assert.ok(lines.indexOf('s src') < lines.indexOf('freshness'))
 })
