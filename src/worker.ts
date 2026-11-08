@@ -1483,6 +1483,11 @@ export default function activate(orca: OrcaWorkerApi): void {
     const craftar = s.craftar
     if (!craftar) throw new Error('craftar is not ready (see the self-check)')
     if (d.before.forge?.kind && d.before.forge.kind !== 'path' && !(await readSettings(orca)).fetch) throw new Error('Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings')
+    // An Update already running on the same Forge fetches into the cache the discard will read: wait for it (spec 60 §8a item 4).
+    const heldSource = d.before.forge?.source ?? null
+    if (heldSource && [...s.sync.entries()].some(([w, sv]) => sv.phase === 'running' && s.models.get(w)?.forge?.source === heldSource)) {
+      throw new Error('an Update on this Forge is running: discard once it ends')
+    }
     // Answered at once (a panel request stops at 120 s, and a fetch then the discard can take longer): the run goes on, tracked,
     // and the panel follows it on state.changed. Busy from now, so a second click starts nothing.
     discardBusy.add(ws)
@@ -1493,6 +1498,8 @@ export default function activate(orca: OrcaWorkerApi): void {
       s.discard.set(ws, { ...d, phase: 'checking', message: null })
       await publish(s)
       let redraw = false
+      // Set once craftar drift discard exited 0: a failure after it must not say nothing was written.
+      let ranReport: string | null = null
       try {
         await s.queue.run(ws, async () => {
           // The second read fetches the Forge the discard will write from.
@@ -1530,15 +1537,22 @@ export default function activate(orca: OrcaWorkerApi): void {
             s.discard.set(ws, { ...d, phase: 'error', message: words || (r.code === null ? 'craftar drift discard did not finish in time' : `craftar drift discard exited ${r.code}`) })
             return
           }
-          const after = await readStatusDoc(craftar, ws, { fetch: false })
-          const cmp = afterDiscard(d.before!, after, d.path)
           // craftar's own report of the run (its sync report, a file kept as changed while it was writing) is kept, as it words it.
           const report = [r.stdout, r.stderr].filter((x) => x.trim() !== '').map((x) => x.replace(/\n+$/, '')).join('\n')
+          ranReport = report
+          const after = await readStatusDoc(craftar, ws, { fetch: false })
+          const cmp = afterDiscard(d.before!, after, d.path)
           s.discard.set(ws, { ...d, phase: 'done', after: { ...cmp, warnings: after.warnings, report } })
         })
       } catch (e) {
         s.orca.log(failed('discard', e))
-        s.discard.set(ws, { ...d, phase: 'error', message: e instanceof ReadFailure ? `Nothing was written: ${e.message}.` : 'the discard stopped on an unexpected error: see the plugin log' })
+        const why = e instanceof ReadFailure ? e.message : 'an unexpected error (see the plugin log)'
+        s.discard.set(ws, {
+          ...d, phase: 'error',
+          message: ranReport !== null
+            ? `The discard ran, but reading the workspace again failed: ${why}. Check again to see how the file reads now.${ranReport ? `\n${ranReport}` : ''}`
+            : `Nothing was written: ${why}.`,
+        })
       } finally {
         if (src) s.discardHold.delete(src)
       }

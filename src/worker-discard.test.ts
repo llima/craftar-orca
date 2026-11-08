@@ -275,3 +275,15 @@ test('an orphan-drift row: the file is deleted, and it reads gone', async () => 
   assert.equal(d?.phase, 'done')
   assert.equal(d?.after?.file, 'gone')
 })
+
+test('a read that fails after the discard ran does not say nothing was written, and keeps craftar\'s report', async () => {
+  const { worker, answer } = await setup()
+  await worker.request('discard.open', { path: EDITED })
+  await worker.request('discard.run', { path: EDITED })
+  answer('status --json --offline', { stdout: 'not json', code: 1 })
+  await main.settled()
+  const d = await state(worker)
+  assert.equal(d?.phase, 'error')
+  assert.match(d?.message ?? '', /^The discard ran, but reading the workspace again failed/)
+  assert.match(d?.message ?? '', /wrote \.claude\/rules\/commit-conventions\.md/)
+})
