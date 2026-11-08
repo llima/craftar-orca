@@ -18,6 +18,8 @@ import { type Line, selfCheck, versionAtLeast } from './self-check'
 import { compareWithQuestion } from './compare'
 import { findGit, StageFailed, stagePaths } from './stage'
 import { syncOnce } from './sync-child'
+import { promote, PromoteRefused, type PromoteResult } from './promote'
+import { isAbsolute } from 'node:path'
 import { allowWritesCommand, answered, detectShell, PROBE_SHELL_COMMAND, type Shell } from './shell'
 
 const ITEM = 'craftar'
@@ -226,7 +228,36 @@ interface State {
   lastSync: Map<string, LastSync>
   /** Per workspace path with a remote Forge: what the last periodic read did with the fetch (O10). */
   fetchState: Map<string, 'fetched' | 'failed' | 'off'>
+  /** S3a, per workspace path: the Send to Forge in progress (the dry run's plan, then the write's result). */
+  send: Map<string, SendView>
+  /** Per workspace path: every path craftar's status lists — what the save hook may mark (O7). */
+  known: Map<string, Set<string>>
+  /** Per workspace path: files saved since the last read, marked "edited — not yet in the Forge" (O7). */
+  marked: Map<string, Set<string>>
+  /** Per workspace path: the local clone of a URL Forge the person named (stored: paths only). */
+  forgeDirs: Record<string, string>
+  /** The local craftar workspaces by Orca id, from the last focus refresh (the save hook's lookup). */
+  rowsById: Map<string, Row>
+  /** A read the save hook asked for, debounced. */
+  saveTimer: ReturnType<typeof setTimeout> | null
 }
+
+export interface SendView {
+  path: string
+  phase: 'checking' | 'preview' | 'writing' | 'done' | 'error'
+  /** The dry run's plan: what craftar would write in the Forge. */
+  plan: PromoteResult | null
+  /** The write's result. */
+  result: PromoteResult | null
+  /** craftar's refusal, verbatim, or the plugin's own reason. */
+  message: string | null
+  /** The Forge clone the dry run used (null for a local Forge): the write uses the same one. */
+  forge?: string | null
+  /** Which run this is: a late result of an older run is dropped. */
+  token?: number
+}
+
+let sendToken = 0
 
 export interface SyncView {
   phase: 'idle' | 'running' | 'consent' | 'done' | 'error'
@@ -387,6 +418,11 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     // worked, the copy is the fetched one, not a fallback (O10) — the panel labels and gates on it.
     if (model.forge && model.forge.freshness === 'cached' && s.fetchState.get(row.path) === 'fetched') model.forge.freshness = 'fetched'
     s.models.set(row.path, model)
+    // The lock records every file but a `new` one (spec 60 §8 step 1: a path the lock records).
+    s.known.set(row.path, new Set(status.statuses.filter((x) => x.state !== 'new').map((x) => x.path)))
+    // drift show is the source of truth: a read replaces what the save hook marked.
+    s.marked.delete(row.path)
+    await notifyEdited(s, model)
     // Nothing left to update: a consent asked for an earlier Update is no longer the question.
     if (model.pending.length === 0 && s.consent.has(row.path)) {
       s.consent.delete(row.path)
@@ -421,6 +457,135 @@ async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<vo
   await s.orca.host.call('notifications.show', { title: 'craftar', body }).catch((e) => s.orca.log(failed('notification', e)))
 }
 
+function forgeIsRemote(s: State, ws: string | null): boolean {
+  const m = ws ? s.models.get(ws) : undefined
+  return !!m?.forge && m.forge.freshness !== 'local'
+}
+
+const FORGE_DIRS = 'forge.dir'
+
+/** A path from Orca's save event, as craftar names it: relative POSIX under `root`, or null outside it. */
+function relativeTo(root: string, path: string): string | null {
+  const p = path.replace(/\\/g, '/')
+  if (!isAbsolute(path)) return p.replace(/^\.\//, '')
+  const r = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  return p.startsWith(`${r}/`) ? p.slice(r.length + 1) : null
+}
+
+/** One read a second after the last save the hook marked: a burst of saves asks once. */
+function scheduleRead(s: State, read: () => unknown): void {
+  if (s.saveTimer) clearTimeout(s.saveTimer)
+  s.saveTimer = setTimeout(() => {
+    s.saveTimer = null
+    void read()
+  }, 1_000)
+  const t = s.saveTimer as unknown as { unref?: () => void }
+  if (typeof t.unref === 'function') t.unref()
+}
+const NOTIFIED_EDITED = 'notified.edited'
+
+/**
+ * O7 / spec 60 §8 step 2: one notification per newly edited file craftar can send up. Storage holds, per
+ * workspace path, the edited paths already notified — paths only; a file no longer edited leaves the list.
+ */
+async function notifyEdited(s: State, m: PanelModel): Promise<void> {
+  let all: Record<string, string[]>
+  try {
+    all = ((await s.orca.storage.get(NOTIFIED_EDITED)) as Record<string, string[]> | null) ?? {}
+  } catch {
+    return // a storage that does not read: no notification rather than every one again
+  }
+  const before = new Set(Array.isArray(all[m.ws]) ? all[m.ws] : [])
+  const now = m.edited.filter((e) => e.promotable).map((e) => e.path)
+  const fresh = now.filter((p) => !before.has(p))
+  if (fresh.length === 0 && now.length === before.size) return
+  all[m.ws] = now
+  await s.orca.storage.set(NOTIFIED_EDITED, all).catch((e) => s.orca.log(failed('storage', e)))
+  const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'the Forge'
+  for (const p of fresh) {
+    await s.orca.host
+      .call('notifications.show', { title: 'craftar', body: `${p} belongs to ${forge} — send the change to the Forge? Open the craftar panel.` })
+      .catch((e) => s.orca.log(failed('notification', e)))
+  }
+}
+
+/** The promotable edited row of the focused workspace, or a refusal in words. */
+function sendable(s: State, path: unknown): { ws: string; path: string } {
+  const ws = focusedPath(s)
+  const m = ws ? (s.models.get(ws) ?? null) : null
+  if (!ws || !m || typeof path !== 'string' || !m.edited.some((e) => e.path === path && e.promotable)) {
+    throw new Error('not a file this workspace can send to the Forge — check again')
+  }
+  if (forgeIsRemote(s, ws) && !s.forgeDirs[ws]) throw new Error('this Forge is a git URL: name a local clone of the Forge in the panel first')
+  if (!s.craftar) throw new Error('craftar is not ready — see the self-check')
+  refuseWhileBusy(s, ws)
+  return { ws, path }
+}
+
+/** One send at a time per workspace: nothing changes it while craftar checks or writes. */
+function refuseWhileBusy(s: State, ws: string): void {
+  const now = s.send.get(ws)?.phase
+  if (now === 'checking' || now === 'writing') throw new Error('craftar is already working on a send for this workspace — wait for it')
+}
+
+/** --forge only for a URL Forge (O5): a Forge on this machine needs nothing. */
+function forgeFor(s: State, ws: string): string | null {
+  return forgeIsRemote(s, ws) ? (s.forgeDirs[ws] ?? null) : null
+}
+
+/** The dry run (spec 60 §8 step 3): craftar proves the change and shows the plan; nothing is written. */
+async function sendPreview(s: State, path: unknown): Promise<() => Promise<void>> {
+  const t = sendable(s, path)
+  const craftar = s.craftar as Craftar
+  const token = ++sendToken
+  const forge = forgeFor(s, t.ws)
+  s.send.set(t.ws, { path: t.path, phase: 'checking', plan: null, result: null, message: null, forge, token })
+  return () => sendPreviewRun(s, t, craftar, forge, token)
+}
+
+/** Sets a send's state only while it is still the run that started it (a Cancel or a newer run wins). */
+function setIfCurrent(s: State, ws: string, token: number, next: SendView): void {
+  if (s.send.get(ws)?.token === token) s.send.set(ws, next)
+}
+
+async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar: Craftar, forge: string | null, token: number): Promise<void> {
+  await s.queue.run(t.ws, async () => {
+    try {
+      const plan = await promote(craftar, t.ws, t.path, { dryRun: true, forge })
+      setIfCurrent(s, t.ws, token, { path: t.path, phase: 'preview', plan, result: null, message: null, forge, token })
+    } catch (e) {
+      setIfCurrent(s, t.ws, token, { path: t.path, phase: 'error', plan: null, result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run', forge, token })
+    }
+  })
+  await publish(s)
+}
+
+/** The write, on the second click, only after the dry run of the same file: craftar writes the Forge's working tree, never a commit. */
+async function sendRun(s: State, path: unknown): Promise<() => Promise<void>> {
+  const t = sendable(s, path)
+  const prev = s.send.get(t.ws)
+  if (!prev || prev.phase !== 'preview' || prev.path !== t.path) throw new Error('look at the plan first: click Send to Forge for this file')
+  const craftar = s.craftar as Craftar
+  s.send.set(t.ws, { ...prev, phase: 'writing' })
+  return () => sendWrite(s, t, prev, craftar)
+}
+
+async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendView, craftar: Craftar): Promise<void> {
+  await s.queue.run(t.ws, async () => {
+    try {
+      // The Forge the dry run used, whatever was named since (a changed folder drops the plan anyway).
+      const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: prev.forge ?? null })
+      setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'done', result, message: null })
+    } catch (e) {
+      setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'error', result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
+    }
+  })
+  // Read again the workspace that was written, whichever has the focus now.
+  const row = [...s.rowsById.values()].find((r) => r.path === t.ws)
+  if (row) await readWorkspace(s, row, 'focus', await readSettings(s.orca))
+  await publish(s)
+}
+
 export interface View {
   focus: Focus['kind']
   selfCheck: Line[]
@@ -433,6 +598,10 @@ export interface View {
   sync: SyncView
   consent: ConsentView | null
   lastSync: LastSync | null
+  send: SendView | null
+  /** A URL Forge needs a local clone named once per workspace (O5); a local Forge needs nothing. */
+  forgeDir: { needed: boolean; dir: string | null }
+  marked: string[]
 }
 
 function view(s: State): View {
@@ -449,6 +618,9 @@ function view(s: State): View {
     sync: (ws ? s.sync.get(ws) : undefined) ?? IDLE,
     consent: ws ? (s.consent.get(ws) ?? null) : null,
     lastSync: ws ? (s.lastSync.get(ws) ?? null) : null,
+    send: ws ? (s.send.get(ws) ?? null) : null,
+    forgeDir: { needed: forgeIsRemote(s, ws), dir: ws ? (s.forgeDirs[ws] ?? null) : null },
+    marked: ws ? [...(s.marked.get(ws) ?? [])].sort() : [],
   }
 }
 
@@ -477,6 +649,7 @@ async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Pr
   const settings = await readSettings(s.orca)
   const { local, remote } = await listRows(s.orca)
   s.remote = remote
+  s.rowsById = new Map(local.map((r) => [r.id, r]))
   const context = ctx !== undefined ? ctx : ((await s.orca.host.call('workspace.readContext', {})) as Context | null)
   const stored = (await s.orca.storage.get(FOCUS_CHOICE).catch(() => null)) as string | null
   const before = focusedPath(s)
@@ -733,6 +906,12 @@ export default function activate(orca: OrcaWorkerApi): void {
     consent: new Map(),
     lastSync: new Map(),
     fetchState: new Map(),
+    send: new Map(),
+    known: new Map(),
+    marked: new Map(),
+    forgeDirs: {},
+    rowsById: new Map(),
+    saveTimer: null,
   }
   st = s
   orca.host
@@ -778,6 +957,72 @@ export default function activate(orca: OrcaWorkerApi): void {
     void track(s, runUpdate(s, u.files)).catch((e) => orca.log(failed('update', e)))
     return view(s) as never
   })
+  // Both answer at once (plugin.request stops at 120 s; a promote proves against every registered
+  // workspace) and run on, tracked; the panel follows on state.changed.
+  orca.panels.handle('send.preview', async (input) => {
+    const go = await sendPreview(s, (input as { path?: unknown } | undefined)?.path)
+    void track(s, go()).catch((e) => orca.log(failed('send', e)))
+    return view(s) as never
+  })
+  orca.panels.handle('send.run', async (input) => {
+    const go = await sendRun(s, (input as { path?: unknown } | undefined)?.path)
+    void track(s, go()).catch((e) => orca.log(failed('send', e)))
+    return view(s) as never
+  })
+  orca.panels.handle('send.cancel', async () => {
+    const ws = focusedPath(s)
+    if (ws) refuseWhileBusy(s, ws)
+    if (ws) s.send.delete(ws)
+    return view(s) as never
+  })
+  orca.panels.handle('forge.dir.set', async (input) => {
+    const dir = (input as { dir?: unknown } | undefined)?.dir
+    const ws = focusedPath(s)
+    if (!ws) throw new Error('no craftar workspace has the focus')
+    if (!forgeIsRemote(s, ws)) throw new Error('this Forge is on this machine: craftar finds it by itself, no clone to name')
+    refuseWhileBusy(s, ws)
+    // An empty folder forgets the stored one: the panel asks for it again ("Change").
+    if (dir === '') {
+      const rest = { ...s.forgeDirs }
+      delete rest[ws]
+      await orca.storage.set(FORGE_DIRS, rest)
+      delete s.forgeDirs[ws]
+      s.send.delete(ws)
+      return view(s) as never
+    }
+    if (typeof dir !== 'string' || !isAbsolute(dir) || /[\u0000-\u001f\u007f]/.test(dir)) throw new Error('give the absolute path of a folder that holds a clone of the Forge')
+    // Stored first: a folder storage refused is not used either.
+    await orca.storage.set(FORGE_DIRS, { ...s.forgeDirs, [ws]: dir })
+    s.forgeDirs[ws] = dir
+    // A plan made against another folder is not this one's.
+    s.send.delete(ws)
+    return view(s) as never
+  })
+  // O7: an early hint on save — never refuses, never awaits, reads only the event's path; the text is not
+  // touched, kept, logged or sent. It marks a file craftar lists and asks for a read soon; drift show decides.
+  orca.hooks.on('editor.save.before', (event) => {
+    const e = event as { workspaceId?: unknown; path?: unknown }
+    const byId = typeof e.workspaceId === 'string' ? s.rowsById.get(e.workspaceId) : undefined
+    // The editor's workspace id is not measured to equal workspace.list's: an id the list does not hold falls back
+    // to the focused workspace. A wrong guess costs one read of it — drift show decides, the hook only hints.
+    const focused = s.focus.kind === 'one' ? s.focus.row : undefined
+    const row = byId ?? focused
+    // Orca gives a path relative to the workspace root (absolute outside one); an absolute one under the root
+    // is turned relative too, backslashes read as slashes — craftar's paths are relative POSIX.
+    const rel = row && typeof e.path === 'string' ? relativeTo(row.path, e.path) : null
+    const isFocused = !!row && row.path === focusedPath(s)
+    const recorded = !!row && rel !== null && s.known.get(row.path)?.has(rel) === true
+    // Yes/no only — never the path or the text: what the live run needs to see why a save was or was not marked.
+    orca.log(`save hook: workspace ${byId ? 'listed' : focused ? 'not listed, focused used' : 'not listed'}, inside it ${rel !== null ? 'yes' : 'no'}, focused ${isFocused ? 'yes' : 'no'}, recorded in the lock ${recorded ? 'yes' : 'no'}`)
+    // Only the focused workspace is read on a focus refresh: a file of another one is left to its next read.
+    if (row && rel !== null && isFocused && recorded) {
+      const set = s.marked.get(row.path) ?? new Set<string>()
+      set.add(rel)
+      s.marked.set(row.path, set)
+      scheduleRead(s, () => refresh())
+    }
+    return undefined
+  })
   orca.panels.handle('consent.terminal', async () => {
     await openConsentTerminal(s)
     return view(s) as never
@@ -800,6 +1045,12 @@ export default function activate(orca: OrcaWorkerApi): void {
       return { refused: e instanceof DiffRefused ? e.message : 'craftar mcp did not answer' } as never
     }
   })
+  void orca.storage
+    .get(FORGE_DIRS)
+    .then((v) => {
+      if (v && typeof v === 'object') for (const [k, d] of Object.entries(v as Record<string, unknown>)) if (typeof d === 'string') s.forgeDirs[k] = d
+    })
+    .catch(() => undefined)
   void refresh(undefined, true)
   schedule(s)
 }
@@ -811,5 +1062,6 @@ export function deactivate(): void {
   const s = st
   st = null
   if (s?.periodicTimer) clearTimeout(s.periodicTimer)
+  if (s?.saveTimer) clearTimeout(s.saveTimer)
   if (s?.diff) void s.diff.child.stop()
 }
