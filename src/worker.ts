@@ -294,6 +294,8 @@ interface Tally {
   notified: number
   sent: number
   delivered: number
+  /** Newer-tag notifications sent (craftar 1.9.0's `newerTag`). */
+  tags: number
 }
 
 /** The one log line of a periodic check: counts and fixed words only (safe to log). */
@@ -306,6 +308,7 @@ export function tallyLine(t: Tally): string {
   if (t.blocked > 0) parts.push(`${t.blocked} where Update cannot run`)
   if (t.notified > 0) parts.push(`${t.notified} already notified`)
   parts.push(t.sent === 0 ? 'no notification sent' : `${n(t.sent, 'notification', 'notifications')} sent, ${t.delivered} delivered`)
+  if (t.tags > 0) parts.push(n(t.tags, 'newer tag notified', 'newer tags notified'))
   return `periodic check: ${parts.join(', ')}`
 }
 
@@ -594,6 +597,7 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
       if (s.sync.get(row.path)?.phase === 'consent') s.sync.delete(row.path)
     }
     await notifyGrowth(s, model, reason)
+    await notifyNewerTag(s, model, reason)
   })
 }
 
@@ -659,6 +663,42 @@ async function holdsTag(s: State, clone: string, ref: string): Promise<boolean> 
   if (!r || (r.code !== 0 && r.code !== 1)) return false
   s.tagRefs.set(key, r.code === 0)
   return r.code === 0
+}
+
+const NOTIFIED_TAG = 'notified.newertag'
+
+/**
+ * craftar 1.9.0's `newerTag`: one notification per new tag per workspace, from the periodic read only (the one that fetches).
+ * Names only; storage holds, per workspace path, the last tag notified. A workspace whose ref moved past it notifies nothing.
+ */
+async function notifyNewerTag(s: State, m: PanelModel, reason: Reason): Promise<void> {
+  if (reason !== 'periodic') return
+  const tag = m.forge?.newerTag ?? null
+  let seen: Record<string, string>
+  try {
+    seen = ((await s.orca.storage.get(NOTIFIED_TAG)) as Record<string, string> | null) ?? {}
+  } catch {
+    return // a storage that does not read: no notification rather than the same one on every check
+  }
+  if (tag === null) {
+    if (m.ws in seen) {
+      delete seen[m.ws]
+      await s.orca.storage.set(NOTIFIED_TAG, seen).catch((e) => s.orca.log(failed('storage', e)))
+    }
+    return
+  }
+  if (seen[m.ws] === tag) return
+  seen[m.ws] = tag
+  await s.orca.storage.set(NOTIFIED_TAG, seen).catch((e) => s.orca.log(failed('storage', e)))
+  const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'The Forge'
+  const body = `${forge} has a newer tag ${tag} for ${m.name} (it follows ${m.forge?.ref ?? 'an older tag'}): set ref in craftar.yaml to move. Open the craftar panel.`
+  try {
+    await s.orca.host.call('notifications.show', { title: 'craftar', body })
+  } catch (e) {
+    s.orca.log(failed('notification', e))
+    return
+  }
+  if (s.tally) s.tally.tags++
 }
 
 function forgeIsRemote(s: State, ws: string | null): boolean {
@@ -1269,7 +1309,7 @@ async function periodicOnce(): Promise<void> {
   }
   // One workspace after another: a periodic check never starts several craftar processes at once.
   s.tagRefs.clear()
-  const tally: Tally = { read: 0, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0 }
+  const tally: Tally = { read: 0, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0, tags: 0 }
   s.tally = tally
   const all = (async () => {
     for (const row of local) {
@@ -1542,6 +1582,18 @@ export default function activate(orca: OrcaWorkerApi): void {
     return view(s) as never
   })
   // A click on a file: it opens in an editor tab of Orca, in the focused workspace, at the path craftar lists.
+  // The newer-tag line's Open craftar.yaml: the focused workspace's craftar.yaml in an Orca editor tab. A read: the person edits
+  // the ref; the save is read as any other (the plugin writes nothing).
+  orca.panels.handle('config.open', async () => {
+    if (s.focus.kind !== 'one') throw new Error('no craftar workspace has the focus')
+    try {
+      await orca.host.call('editor.open', { workspaceId: s.focus.row.id, path: 'craftar.yaml' })
+    } catch (e) {
+      orca.log(failed('open craftar.yaml', e))
+      throw new Error('Orca did not open craftar.yaml: open it from the explorer')
+    }
+    return view(s) as never
+  })
   orca.panels.handle('file.open', async (input) => {
     const path = (input as { path?: unknown } | undefined)?.path
     const ws = focusedPath(s)

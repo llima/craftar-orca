@@ -25,6 +25,7 @@ test('the Forge box: source, ref, commit and the profile from drift show; a path
     freshness: 'local',
     fetchedAt: null,
     pinned: null,
+    newerTag: null,
   })
 })
 
@@ -144,4 +145,14 @@ test('a remote Forge whose ref is a full commit id is pinned; a named ref is lef
   assert.equal(model({ status: at('v1.2.0') }).forge?.pinned, null)
   assert.equal(model({ status: at('d2309dc') }).forge?.pinned, null, 'a short id may be a branch name')
   assert.equal(model({ status: at('d2309dc201c9a5127285a83092fb3853b8926101', 'path') }).forge?.pinned, null, 'a path Forge is read as it is on disk')
+})
+
+test("craftar 1.9.0's newerTag: kept for a remote Forge and read as a tag ref; absent or a path Forge says nothing", () => {
+  const at = (forge: Record<string, unknown>): StatusDoc => ({ ...status(), forge: { ...status().forge, ...forge } })
+  const m = model({ status: at({ kind: 'git', ref: 'v0.2.67', newerTag: 'v0.2.68', fetched: true }) })
+  assert.equal(m.forge?.newerTag, 'v0.2.68')
+  assert.equal(m.forge?.pinned, 'tag')
+  assert.equal(model({ status: at({ kind: 'git', ref: 'v0.2.67', fetched: true }) }).forge?.newerTag, null, 'an older craftar gives no key')
+  assert.equal(model({ status: at({ kind: 'git', ref: 'v0.2.67', newerTag: null, fetched: true }) }).forge?.pinned, null)
+  assert.equal(model({ status: at({ kind: 'path', newerTag: 'v9.9.9' }) }).forge?.newerTag, null)
 })

@@ -43,6 +43,8 @@ export interface ForgeInfo {
   commit?: string | null
   lockCommit?: string | null
   fetched?: boolean
+  /** craftar 1.9.0: the remote Forge's highest `vX.Y.Z` tag above a `vX.Y.Z` ref, else null; absent before 1.9.0. Information only. */
+  newerTag?: string | null
 }
 
 export interface UnsetParam {
