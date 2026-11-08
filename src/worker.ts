@@ -1089,7 +1089,9 @@ async function followForgePrStep(s: State, ws: string, step: Step, nonce: string
       const next: ForgePr = { ...f, waiting: false }
       if (r.done === 'failed') {
         next.phase = 'failed'
-        next.note = step === 'commit'
+        next.note = step === 'commit' && f.more
+          ? 'The commit step failed: its terminal says why, in git\'s words. It commits on the branch already made, so it can be tried again once that is fixed.'
+          : step === 'commit'
           ? 'The commit step failed: its terminal says why, in git\'s words. If the branch was created before the failure, trying again fails on it: delete the branch in the Forge, or finish the commit there, then drop the steps left.'
           : `The ${step} step failed: its terminal says why. Fix it there, then try the step again.`
       } else {
@@ -1646,6 +1648,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const i = (input ?? {}) as { step?: unknown; branch?: unknown; title?: unknown }
     if (!ws || !f) throw new Error('no Forge PR is being prepared here')
     if (forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is already starting')
+    if (s.sendAll.has(ws)) throw new Error('a Send all is on screen for this workspace: finish it or cancel it first')
     const step = i.step
     const after: Record<string, ForgePr['phase']> = { commit: 'ready', push: 'committed', pr: 'pushed' }
     if (step !== 'prepare' && step !== 'commit' && step !== 'push' && step !== 'pr') throw new Error('not a step of the Forge PR')
@@ -1660,7 +1663,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     if (step === 'commit') {
       // The rest's commit goes on the branch already made: it is not renamed.
       const branch = f.more ? f.branch : typeof i.branch === 'string' ? i.branch.trim() : f.branch
-      const title = typeof i.title === 'string' ? i.title.trim() : f.title
+      // Nor is its title changed: the screen shows it as text.
+      const title = f.more ? f.title : typeof i.title === 'string' ? i.title.trim() : f.title
       const fault = branchFault(branch) ?? titleFault(title)
       if (fault) throw new Error(fault)
       next = { ...f, branch, title }
@@ -1682,6 +1686,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const f = ws ? s.forgePr.get(ws) : undefined
     if (!ws || !f) throw new Error('no Forge PR is being prepared here')
     if (forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is starting: wait for its terminal')
+    if (s.sendAll.has(ws)) throw new Error('a Send all is on screen for this workspace: finish it or cancel it first')
     const open = (input as { open?: unknown } | null)?.open === true
     // Back from a PR that is open on the Forge: nothing is left to do here.
     if (!open && f.phase === 'opened') s.forgePr.delete(ws)
@@ -1693,6 +1698,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('forgepr.drop', async () => {
     const ws = focusedPath(s)
     if (ws && forgePrBusy.has(ws)) throw new Error('a step of the Forge PR is starting: wait for its terminal')
+    if (ws && s.sendAll.has(ws)) throw new Error('a Send all is on screen for this workspace: finish it or cancel it first')
     if (ws) s.forgePr.delete(ws)
     await publish(s)
     return view(s) as never
