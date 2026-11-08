@@ -179,8 +179,10 @@ orca-ide plugin install llima/craftar-orca@v0.1.0
 ```
 
 Without `@<tag>` Orca takes the newest `vX.Y.Z` tag (else the default branch); it pins the install to that commit, and runs git with
-the Orca host's own credentials and never prompts (a private Forge over ssh with no agent fails with `git_auth_failed`; use https with a
-credential helper). The first run (measured with `--json`) writes nothing and exits 3 with `approval_required`: Orca lists what it grants (a `trusted-worker` and the seven
+the Orca host's own credentials and never prompts; a repository it cannot read fails with `git_auth_failed` (`orca-ide plugin install
+--help`, Orca 1.4.254).
+
+The first run (measured with `--json`) writes nothing and exits 3 with `approval_required`: Orca lists what it grants (a `trusted-worker` and the seven
 capabilities below, each in its own words), what the plugin adds (the craftar panel, its two commands, the `workspace.changed` event,
 the `editor.save.before` hook, the status bar item), `Source: github.com/llima/craftar-orca (v0.1.0) at commit 0a1c9a0b7a92`,
 `Publisher: llima`, the warning that the plugin is not from Orca and Orca has not checked the repository, and a fingerprint. Read it,
@@ -243,11 +245,13 @@ orca-ide plugin inspect .
 ```
 
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
-The catalog images (`assets/cover.png`, `assets/screenshots/`) are the plugin's own panel, drawn by its renderer
-(`src/panel-view.ts`) and stylesheet (`src/panel.ts`) on synthetic `acme` data, with Orca's dark theme values, in a browser outside
-Orca (the Orca this is built in lists client workspaces, so no `plugin shot` is taken): a throwaway test calls `render` with
-`buildModel` over the fixtures in `test-support/fixtures/` (an `acme-portal` workspace on `git.acme.example`), writes each scene's HTML
-with the panel's `STYLE`, and `google-chrome --headless --screenshot` takes it at 1600x1000 or 1280x800. Redraw them when the panel changes.
+The catalog images (`assets/cover.png`, `assets/screenshots/`) show the plugin's own panel, drawn by its renderer (`src/panel-view.ts`)
+and stylesheet (`src/panel.ts`) on synthetic `acme` data, with Orca's dark theme values, in a browser outside Orca (the Orca this is
+built in lists client workspaces, so no `plugin shot` is taken): a throwaway test calls `render` with `buildModel` over the fixtures in
+`test-support/fixtures/` (an `acme-portal` workspace on `git.acme.example`) and writes each panel state's HTML with the panel's `STYLE`.
+Around those panels, a hand-written card adds the rest, in the same headless pass (`google-chrome --headless --screenshot`, 1600x1000 or
+1280x800): on the cover, the icon, "craftar", one line, five pills and the two panels tilted and overlapping; on each screenshot, a title
+and a sentence beside one panel. That card's HTML is not kept in the repository. Redraw them when the panel changes.
 
 ## License
 
