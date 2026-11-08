@@ -4,8 +4,8 @@
 // and only with the fetch setting on; a focus change never reaches the network.
 import { type Craftar, status, type StatusDoc } from './craftar'
 
-const MIN_MINUTES = 5
-const DEFAULT_MINUTES = 5
+const MIN_MINUTES = 2
+const DEFAULT_MINUTES = 2
 
 export class Serial {
   private tails = new Map<string, Promise<unknown>>()
