@@ -167,3 +167,27 @@ test('the Forge card says when the ref does not move: a tag by name, a commit in
   assert.match(root.textContent, /tag <b>v1<\/b> does not move/)
   assert.equal(all(root).some((e) => e.tag === 'b'), false, 'the ref is text, never markup')
 })
+
+test("the Forge card says craftar's newer tag with the ref, as of the last fetch on a cached copy, and opens craftar.yaml", () => {
+  const at = (forge: Partial<NonNullable<View['model']>['forge'] & object>) => {
+    const v = modelView()
+    v.model!.forge = { ...v.model!.forge!, freshness: 'fetched', fetchedAt: Date.UTC(2026, 10, 8, 20, 0), ref: 'v0.2.67', pinned: 'tag', newerTag: 'v0.2.68', ...forge }
+    return v
+  }
+  const calls: string[] = []
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  render(doc as never, root as never, at({}), { choose: () => undefined, refresh: () => undefined, showDiff: () => undefined, configOpen: () => calls.push('open') })
+  const line = all(root).find((e) => e.attrs['data-role'] === 'newer-tag')!
+  assert.match(line.textContent, /^newer tag on the Forge: v0\.2\.68 \(ref is v0\.2\.67\)\. Set ref in craftar\.yaml to move\./)
+  assert.equal(all(root).some((e) => e.attrs['data-role'] === 'pinned'), false, 'the newer-tag line stands for the pinned line')
+  click(byAction(line, 'config-open')[0])
+  assert.deepEqual(calls, ['open'])
+  const cached = all(draw(at({ freshness: 'cached' })).root).find((e) => e.attrs['data-role'] === 'newer-tag')!
+  assert.match(cached.textContent, /\(ref is v0\.2\.67\), as of the last fetch /)
+  const none = draw(at({ newerTag: null }))
+  assert.equal(all(none.root).some((e) => e.attrs['data-role'] === 'newer-tag'), false)
+  assert.equal(all(none.root).some((e) => e.attrs['data-role'] === 'pinned'), true)
+  const hostile = draw(at({ newerTag: '<b>v1</b>' }))
+  assert.equal(all(hostile.root).some((e) => e.tag === 'b'), false, 'the tag is text, never markup')
+})

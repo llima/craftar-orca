@@ -116,6 +116,12 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   reads "tag <ref> does not move: a change merged in the Forge comes here once a newer tag is set as ref in craftar.yaml"; under a ref
   that is a full commit id, "a commit does not move: a change merged in the Forge comes here once a newer ref is set in craftar.yaml".
   Without a named clone a tag is not told from a branch, and no line is shown.
+  With craftar **1.9.0** or later, `status --json` names a newer `vX.Y.Z` tag on the Forge than a `vX.Y.Z` ref (`forge.newerTag`), and
+  the card says it in place of that line: "newer tag on the Forge: <tag> (ref is <ref>). Set ref in craftar.yaml to move.", with ", as
+  of the last fetch <time>" on a cached copy, and an **Open craftar.yaml** button that opens the file in an Orca editor tab (the plugin
+  writes nothing; you edit the ref, and the save is read as any other). The periodic check notifies once per new tag per workspace:
+  "Forge <name> has a newer tag <tag> for <workspace> (it follows <ref>): set ref in craftar.yaml to move. Open the craftar panel."
+  (storage keeps the last tag notified per workspace path). With an older craftar the key is absent and nothing of this shows.
 - **Bring** (the toolbar's *Bring N from the Forge*, the update) is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
   and, for a remote Forge, the last periodic check fetched it (a focus read is offline and changes nothing here; with **Fetch a
   remote Forge** off, Update stays off for a remote Forge); otherwise it says why. Its confirm lists every file

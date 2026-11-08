@@ -80,6 +80,8 @@ ul.msgs.cleared { opacity: .6; }
 .node .s { font-family: var(--mono); font-size: 11px; color: var(--orca-muted-foreground); margin-top: 2px; overflow-wrap: anywhere; }
 .node .s.src { font-size: 10.5px; opacity: .85; }
 .node .s.pin { font-family: inherit; font-size: 11px; line-height: 1.4; margin-top: 4px; }
+.node .s.pin.newer { color: var(--warn); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.node .s.pin.newer .btn { font-size: 11px; padding: 2px 8px; }
 .em { color: var(--ember); }
 .stc { color: var(--steel); }
 .stem { width: 1px; height: 12px; background: color-mix(in srgb, var(--ember) 70%, var(--line)); }
@@ -375,6 +377,10 @@ const actions = {
     call('forgepr.prepare', {}, 60_000)
   },
   // Send all (design A): each answers at once; the dry runs and the writes run on and come back on state.changed.
+  configOpen(): void {
+    notice = null
+    call('config.open', {}, 30_000)
+  },
   sendAllPreview(): void {
     notice = null
     call('sendall.preview', {}, 60_000)

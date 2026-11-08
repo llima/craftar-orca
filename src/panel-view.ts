@@ -85,6 +85,8 @@ export interface Actions {
   /** S3a: `send.preview` (the dry run), `send.run` (the write, second click), `send.cancel`, `forge.dir.set`. */
   sendPreview?(path: string): void
   sendRun?(path: string): void
+  /** The newer-tag line's Open craftar.yaml (`config.open`): a read, the person edits the ref. */
+  configOpen?(): void
   /** Send all: `sendall.preview`, `sendall.run` (the planned paths, second click), `sendall.cancel`, `sendall.rest`, `forgepr.more`. */
   sendAllPreview?(): void
   sendAllRun?(paths: string[]): void
@@ -611,8 +613,17 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // Where the Forge was read from, on a line of its own under its path (the user's ask of 2026-11-08).
     forge.appendChild(h('div', { class: 'fresh', 'data-role': 'freshness' }, h('span', { class: `dot ${fresh[0]}` }), t('span', fresh[1])))
     // A ref that does not move: a change merged in the Forge comes here only with a new ref (the user's ask of 2026-11-08).
-    const pin = pinnedLine(f?.pinned ?? null, f?.ref ?? null)
-    if (pin) forge.appendChild(t('div', pin, { class: 's pin', 'data-role': 'pinned' }))
+    // craftar 1.9.0 names a newer tag on the Forge than the ref: said in its words, with the way to move (the person edits the ref;
+    // the user's decision of 2026-11-08). It stands for the pinned line, which would say the same.
+    const newer = f?.newerTag ?? null
+    if (newer) {
+      const line = forge.appendChild(h('div', { class: 's pin newer', 'data-role': 'newer-tag' }))
+      line.appendChild(t('span', `newer tag on the Forge: ${newer} (ref is ${f?.ref ?? 'an older tag'})${cached ? `, as of the last fetch${when ? ` ${when}` : ''}` : ''}. Set ref in craftar.yaml to move.`))
+      if (typeof a.configOpen === 'function') line.appendChild(button('Open craftar.yaml', { class: 'btn ghost', 'data-action': 'config-open' }, null, () => a.configOpen?.()))
+    } else {
+      const pin = pinnedLine(f?.pinned ?? null, f?.ref ?? null)
+      if (pin) forge.appendChild(t('div', pin, { class: 's pin', 'data-role': 'pinned' }))
+    }
 
     dia.appendChild(h('div', { class: linkBroken ? 'stem broken' : 'stem' }))
 
