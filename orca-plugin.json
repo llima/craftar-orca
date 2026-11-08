@@ -13,7 +13,7 @@
   "pluginApi": 1,
   "main": "src/worker.ts",
   "icon": "assets/icon.png",
-  "cover": { "path": "assets/cover.png", "alt": "craftar for Orca: the plugin's panel beside its name, on a synthetic acme workspace" },
+  "cover": { "path": "assets/cover.png", "alt": "craftar, its features and two of its panels (the Forge diagram and the Send all plan) on a synthetic acme workspace" },
   "screenshots": [
     { "path": "assets/screenshots/1-forge.png", "alt": "The craftar panel: the Forge a workspace follows, a newer tag on it, the files coming down and going up", "caption": "See where the harness comes from", "theme": "dark" },
     { "path": "assets/screenshots/2-send-all.png", "alt": "Send all: one plan from craftar's dry run of every file edited by hand", "caption": "Send every hand edit back in one plan", "theme": "dark" },
