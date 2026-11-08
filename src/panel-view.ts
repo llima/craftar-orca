@@ -177,7 +177,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   const refusedSend = new Map((v.sendRefused ?? []).map((r) => [r.path, r.message]))
   const shown = v.focus === 'one' ? v.model : null
   const m = shown && refusedSend.size > 0
-    ? { ...shown, edited: shown.edited.map((e) => (refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here — craftar will not send it' } : e)) }
+    ? { ...shown, edited: shown.edited.map((e) => (e.promotable && refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here — craftar will not send it' } : e)) }
     : shown
   const failing = v.selfCheck.filter((l) => l.level !== 'ok')
   const broken = !v.model && failing.some((l) => l.level === 'error')
@@ -383,7 +383,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           : t('span', row.state, { class: 'st' }),
     )
     // craftar's refusal, in its words, under the files it concerns.
-    const refusals = m.edited.filter((e) => refusedSend.has(e.path))
+    const refusals = (shown?.edited ?? []).filter((e) => e.promotable && refusedSend.has(e.path))
     if (refusals.length > 0) {
       const box = body.appendChild(h('section', { class: 'card bad', 'data-role': 'send-refused' }))
       box.appendChild(t('h2', 'craftar will not send'))

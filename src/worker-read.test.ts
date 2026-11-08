@@ -231,6 +231,29 @@ test('a switch to a workspace read before asks only status and drift show, and t
   assert.equal(((await worker.request('state.get')) as View).model?.ws, web)
 })
 
+test('a repos read that failed is asked again on the next focus, and a periodic read asks repos and the registry again', async () => {
+  const api = craftarDir()
+  const { s, h, worker, web } = await setup({ extra: { 'repos --json': { stdout: '', code: 3 } } })
+  h.respond('workspace.list', {
+    workspaces: [
+      { id: 'w1', kind: 'folder', name: 'web', path: web, branch: 'main', hostId: null },
+      { id: 'w2', kind: 'folder', name: 'api', path: api, branch: 'dev', hostId: null },
+    ],
+    truncated: false,
+  })
+  await worker.emit('workspace.changed', { context: { branch: 'dev', displayName: 'api', terminals: [] } })
+  await main.settled()
+  const mark = s.calls().length
+  await worker.emit('workspace.changed', { context: { branch: 'main', displayName: 'web', terminals: [] } })
+  await main.settled()
+  const back = s.calls().slice(mark).filter((c) => c.argv[0] === 'repos' && c.argv.includes(web))
+  assert.equal(back.length, 1)
+  const before = s.calls().length
+  await main.periodic()
+  const kinds = s.calls().slice(before).map((c) => c.argv[0])
+  assert.ok(kinds.includes('repos') && kinds.includes('workspaces'))
+})
+
 test('a diff is asked only for a path the last read listed; the mcp child never gets --fetch or --allow-writes', async () => {
   const { s, worker } = await setup()
   const r = (await worker.request('diff.get', { path: '.claude/rules/workflow.md' })) as { files: { diff: string }[] }

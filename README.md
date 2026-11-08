@@ -24,9 +24,13 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   (`orca-ide terminal list --json`) decides, and then the name and branch of the one you have open: when several match (every `main`
   worktree is named `main`), the panel asks which, and your answer is kept. A workspace on another host (SSH, WSL) is listed and
   never read.
-- **Reads** are `craftar status`, `drift show`, `repos` and `workspaces`, each with `--json`. A focus change reads offline; the
-  periodic check (every `intervalMinutes`) reads each craftar workspace on this machine, one after another, and is the only read that
-  fetches a remote Forge — and only with `fetch` on.
+- **Reads** are `craftar status`, `drift show`, `repos` and `workspaces`, each with `--json`. A focus change shows the new workspace
+  at once from its last read, then reads it offline: `status` and `drift show` only, once an earlier read gave `repos` and the
+  registry (`workspaces`, which plans every registered workspace) — the registry's own lines about this workspace are then left out,
+  since `status` and `drift show` just said them. A read that failed is asked again on the next focus. The self-check (`doctor`) runs
+  again on each focus change and on Check again, after the read, so the switch never waits for it. The periodic check (every
+  `intervalMinutes`) reads each craftar workspace on this machine in full, one after another, and is the only read that fetches a
+  remote Forge — and only with `fetch` on.
 - **The status bar** reads `craftar: in sync`, `Forge moved · N`, `edited · N` (or both), `craftar: sync refused` (a declared
   parameter with no value), `craftar: check failed` (`craftar status` exits 1 for another reason — its lines say which) or
   `craftar: error`.
@@ -44,7 +48,7 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   `promotable`); a file it will not carry shows craftar's reason. The first click runs `craftar drift promote <file> --workspace <dir>
   --dry-run --json` and shows its plan as text — the outcome, the Forge files it would write, the values it would set, the other
   workspaces that will see it, craftar's warnings; **Write to the Forge**, a second click, runs it for real. craftar proves the change,
-  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words. A Forge given as a git URL
+  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words: after a refused dry run the panel returns to the workspace and the file stays "kept here", with craftar's words and no Send, until you save it again. A Forge given as a git URL
   needs a local clone of it: the panel asks for its folder once per workspace, in its footer toolbar above the Send button, and keeps only that path (`--forge <dir>`); a Forge on
   this machine needs nothing. One notification per file you newly edit by hand that craftar can carry: "<file> belongs to Forge <x> —
   send the change to the Forge? Open the craftar panel."

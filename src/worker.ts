@@ -420,10 +420,17 @@ async function readWorkspace(s: State, row: Row, reason: Reason, settings: Setti
     // workspace and grows with the machine, and neither it nor `repos` draws anything the switch needs. The periodic read refreshes both.
     const reuse = reason === 'focus' && s.registryDoc !== null && s.reposDocs.has(row.path)
     const rp: ReposDoc | null = reuse ? (s.reposDocs.get(row.path) ?? null) : await optional('repos', repos(craftar, row.path), errors)
-    const registry: WorkspacesDoc | null = reuse ? s.registryDoc : await optional('workspaces', registryRead(craftar), errors)
+    const cached = reuse ? s.registryDoc : null
+    // A reused registry speaks for this workspace as of its read: its own `<ws>: …` lines are left out, since status
+    // and drift show just said them fresh. Every other line stays.
+    const registry: WorkspacesDoc | null = cached
+      ? { ...cached, warnings: cached.warnings.filter((w) => !w.startsWith(`${row.path}: `)) }
+      : await optional('workspaces', registryRead(craftar), errors)
+    // Only a document craftar gave is kept: after a failure the next focus read asks again, and says so.
     if (!reuse) {
-      s.reposDocs.set(row.path, rp)
-      if (registry) s.registryDoc = registry
+      if (rp) s.reposDocs.set(row.path, rp)
+      else s.reposDocs.delete(row.path)
+      s.registryDoc = registry
     }
     const model = buildModel({ ws: row.path, name: row.name, status, drift, repos: rp, registry, fetchedAt: fetched[row.path] ?? null, readAt: Date.now(), errors })
     // An offline read of a remote Forge reads the copy the last periodic check fetched: when that fetch
@@ -701,7 +708,8 @@ async function refreshFocus(s: State, ctx?: Context | null, recheck = false): Pr
   if (!checked && (recheck || before !== ws)) {
     void track(s, s.queue.run(FOCUS_QUEUE, async () => {
       if (focusedPath(s) !== ws) return
-      await ensureCheck(s, settings, local, true)
+      // The settings as they are now: a change during the read is the one this check is for.
+      await ensureCheck(s, await readSettings(s.orca), local, true)
       await publish(s)
     })).catch((e) => s.orca.log(failed('self-check', e)))
   }
