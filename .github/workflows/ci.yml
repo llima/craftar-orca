@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Never on main: every commit on main keeps its run.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # The Orca the gates run on: a published release of stablyai/orca, checked against the sha256 GitHub records for it.
+  # Moving to a newer Orca changes these two lines together.
+  ORCA_VERSION: 1.4.253
+  ORCA_DEB_SHA256: 982fc25b1805dc8be66096b9a1ebcaf0b55eec3966b5c6ee606919797263d572
+
+jobs:
+  plugin:
+    name: ubuntu · node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # `orca-ide plugin test` runs the tests on the node on PATH (20.6 or newer), so each entry is a runtime the tests run on.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      # Orca's CLI ships inside the desktop app: the .deb is extracted into the job's temporary space, never installed,
+      # and its plugin commands run in Electron's Node mode without the app, a display or a token.
+      - name: Install Orca's CLI
+        shell: bash
+        run: |
+          deb="$RUNNER_TEMP/orca.deb"
+          curl -fsSL --retry 3 -o "$deb" \
+            "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-ide_${ORCA_VERSION}_amd64.deb"
+          echo "${ORCA_DEB_SHA256}  $deb" | sha256sum -c -
+          dpkg-deb -x "$deb" "$RUNNER_TEMP/orca"
+          echo "$RUNNER_TEMP/orca/opt/Orca/resources/bin" >> "$GITHUB_PATH"
+      - run: orca-ide --version
+      - run: orca-ide plugin validate .
+      - run: orca-ide plugin check .
+      - run: orca-ide plugin test .
