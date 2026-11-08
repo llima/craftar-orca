@@ -155,7 +155,7 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
     const first = r.stdout.trim().split(/\r?\n/)[0] ?? ''
     out.push(r.code === 0 ? `version: ${first}` : `version: craftar --version failed (exit ${r.code ?? 'none'})${r.stderr === CMD_REFUSED ? `: ${CMD_REFUSED}` : ''}`)
     const v = r.code === 0 ? versionShaped(first) : null
-    summary.push(`craftar found${found.shim ? ` (${found.shim} shim)` : ''}, ${r.code === 0 ? `version ${v ?? '(not shown)'}` : `--version failed (exit ${r.code ?? 'none'})`}`)
+    summary.push(`craftar found${found.shim ? ` (${found.shim} shim)` : ''}, ${r.code === 0 ? `version ${v ?? '(not shown)'}` : `--version failed (exit ${r.code ?? 'none'})${r.stderr === CMD_REFUSED ? ', refused by cmd' : ''}`}`)
   }
   out.push(`CRAFTAR_HOME: ${craftarHome.trim() !== '' ? 'set from the setting' : 'not set (craftar uses its default)'}`)
   out.push(`worker environment: ${WATCHED_ENV.map((k) => `${k} ${process.env[k] ? 'present' : 'absent'}`).join(', ')}`)
