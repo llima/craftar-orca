@@ -797,7 +797,8 @@ async function ensureCheck(s: State, settings: Settings, local: Row[], force: bo
   s.selfCheck = r.lines
   s.craftar = r.craftar
   // Another craftar may answer differently: refusals given by the previous one are not kept as this one's.
-  if (s.version !== null && (r.version ?? null) !== s.version) s.sendRefused.clear()
+  // A failed check (no version) says nothing about the craftar, so it clears nothing.
+  if (s.version !== null && r.version != null && r.version !== s.version) s.sendRefused.clear()
   s.version = r.version ?? null
   s.usedKey = key
   s.checkedWs = ws
@@ -1058,7 +1059,10 @@ export default function activate(orca: OrcaWorkerApi): void {
     const path = (input as { path?: unknown } | undefined)?.path
     const ws = focusedPath(s)
     const m = ws ? (s.models.get(ws) ?? null) : null
-    if (s.focus.kind !== 'one' || typeof path !== 'string' || !listed(m, path)) throw new Error('not a file this workspace lists: refresh the panel')
+    // The worker is the gate, not the view: the path must be one craftar lists for the focused workspace, and on disk
+    // (a `new` file the Forge brings is not there yet). The focus is read now: the file opens in the workspace in focus.
+    const isNew = !!m && m.pending.some((f) => f.path === path && f.state === 'new')
+    if (s.focus.kind !== 'one' || typeof path !== 'string' || !listed(m, path) || isNew) throw new Error('not a file this workspace lists: refresh the panel')
     try {
       await orca.host.call('editor.open', { workspaceId: s.focus.row.id, path })
     } catch (e) {

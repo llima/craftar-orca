@@ -237,3 +237,50 @@ test('a click on a file opens it in an editor tab of Orca, in the focused worksp
   await assert.rejects(worker.request('file.open', { path: '../outside.md' }), /not a file this workspace lists/)
   assert.equal(h.callsOf('editor.open').length, 1)
 })
+
+test('a file the Forge brings that is not here yet is refused by the worker, whatever the panel asks', async () => {
+  const { s, h, worker } = await setup()
+  const status = JSON.parse(fixture('status.json'))
+  status.statuses.push({ path: '.claude/rules/brand-new.md', state: 'new', target: 'claude-code', ingredient: 'rule/brand-new' })
+  const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+  table['status --json'] = { stdout: JSON.stringify(status), code: 0 }
+  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(table))
+  await worker.request('state.refresh')
+  await main.settled()
+  await assert.rejects(worker.request('file.open', { path: '.claude/rules/brand-new.md' }), /not a file this workspace lists/)
+  assert.equal(h.callsOf('editor.open').length, 0)
+})
+
+test("Check again clears only the focused workspace's refusals; another craftar version clears them all", async () => {
+  const { s, h, worker, web } = await setup({ extra: { 'drift promote': { stdout: '', code: 1, stderr: 'error: D16: promote refused\n' } } })
+  assert.equal((await sendAndWait(worker, 'send.preview', { path: EDITED })).sendRefused.length, 1)
+  const api = tempDir('craftar-orca-ws-')
+  writeFileSync(join(api, 'craftar.yaml'), 'forge: ../forge\nprofile: acme-web\n')
+  h.respond('workspace.list', {
+    workspaces: [
+      { id: 'w1', kind: 'folder', name: 'web', path: web, branch: 'main', hostId: 'local' },
+      { id: 'w2', kind: 'folder', name: 'api', path: api, branch: 'dev', hostId: 'local' },
+    ],
+    truncated: false,
+  })
+  const focus = async (name: string, branch: string) => {
+    h.respond('workspace.readContext', { branch, displayName: name, terminals: [] })
+    await worker.emit('workspace.changed', { context: { branch, displayName: name, terminals: [] } })
+    await main.settled()
+  }
+  await focus('api', 'dev')
+  // Check again with api in focus, the same craftar: web keeps its refusal.
+  await worker.request('state.refresh')
+  await main.settled()
+  await focus('web', 'main')
+  assert.equal(((await worker.request('state.get')) as View).sendRefused.length, 1)
+  // Another craftar version: every refusal is cleared.
+  await focus('api', 'dev')
+  const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+  table['doctor --json'] = { stdout: JSON.stringify({ ...JSON.parse(fixture('doctor.json')), version: '1.8.0' }), code: 0 }
+  writeFileSync(s.env.CRAFTAR_STUB_TABLE, JSON.stringify(table))
+  await worker.request('state.refresh')
+  await main.settled()
+  await focus('web', 'main')
+  assert.deepEqual(((await worker.request('state.get')) as View).sendRefused, [])
+})
