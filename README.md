@@ -172,12 +172,23 @@ a click on the status bar item shows or hides the side bar.
 panel to read, **0.35.0** or later for **Update** (*Bring N from the Forge*; it uses the writing tools of `craftar mcp`). The plugin never installs or updates
 craftar, and never starts it through `npx`.
 
-**From a release (not measured yet).** Orca installs a plugin from its repository's `v<version>` tags, under the key
-`<owner>.<id>`, here `llima.craftar`, from `https://github.com/llima/craftar-orca` (Orca's plugin documentation, spec 60 §2.1). No tag
-has been published yet, so the exact steps in Orca have not been run; this section will name them once they have. Until then, use a
-clone (below). Tagging is the maintainer's; the tags will be listed at `https://github.com/llima/craftar-orca/tags`.
+**From a release** (measured on 2026-11-08 with Orca 1.4.254 and v0.1.0; the Orca 1.4.250 before it had no `plugin install`):
 
-**From a clone** (what the maintainer does today): load a copy of a commit, not the clone itself.
+```bash
+orca-ide plugin install llima/craftar-orca@v0.1.0
+```
+
+Without `@<tag>` Orca takes the newest `vX.Y.Z` tag; it pins the install to that tag's commit and runs git with your own credentials.
+The first run writes nothing and exits 3 with `approval_required`: Orca lists what it grants (a `trusted-worker` and the seven
+capabilities below, each in its own words), what the plugin adds (the craftar panel, its two commands, the `workspace.changed` event,
+the `editor.save.before` hook, the status bar item), `Source: github.com/llima/craftar-orca (v0.1.0) at commit 0a1c9a0b7a92`,
+`Publisher: llima`, the warning that the plugin is not from Orca and Orca has not checked the repository, and a fingerprint. Read it,
+then run it again with `--approve <fingerprint>`: Orca prints `Installed llima.craftar 0.1.0` and the plugin runs under the key
+`llima.craftar` (`orca-ide plugin list`). A development load of the same folder runs as `local.craftar` beside it; disable one of the two
+(`orca-ide plugin disable local.craftar`). The releases are at `https://github.com/llima/craftar-orca/releases`; tagging one is the
+maintainer's.
+
+**From a clone** (to try a commit that is not released): load a copy of a commit, not the clone itself.
 
 ```bash
 git clone https://github.com/llima/craftar-orca.git
@@ -230,6 +241,11 @@ orca-ide plugin inspect .
 ```
 
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
+The catalog images (`assets/cover.png`, `assets/screenshots/`) are the plugin's own panel, drawn by its renderer
+(`src/panel-view.ts`) and stylesheet (`src/panel.ts`) on synthetic `acme` data, with Orca's dark theme values, in a browser outside
+Orca (the Orca this is built in lists client workspaces, so no `plugin shot` is taken): a throwaway test calls `render` with
+`buildModel` over the fixtures in `test-support/fixtures/` (an `acme-portal` workspace on `git.acme.example`), writes each scene's HTML
+with the panel's `STYLE`, and `google-chrome --headless --screenshot` takes it at 1600x1000 or 1280x800. Redraw them when the panel changes.
 
 ## License
 
