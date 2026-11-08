@@ -65,7 +65,7 @@ test("the plan is drawn as text — outcome, files, values, workspaces, craftar'
 
 test("after the write: what craftar wrote, and that nothing was committed; a refusal is craftar's words", () => {
   const done = draw(view({ send: { path: EDITED, phase: 'done', plan: PLAN as never, result: { ...PLAN, dryRun: false } as never, message: null } }))
-  assert.match(done.root.textContent, /nothing was committed/)
+  assert.match(done.root.textContent, /Nothing was committed/)
   const err = draw(view({ send: { path: EDITED, phase: 'error', plan: null, result: null, message: 'error: D16: promote refused' } }))
   assert.match(err.root.textContent, /error: D16: promote refused/)
 })
@@ -88,7 +88,7 @@ test('a URL Forge with no clone named: Send is off and the panel asks for the cl
 test('a file the save hook marked reads as edited — not yet in the Forge', () => {
   const { root } = draw(view({ marked: ['.claude/rules/workflow.md'] }))
   const m = all(root).filter((e) => e.attrs['data-role'] === 'marked').map((e) => e.textContent)
-  assert.deepEqual(m, ['.claude/rules/workflow.md — edited, not yet in the Forge'])
+  assert.deepEqual(m, ['.claude/rules/workflow.md: edited, not yet in the Forge'])
 })
 
 test("the plan also lists what craftar flattens and depends on, and this workspace's next sync", () => {
@@ -141,7 +141,7 @@ test("a file craftar refused to send is kept here in craftar's words, with no Se
   const { root } = draw(view({ sendRefused: [{ path: EDITED, message: 'error: D17: reaches agent/x, local to this profile' }] }))
   assert.equal(byAction(root, 'send-file').length, 0)
   assert.equal(byAction(root, 'send').length, 0)
-  assert.match(root.textContent, /kept here — craftar will not send it/)
+  assert.match(root.textContent, /kept here: craftar will not send it/)
   const words = all(root).filter((e) => e.attrs['data-role'] === 'send-refused-message').map((e) => e.textContent)
   assert.deepEqual(words, ['error: D17: reaches agent/x, local to this profile'])
 })

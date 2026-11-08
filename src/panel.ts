@@ -383,7 +383,7 @@ function call(name: string, input: unknown, timeoutMs: number): void {
 
 /** A request the worker refused: its words shown, then the worker's view read again. */
 function refused(e: unknown): void {
-  notice = e instanceof Error && e.message ? e.message : 'the plugin could not do that — check again'
+  notice = e instanceof Error && e.message ? e.message : 'the plugin could not do that: check again'
   void orca.plugin
     .request('state.get')
     .then((v) => {

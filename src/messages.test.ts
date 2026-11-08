@@ -8,12 +8,12 @@ test('a skip is to look at; the fix states what the workspace also writes for, n
   const m = classify(SKIP, false, ['agents-md', 'claude-code', 'kiro'])
   assert.equal(m.text, SKIP)
   assert.equal(m.level, 'action')
-  assert.match(m.fix ?? '', /^AGENTS\.md gets no skill file; this workspace also writes for claude-code, kiro — /)
+  assert.match(m.fix ?? '', /^AGENTS\.md gets no skill file; this workspace also writes for claude-code, kiro: /)
   assert.doesNotMatch(m.fix ?? '', /still write/)
   assert.match(m.fix ?? '', /take agents-md out of the targets \(the profile's, or craftar\.yaml's\)/)
   const alone = classify('kiro: hook hook/x has no Kiro equivalent — skipped', false, ['kiro'])
   assert.equal(alone.level, 'action')
-  assert.match(alone.fix ?? '', /^Kiro gets no hook file — if they should not reach Kiro/)
+  assert.match(alone.fix ?? '', /^Kiro gets no hook file: if they should not reach Kiro/)
 })
 
 test("a line that already says its fix gets none of the plugin's; an unknown line is kept as is, to look at", () => {

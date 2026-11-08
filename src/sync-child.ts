@@ -55,7 +55,7 @@ export async function syncOnce(craftar: Craftar, ws: string): Promise<SyncOutcom
     if (r.isError) return classify(toolText(r))
     return { kind: 'ok', result: toolDocument<SyncResult>(r) }
   } catch {
-    return { kind: 'error', text: 'craftar mcp did not answer the sync in time — it may still have written files; nothing was staged, so look at the files before updating again' }
+    return { kind: 'error', text: 'craftar mcp did not answer the sync in time: it may still have written files; nothing was staged, so look at the files before updating again' }
   } finally {
     // A sync still writing when the answer is late is let finish, not killed mid-write: its input is closed
     // and the child exits once the call is done (killed only after ten minutes).

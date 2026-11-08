@@ -42,21 +42,21 @@ export function classify(text: string, err: boolean, owners: string[]): Message 
     const silence = `if they should not reach ${label}, give those ${type} ingredients targets that leave ${target} out, or take ${target} out of the targets (the profile's, or craftar.yaml's)`
     return {
       text, level: 'action', from: 'craftar',
-      fix: `${label} gets no ${type} file${others.length > 0 ? `; this workspace also writes for ${others.join(', ')}` : ''} — ${silence}`,
+      fix: `${label} gets no ${type} file${others.length > 0 ? `; this workspace also writes for ${others.join(', ')}` : ''}: ${silence}`,
     }
   }
   if (/^claude-code: Claude Code does not list a skill written as one file/.test(text)) return { text, level: 'action', from: 'craftar' }
   if (/ is generated, but git ignores it /.test(text)) return { text, level: 'action', from: 'craftar' }
   // `Forge <url> not fetched (--offline) — using the cached copy …` and `… not fetched (<git>) — using …`.
   if (/^Forge \S+ not fetched \(--offline\)/.test(text)) return { text, level: 'info', from: 'craftar' }
-  if (/^Forge \S+ not fetched \(/.test(text)) return { text, level: 'action', from: 'craftar', fix: 'check the network or the Forge URL, then Check again — Update waits for a fetch that works' }
+  if (/^Forge \S+ not fetched \(/.test(text)) return { text, level: 'action', from: 'craftar', fix: 'check the network or the Forge URL, then Check again (Update waits for a fetch that works)' }
   if (/\(last wins\)$/.test(text)) return { text, level: 'action', from: 'craftar', fix: 'keep one of the two ingredients in the profile, or give one of them targets that leave this file out' }
   return { text, level: 'action', from: 'craftar' }
 }
 
 /** The plugin's own information line for a cached copy: its age, so the person sees how old what they read is. */
 export function cachedAgeLine(fetchedAt: number | null, now: number): Message {
-  if (fetchedAt === null) return { text: 'showing the cached copy of the Forge — never fetched on this machine', level: 'info', from: 'plugin' }
+  if (fetchedAt === null) return { text: 'showing the cached copy of the Forge, never fetched on this machine', level: 'info', from: 'plugin' }
   const min = Math.max(0, Math.round((now - fetchedAt) / 60_000))
   const age = min < 1 ? 'less than a minute' : min < 120 ? `${min} min` : `${Math.round(min / 60)} h`
   return { text: `showing the cached copy of the Forge, fetched ${age} ago`, level: 'info', from: 'plugin' }

@@ -51,6 +51,6 @@ test('a write that does not finish says the Forge may be partly written', async 
   const s = stubCraftar({ 'drift promote': { stdout: '', code: 0, delayMs: 2000 } })
   await assert.rejects(
     promote({ bin: s.bin, env: s.env }, WS, '.claude/rules/workflow.md', { dryRun: false, forge: null, timeoutMs: 300 }),
-    /may be partly written — look at git status in the Forge/,
+    /may be partly written: look at git status in the Forge/,
   )
 })

@@ -137,7 +137,7 @@ test('a periodic read whose pending set grew notifies once, with the Forge, the 
   const shown = growth(h)
   assert.equal(shown.length, 1)
   assert.equal(shown[0].title, 'craftar')
-  assert.equal(shown[0].body, 'Forge ../forge2 changed 1 file for web — update 1 file and add it to the commit? Open the craftar panel.')
+  assert.equal(shown[0].body, 'Forge ../forge2 changed 1 file for web: update 1 file and add it to the commit? Open the craftar panel.')
   await main.periodic()
   assert.equal(growth(h).length, 1, 'the same count again does not notify')
   const stored = h.data().storage['notified'] as Record<string, Record<string, unknown>>
@@ -361,7 +361,7 @@ test('with a tie not yet answered, the probe opens no terminal and says to pick 
   ]
   const { h, worker } = await setup({ rows, ctx: { branch: 'main', displayName: 'main' } })
   const report = String(await worker.command('craftar.probe'))
-  assert.match(report, /terminal: not opened — several workspaces match the focused one: pick it in the craftar panel/)
+  assert.match(report, /terminal: not opened, several workspaces match the focused one: pick it in the craftar panel/)
   assert.equal(h.callsOf('terminal.create').length, 0)
 })
 
@@ -405,7 +405,7 @@ test('the probe says whether Orca named an active workspace, never which', { ski
     results: { 'terminal.create': { terminalId: 't1' }, 'terminal.read': { lines: ['craftar-probe'], truncated: false } },
   })
   const report = String(await worker.command('craftar.probe'))
-  assert.match(report, /Orca CLI \(orca-ide\): on an absolute PATH entry — active workspace: found/)
+  assert.match(report, /Orca CLI \(orca-ide\): on an absolute PATH entry, active workspace: found/)
   assert.equal(worker.logs.join('\n').includes(one), false)
 })
 

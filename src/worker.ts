@@ -105,10 +105,10 @@ async function terminalProbe(orca: OrcaWorkerApi): Promise<TerminalResult> {
   // `main` worktree is named `main`). Its own deduction only when no craftar workspace has the focus.
   const s = st
   if (s?.focus.kind === 'ask') {
-    return { outcome: 'terminal: not opened — several workspaces match the focused one: pick it in the craftar panel, then run the probe again', id: null, lines: [] }
+    return { outcome: 'terminal: not opened, several workspaces match the focused one: pick it in the craftar panel, then run the probe again', id: null, lines: [] }
   }
   const workspaceId = s?.focus.kind === 'one' ? s.focus.row.id : await focusedWorkspaceId(orca)
-  if (!workspaceId) return { outcome: 'terminal: not opened — no single local workspace to open it in (focus one and run the probe again)', id: null, lines: [] }
+  if (!workspaceId) return { outcome: 'terminal: not opened, no single local workspace to open it in (focus one and run the probe again)', id: null, lines: [] }
   const { terminalId } = (await orca.host.call('terminal.create', {
     workspaceId,
     title: 'craftar probe',
@@ -138,13 +138,13 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
   const { settings } = (await orca.host.call('settings.get', {})) as { settings: Record<string, unknown> }
   const craftarPath = text(settings.craftarPath)
   const craftarHome = text(settings.craftarHome)
-  const out: string[] = ['craftar probe — S0 (spec 60 §12)']
+  const out: string[] = ['craftar probe, S0 (spec 60 §12)']
 
   // `summary` is what may be logged and notified: outcomes only, no path and no line of anyone's.
   const summary: string[] = []
   const found = findCraftar({ craftarPath, path: process.env.PATH ?? '' })
   if (found.found === null) {
-    out.push(`craftar: not found — ${found.reason}`)
+    out.push(`craftar: not found (${found.reason})`)
     summary.push('craftar not found')
   } else {
     out.push(`craftar: found at ${found.found}${found.shim ? ` (under the ${found.shim} shim directory: a project's files can choose what runs)` : ''}`)
@@ -161,10 +161,10 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
   const otherOrca = findOnPath('orca', process.env.PATH ?? '')
   // Whether Orca's CLI answers from inside the worker, where the focus is read from (never which workspace).
   const active = orcaIde ? await activeWorkspacePath(orcaIde) : null
-  const activeLine = active === null ? '' : ` — active workspace: ${active.kind === 'one' ? 'found' : active.kind === 'none' ? 'none' : `failed (${active.reason})`}`
+  const activeLine = active === null ? '' : `, active workspace: ${active.kind === 'one' ? 'found' : active.kind === 'none' ? 'none' : `failed (${active.reason})`}`
   out.push(
     `Orca CLI (orca-ide): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}${activeLine}` +
-      (otherOrca ? ' — an `orca` on PATH is another program, not taken for it' : ''),
+      (otherOrca ? '; an `orca` on PATH is another program, not taken for it' : ''),
   )
   summary.push(`Orca CLI: ${active === null ? 'not found' : active.kind === 'one' ? 'active workspace found' : active.kind === 'none' ? 'no active workspace' : `failed (${active.reason})`}`)
 
@@ -187,13 +187,13 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
   // From the palette the report is announced; from Validate the person is looking at the panel already.
   if (opts.notify !== false) {
     const shown = (await orca.host
-      .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')} — the full report is in the craftar panel.` })
+      .call('notifications.show', { title: 'craftar probe', body: `${summary.join(' · ')}. The full report is in the craftar panel.` })
       .catch((e) => {
         orca.log(failed('notification', e))
         return null
       })) as { delivered?: unknown } | null
     out.push(
-      `notifications.show: ${shown?.delivered === true ? 'delivered' : 'not delivered'} (host-api 1.3: a notification has no action — the panel holds the one click)`,
+      `notifications.show: ${shown?.delivered === true ? 'delivered' : 'not delivered'} (host-api 1.3: a notification has no action; the panel holds the one click)`,
     )
   }
   const report = [
@@ -323,16 +323,16 @@ const WRITES_FLOOR = '0.35.0'
 
 /** Why Update could not run on this workspace whatever is pending, or null (O10) — shared by Update and the notification. */
 function blockedReason(s: State, ws: string, m: PanelModel | null): string | null {
-  if (s.failed.has(ws)) return 'craftar status gave no document for this workspace — nothing to update from'
+  if (s.failed.has(ws)) return 'craftar status gave no document for this workspace: nothing to update from'
   if (!m) return 'no craftar workspace has the focus'
-  if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return `updating needs craftar ${WRITES_FLOOR} or later — upgrade craftar`
-  if (m.refused) return 'craftar refuses to sync this workspace — see its words above'
-  if (m.checkFailed) return 'craftar status failed for this workspace — see its lines above'
+  if (!s.version || !versionAtLeast(s.version, WRITES_FLOOR)) return `updating needs craftar ${WRITES_FLOOR} or later: upgrade craftar`
+  if (m.refused) return 'craftar refuses to sync this workspace (see its words above)'
+  if (m.checkFailed) return 'craftar status failed for this workspace (see its lines above)'
   if (m.forge && m.forge.freshness !== 'local') {
     const f = s.fetchState.get(ws)
-    if (f === 'off') return '"Fetch a remote Forge" is off: updating needs a fetched read — turn it on in the plugin settings'
-    if (f === 'failed') return 'the Forge could not be fetched: this is the cached copy — updating waits for a fetch that works'
-    if (f !== 'fetched') return 'the Forge has not been fetched yet — the next periodic check fetches it'
+    if (f === 'off') return '"Fetch a remote Forge" is off: updating needs a fetched read. Turn it on in the plugin settings'
+    if (f === 'failed') return 'the Forge could not be fetched: this is the cached copy, and updating waits for a fetch that works'
+    if (f !== 'fetched') return 'the Forge has not been fetched yet: the next periodic check fetches it'
   }
   return null
 }
@@ -493,7 +493,7 @@ async function notifyGrowth(s: State, m: PanelModel, reason: Reason): Promise<vo
   if (now < before) return
   const files = now === 1 ? '1 file' : `${now} files`
   const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'The Forge'
-  const body = `${forge} changed ${files} for ${m.name} — update ${files} and add ${now === 1 ? 'it' : 'them'} to the commit? Open the craftar panel.`
+  const body = `${forge} changed ${files} for ${m.name}: update ${files} and add ${now === 1 ? 'it' : 'them'} to the commit? Open the craftar panel.`
   await s.orca.host.call('notifications.show', { title: 'craftar', body }).catch((e) => s.orca.log(failed('notification', e)))
 }
 
@@ -544,7 +544,7 @@ async function notifyEdited(s: State, m: PanelModel): Promise<void> {
   const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'the Forge'
   for (const p of fresh) {
     await s.orca.host
-      .call('notifications.show', { title: 'craftar', body: `${p} belongs to ${forge} — send the change to the Forge? Open the craftar panel.` })
+      .call('notifications.show', { title: 'craftar', body: `${p} belongs to ${forge}: send the change to the Forge? Open the craftar panel.` })
       .catch((e) => s.orca.log(failed('notification', e)))
   }
 }
@@ -554,10 +554,10 @@ function sendable(s: State, path: unknown): { ws: string; path: string } {
   const ws = focusedPath(s)
   const m = ws ? (s.models.get(ws) ?? null) : null
   if (!ws || !m || typeof path !== 'string' || !m.edited.some((e) => e.path === path && e.promotable)) {
-    throw new Error('not a file this workspace can send to the Forge — check again')
+    throw new Error('not a file this workspace can send to the Forge: check again')
   }
   if (forgeIsRemote(s, ws) && !s.forgeDirs[ws]) throw new Error('this Forge is a git URL: name a local clone of the Forge in the panel first')
-  if (!s.craftar) throw new Error('craftar is not ready — see the self-check')
+  if (!s.craftar) throw new Error('craftar is not ready (see the self-check)')
   refuseWhileBusy(s, ws)
   return { ws, path }
 }
@@ -565,7 +565,7 @@ function sendable(s: State, path: unknown): { ws: string; path: string } {
 /** One send at a time per workspace: nothing changes it while craftar checks or writes. */
 function refuseWhileBusy(s: State, ws: string): void {
   const now = s.send.get(ws)?.phase
-  if (now === 'checking' || now === 'writing') throw new Error('craftar is already working on a send for this workspace — wait for it')
+  if (now === 'checking' || now === 'writing') throw new Error('craftar is already working on a send for this workspace: wait for it')
 }
 
 /** --forge only for a URL Forge (O5): a Forge on this machine needs nothing. */
@@ -716,7 +716,7 @@ async function publish(s: State): Promise<void> {
   const broken = s.craftar === null && s.selfCheck.some((l) => l.level === 'error')
   const m = ws ? (s.models.get(ws) ?? null) : null
   const bar = barFor(broken || (ws !== null && s.failed.has(ws)) ? 'error' : m)
-  const tooltip = `${ws ? `craftar — ${ws}` : 'craftar — no craftar workspace focused'}${CLICK_HINT}`
+  const tooltip = `${ws ? `craftar: ${ws}` : 'craftar: no craftar workspace focused'}${CLICK_HINT}`
   await s.orca.host.call('statusBar.update', { id: ITEM, text: bar.text, tone: bar.tone, tooltip, icon: 'package' }).catch((e) => s.orca.log(failed('status bar', e)))
   s.orca.panels.post('state.changed', view(s) as never)
 }
@@ -875,12 +875,12 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
     let leftOut: string[] = []
     let stageError: string | null = null
     const git = findGit(process.env.PATH ?? '')
-    if (!git) stageError = 'git was not found on an absolute PATH entry — nothing was staged'
+    if (!git) stageError = 'git was not found on an absolute PATH entry: nothing was staged'
     else {
       try {
         ;({ staged, leftOut } = await stagePaths(git, ws, r))
       } catch (e) {
-        stageError = e instanceof StageFailed ? `${e.message} — nothing more was staged` : 'staging did not run'
+        stageError = e instanceof StageFailed ? `${e.message}; nothing more was staged` : 'staging did not run'
       }
     }
     s.lastSync.set(ws, { written: r.written, removed: r.removed, kept: r.skipped, staged, leftOut, differences: cmp.differences, warnings: r.warnings, rerun: cmp.rerun })
@@ -889,7 +889,7 @@ async function runUpdate(s: State, asked: { path: string; state: string }[]): Pr
    } catch (e) {
     // Never left 'running': an unexpected failure is said in fixed words, and nothing more is done.
     s.orca.log(failed('update', e))
-    s.sync.set(ws, { phase: 'error', message: 'the update stopped on an unexpected error — nothing more was done; see the plugin log' })
+    s.sync.set(ws, { phase: 'error', message: 'the update stopped on an unexpected error: nothing more was done; see the plugin log' })
    }
   })
   const settings = await readSettings(s.orca)
@@ -945,7 +945,7 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
   const craftar = s.craftar
   // The consent is the focused workspace's own: one asked for another workspace opens nothing here.
   const consent = row ? s.consent.get(row.path) : undefined
-  if (!consent || !row || !craftar) throw new Error('nothing to allow — run Update first')
+  if (!consent || !row || !craftar) throw new Error('nothing to allow: run Update first')
   const shell = await shellOf(s, row.id)
   const settings = await readSettings(s.orca)
   const command = allowWritesCommand(shell, { bin: craftar.bin, home: settings.craftarHome }, row.path)
@@ -967,7 +967,7 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
       terminalId = await open()
       shown = await switchToTerminal(cli, terminalId)
     }
-    const note = shown ? null : `A terminal titled "craftar allow writes" was opened in this workspace, in the background — switch to it in Orca's terminal tabs and answer its question.`
+    const note = shown ? null : `A terminal titled "craftar allow writes" was opened in this workspace, in the background. Switch to it in Orca's terminal tabs and answer its question.`
     s.consent.set(row.path, { ...consent, terminalId, note })
   }
   await publish(s)
@@ -1026,7 +1026,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
   st = s
   orca.host
-    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar — reading${CLICK_HINT}`, icon: 'package' })
+    .call('statusBar.update', { id: ITEM, text: 'craftar', tooltip: `craftar: reading${CLICK_HINT}`, icon: 'package' })
     .catch((e) => orca.log(failed('status bar', e)))
   firstBeat = tick()
   timer = setInterval(() => void tick(), HEARTBEAT_MS)
@@ -1062,7 +1062,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const asked = u.files.map((f) => f.path).sort()
     const given = Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string').sort() : null
     if (!u.allowed) throw new Error(u.reason ?? 'updating is not possible now')
-    if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them — look again and confirm')
+    if (!given || given.length !== asked.length || given.some((p, i) => p !== asked[i])) throw new Error('the files changed since the panel showed them: look again and confirm')
     // Answered at once (plugin.request's ceiling is 120 s, measured): the update runs on, tracked, and the
     // panel follows it on state.changed.
     void track(s, runUpdate(s, u.files)).catch((e) => orca.log(failed('update', e)))
@@ -1145,7 +1145,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const ws = focusedPath(s)
     const m = ws ? (s.models.get(ws) ?? null) : null
     if (!ws || !s.craftar || typeof path !== 'string' || !listed(m, path)) {
-      return { refused: 'not a file this workspace lists — refresh the panel' } as never
+      return { refused: 'not a file this workspace lists: refresh the panel' } as never
     }
     try {
       // The child is built inside the queue, after any self-check of this workspace, from the craftar it left.

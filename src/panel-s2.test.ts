@@ -47,8 +47,8 @@ test('with the worker allowing it, Update opens the confirm and Update and stage
 })
 
 test("the worker's refusal of a panel request is drawn as a notice", () => {
-  const { root } = draw(view(), 'the files changed since the panel showed them — look again and confirm')
-  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'notice')?.textContent, 'the files changed since the panel showed them — look again and confirm')
+  const { root } = draw(view(), 'the files changed since the panel showed them: look again and confirm')
+  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'notice')?.textContent, 'the files changed since the panel showed them: look again and confirm')
   const none = draw(view({ focus: 'none', model: null }), 'no craftar workspace has the focus')
   assert.equal(all(none.root).find((e) => e.attrs['data-role'] === 'notice')?.textContent, 'no craftar workspace has the focus')
 })
@@ -82,7 +82,7 @@ test("a consent refusal is said once, in the consent card — not again as the s
 
 test("a consent terminal Orca could not bring forward: the card says where it is, beside the button", () => {
   const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
-  const note = 'A terminal titled "craftar allow writes" was opened in this workspace, in the background — switch to it in Orca\'s terminal tabs and answer its question.'
+  const note = 'A terminal titled "craftar allow writes" was opened in this workspace, in the background. Switch to it in Orca\'s terminal tabs and answer its question.'
   const { root } = draw(view({ sync: { phase: 'consent', message: text }, consent: { text, terminal: 'offered', steps: [], note } }))
   assert.equal(byAction(root, 'consent-terminal').length, 1)
   assert.equal(all(root).find((e) => e.attrs['data-role'] === 'consent-note')?.textContent, note)

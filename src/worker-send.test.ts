@@ -128,7 +128,7 @@ test('one notification per newly edited file that can be sent, with the path and
   await main.periodic()
   const shown = (h.callsOf('notifications.show') as { body?: string }[]).filter((n) => String(n.body).includes('send the change'))
   assert.equal(shown.length, 1)
-  assert.equal(shown[0].body, `${EDITED} belongs to Forge ../forge2 — send the change to the Forge? Open the craftar panel.`)
+  assert.equal(shown[0].body, `${EDITED} belongs to Forge ../forge2: send the change to the Forge? Open the craftar panel.`)
 })
 
 test('the save hook passes the save at once, keeps nothing of the text, and only marks a Forge file', async () => {
