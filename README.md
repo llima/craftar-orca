@@ -178,14 +178,16 @@ craftar, and never starts it through `npx`.
 orca-ide plugin install llima/craftar-orca@v0.1.0
 ```
 
-Without `@<tag>` Orca takes the newest `vX.Y.Z` tag; it pins the install to that tag's commit and runs git with your own credentials.
-The first run writes nothing and exits 3 with `approval_required`: Orca lists what it grants (a `trusted-worker` and the seven
+Without `@<tag>` Orca takes the newest `vX.Y.Z` tag (else the default branch); it pins the install to that commit, and runs git with
+the Orca host's own credentials and never prompts (a private Forge over ssh with no agent fails with `git_auth_failed`; use https with a
+credential helper). The first run (measured with `--json`) writes nothing and exits 3 with `approval_required`: Orca lists what it grants (a `trusted-worker` and the seven
 capabilities below, each in its own words), what the plugin adds (the craftar panel, its two commands, the `workspace.changed` event,
 the `editor.save.before` hook, the status bar item), `Source: github.com/llima/craftar-orca (v0.1.0) at commit 0a1c9a0b7a92`,
 `Publisher: llima`, the warning that the plugin is not from Orca and Orca has not checked the repository, and a fingerprint. Read it,
 then run it again with `--approve <fingerprint>`: Orca prints `Installed llima.craftar 0.1.0` and the plugin runs under the key
-`llima.craftar` (`orca-ide plugin list`). A development load of the same folder runs as `local.craftar` beside it; disable one of the two
-(`orca-ide plugin disable local.craftar`). The releases are at `https://github.com/llima/craftar-orca/releases`; tagging one is the
+`llima.craftar` (`orca-ide plugin list`). A development load keeps its own key, `local.craftar`: in the measured run `plugin list` showed
+it, disabled by hand for the test (`orca-ide plugin disable local.craftar`), beside the running `llima.craftar`; whether both run at once
+was not measured. The releases are at `https://github.com/llima/craftar-orca/releases`; tagging one is the
 maintainer's.
 
 **From a clone** (to try a commit that is not released): load a copy of a commit, not the clone itself.
