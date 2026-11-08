@@ -1002,12 +1002,20 @@ export default function activate(orca: OrcaWorkerApi): void {
   // touched, kept, logged or sent. It marks a file craftar lists and asks for a read soon; drift show decides.
   orca.hooks.on('editor.save.before', (event) => {
     const e = event as { workspaceId?: unknown; path?: unknown }
-    const row = typeof e.workspaceId === 'string' ? s.rowsById.get(e.workspaceId) : undefined
+    const byId = typeof e.workspaceId === 'string' ? s.rowsById.get(e.workspaceId) : undefined
+    // The editor's workspace id is not measured to equal workspace.list's: an id the list does not hold falls back
+    // to the focused workspace. A wrong guess costs one read of it — drift show decides, the hook only hints.
+    const focused = s.focus.kind === 'one' ? s.focus.row : undefined
+    const row = byId ?? focused
     // Orca gives a path relative to the workspace root (absolute outside one); an absolute one under the root
     // is turned relative too, backslashes read as slashes — craftar's paths are relative POSIX.
     const rel = row && typeof e.path === 'string' ? relativeTo(row.path, e.path) : null
+    const isFocused = !!row && row.path === focusedPath(s)
+    const recorded = !!row && rel !== null && s.known.get(row.path)?.has(rel) === true
+    // Yes/no only — never the path or the text: what the live run needs to see why a save was or was not marked.
+    orca.log(`save hook: workspace ${byId ? 'listed' : focused ? 'not listed, focused used' : 'not listed'}, inside it ${rel !== null ? 'yes' : 'no'}, focused ${isFocused ? 'yes' : 'no'}, recorded in the lock ${recorded ? 'yes' : 'no'}`)
     // Only the focused workspace is read on a focus refresh: a file of another one is left to its next read.
-    if (row && rel !== null && row.path === focusedPath(s) && s.known.get(row.path)?.has(rel)) {
+    if (row && rel !== null && isFocused && recorded) {
       const set = s.marked.get(row.path) ?? new Set<string>()
       set.add(rel)
       s.marked.set(row.path, set)
