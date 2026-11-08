@@ -169,13 +169,13 @@ grant a `trusted-worker` (its worker runs with your user account's access; see t
 **After it loads**, set *craftar binary* in the plugin's settings when Orca was started from a dock or a menu (a short `PATH`), and
 open the right side bar and select the craftar tab (the status bar item *craftar* shows or hides the side bar).
 
-## Windows (S4)
+## Windows (S4): coded, not run on Windows
 
 - **craftar:** set *craftar binary* to your `craftar.cmd` (see Settings). A workspace or Forge path holding one of the characters listed
   there, or ending in a backslash (a drive root), cannot be passed to it; the consent terminal then shows its steps in words; move it, or install craftar where a `.exe` is on an absolute `PATH` entry.
 - **Terminals:** when the shell probe finds PowerShell, the consent terminal and the Forge PR steps quote their values for it (version 7,
   for `&&`). A cmd terminal gets no command: the panel shows the steps in words.
-- **Measured:** nothing in this plugin has run on Windows yet. The cmd quoting is reasoned from cmd's rules and tested on this
+- **Measured:** coded, not run on Windows: nothing in this plugin has run on Windows yet. The cmd quoting is reasoned from cmd's rules and tested on this
   build's tests only. Known: through cmd, a time limit or a stop ends cmd, not the craftar it started, so a craftar that hangs is not
   cut short and goes on until it ends.
 
