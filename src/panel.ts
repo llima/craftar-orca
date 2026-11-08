@@ -184,6 +184,11 @@ footer.toolbar { border-top: 1px solid var(--line); background: var(--orca-card)
 .tb .btn > span { overflow: hidden; text-overflow: ellipsis; }
 .tb-empty { flex: 1; text-align: center; font: 11px var(--mono); color: var(--orca-muted-foreground); padding: 6px 0; }
 .fnote { font: 10.5px/1.4 var(--mono); color: var(--orca-muted-foreground); text-align: center; overflow-wrap: anywhere; }
+.fnote.left { text-align: left; }
+/* A URL Forge's clone folder, asked for in the toolbar above the buttons. */
+.tb-clone { display: grid; gap: 6px; min-width: 0; }
+.tb-clone input[type='text'] { flex: 1 1 auto; min-width: 0; height: 32px; }
+footer.toolbar .row.clone { display: flex; align-items: center; gap: 8px; }
 
 /* Item 1: no craftar workspace — the logo animated, white on top, linked to orange and blue. */
 .empty { display: grid; justify-items: center; align-content: center; text-align: center; gap: 12px; padding: 28px 14px; min-height: 100%; }

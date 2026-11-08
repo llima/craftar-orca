@@ -73,7 +73,12 @@ test("after the write: what craftar wrote, and that nothing was committed; a ref
 test('a URL Forge with no clone named: Send is off and the panel asks for the clone folder', () => {
   const { root, calls } = draw(view({ forgeDir: { needed: true, dir: null } }))
   assert.equal(byAction(root, 'send')[0].attrs.disabled, '')
-  const input = all(root).find((e) => e.attrs['data-role'] === 'forge-dir-input')
+  // The ask sits in the fixed footer toolbar, above the buttons, not in the body.
+  const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
+  assert.ok(all(bar).some((e) => e.attrs['data-role'] === 'forge-dir'))
+  assert.ok(all(bar).some((e) => e.attrs['data-action'] === 'forge-dir-save'))
+  assert.equal(all(bar).filter((e) => e.attrs['data-role'] === 'send-reason').length, 0)
+  const input = all(bar).find((e) => e.attrs['data-role'] === 'forge-dir-input')
   assert.ok(input)
   input!.value = '/home/acme/forge-clone'
   click(byAction(root, 'forge-dir-save')[0])
@@ -107,6 +112,8 @@ test("craftar's own dry-run shape draws the plan and the Write button", () => {
 test('a stored clone folder is shown with a way to change it', () => {
   const { root, calls } = draw(view({ forgeDir: { needed: true, dir: '/home/acme/forge-clone' } }))
   assert.match(root.textContent, /\/home\/acme\/forge-clone/)
+  const bar = all(root).find((e) => e.attrs['data-role'] === 'toolbar')!
+  assert.ok(all(bar).some((e) => e.attrs['data-role'] === 'forge-dir-stored'))
   click(byAction(root, 'forge-dir-change')[0])
   assert.deepEqual(calls, ['dir '])
 })

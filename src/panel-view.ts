@@ -113,6 +113,7 @@ const STATE_ICON: Record<string, [string, string]> = {
 
 const NOT_BUILT_UPDATE = 'Update and stage is not built yet in this version of the plugin — until then, run craftar sync in a terminal.'
 const NOT_BUILT_SEND = 'Send to Forge is not built yet in this version of the plugin.'
+const NEEDS_CLONE = 'name a local clone of the Forge first'
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 const short = (c: string | null): string | null => (c ? c.slice(0, 7) : null)
@@ -374,19 +375,6 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           ? t('span', row.reason, { class: 'why' })
           : t('span', row.state, { class: 'st' }),
     )
-    if (promotable > 0) {
-      if (needsClone) drawForgeDir()
-      else if (v.forgeDir?.needed && v.forgeDir.dir) {
-        body.appendChild(
-          h(
-            'div',
-            { class: 'row clone', 'data-role': 'forge-dir-stored' },
-            t('span', `Forge clone: ${v.forgeDir.dir}`, { class: 'muted' }),
-            button('Change', { class: 'btn', 'data-action': 'forge-dir-change' }, null, () => a.forgeDirSet?.('')),
-          ),
-        )
-      }
-    }
     fileList('Kept apart', 'apart', m.apart, (row) => t('span', row.state, { class: 'st' }))
     if (v.lastSync) drawLastSync(v.lastSync)
     tail()
@@ -486,7 +474,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
 
   function sendWhy(_m: PanelModel): string | null {
     if (typeof a.sendPreview !== 'function') return NOT_BUILT_SEND
-    if (v.forgeDir?.needed === true && !v.forgeDir.dir) return 'name a local clone of the Forge first'
+    if (v.forgeDir?.needed === true && !v.forgeDir.dir) return NEEDS_CLONE
     if (v.send?.phase === 'writing' || v.send?.phase === 'checking') return 'craftar is working on a send'
     return null
   }
@@ -507,6 +495,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         : u
           ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet — check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
           : NOT_BUILT_UPDATE
+    // A URL Forge needs a local clone before Send: asked for, or shown with Change, in the toolbar itself (the user's ask of 2026-11-08).
+    if (promotable > 0 && v.forgeDir?.needed === true) drawForgeDir(v.forgeDir.dir)
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
     if (m.pending.length > 0) {
       const attrs: Record<string, string> = { class: 'btn down', 'data-action': 'update' }
@@ -531,7 +521,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (m.pending.length === 0 && promotable === 0) row.appendChild(t('span', 'Nothing to bring or send', { class: 'tb-empty', 'data-role': 'toolbar-empty' }))
     const notes: string[] = []
     if (m.pending.length > 0 && !allowed && reason) notes.push(reason)
-    if (promotable > 0 && why) notes.push(why)
+    // The clone box above the buttons already says why Send waits; the note would repeat it.
+    if (promotable > 0 && why && why !== NEEDS_CLONE) notes.push(why)
     if (notes.length > 0) for (const x of notes) toolbar.appendChild(t('p', x, { class: 'fnote', 'data-role': x === reason ? 'update-reason' : 'send-reason' }))
     else if (m.pending.length > 0 || promotable > 0) toolbar.appendChild(t('p', 'bring: writes and stages · send: dry run first · never a commit', { class: 'fnote' }))
   }
@@ -631,11 +622,22 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     tail()
   }
 
-  function drawForgeDir(): void {
-    const box = body.appendChild(h('section', { class: 'card', 'data-role': 'forge-dir' }))
-    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it — craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'muted' }))
-    const input = box.appendChild(h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' }))
-    box.appendChild(h('div', { class: 'row' }, button('Use this folder', { class: 'btn', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.((input as HTMLInputElement).value.trim()))))
+  function drawForgeDir(dir: string | null): void {
+    if (dir) {
+      toolbar.appendChild(
+        h(
+          'div',
+          { class: 'row clone', 'data-role': 'forge-dir-stored' },
+          t('span', `Forge clone: ${dir}`, { class: 'muted' }),
+          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => a.forgeDirSet?.('')),
+        ),
+      )
+      return
+    }
+    const box = toolbar.appendChild(h('div', { class: 'tb-clone', 'data-role': 'forge-dir' }))
+    box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it — craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
+    const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' })
+    box.appendChild(h('div', { class: 'tb' }, input, button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.((input as HTMLInputElement).value.trim()))))
   }
 
   function counted(n: number, rest: string): HTMLElement {

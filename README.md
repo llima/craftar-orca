@@ -45,7 +45,7 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   --dry-run --json` and shows its plan as text — the outcome, the Forge files it would write, the values it would set, the other
   workspaces that will see it, craftar's warnings; **Write to the Forge**, a second click, runs it for real. craftar proves the change,
   writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words. A Forge given as a git URL
-  needs a local clone of it: the panel asks for its folder once per workspace and keeps only that path (`--forge <dir>`); a Forge on
+  needs a local clone of it: the panel asks for its folder once per workspace, in its footer toolbar above the Send button, and keeps only that path (`--forge <dir>`); a Forge on
   this machine needs nothing. One notification per file you newly edit by hand that craftar can carry: "<file> belongs to Forge <x> —
   send the change to the Forge? Open the craftar panel."
 - **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
