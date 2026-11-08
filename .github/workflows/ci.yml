@@ -16,7 +16,7 @@ concurrency:
 
 env:
   # The Orca the gates run on: a published release of stablyai/orca, checked against the sha256 GitHub records for it.
-  # Moving to a newer Orca changes these two lines together.
+  # Moving to a newer Orca changes these two lines together; release.yml reads them from here, in this exact form.
   ORCA_VERSION: 1.4.253
   ORCA_DEB_SHA256: 982fc25b1805dc8be66096b9a1ebcaf0b55eec3966b5c6ee606919797263d572
 
