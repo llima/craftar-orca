@@ -38,7 +38,7 @@ function draw(v: View) {
 const PLAN = {
   workspace: '/home/acme/web', forge: '/home/acme/forge2', profile: 'acme-web', dryRun: true, path: EDITED, ingredient: 'rule/commit-conventions',
   outcome: 'variant', promoted: 'rule/commit-conventions--acme-web', written: [{ path: 'ingredients/rules/commit-conventions--acme-web/rule.md', action: 'created' }],
-  params: [{ key: 'acme.team', old: 'web', value: '<b>platform</b>' }], sections: [], flattened: [], dependents: [], nextSync: { counts: { unchanged: 4 } },
+  params: [{ key: 'acme.team', old: 'web', value: '<b>platform</b>' }], sections: [], flattened: { params: [], sections: [] }, dependents: [], nextSync: { counts: { unchanged: 4 } },
   impact: { registry: 'read', workspaces: [{ path: '/home/acme/api' }] }, warnings: ['a warning in craftar words'],
 }
 
@@ -87,12 +87,21 @@ test('a file the save hook marked reads as edited — not yet in the Forge', () 
 })
 
 test("the plan also lists what craftar flattens and depends on, and this workspace's next sync", () => {
-  const plan = { ...PLAN, flattened: ['rule/commit-conventions#intro'], dependents: [{ ref: 'agent/reviewer' }], nextSync: { counts: { unchanged: 4, update: 1 } } }
+  const plan = { ...PLAN, flattened: { params: ['acme.team'], sections: ['rule/commit-conventions#intro'] }, dependents: [{ ref: 'agent/reviewer' }], nextSync: { counts: { unchanged: 4, update: 1 } } }
   const { root } = draw(view({ send: { path: EDITED, phase: 'preview', plan: plan as never, result: null, message: null } }))
   const text = root.textContent
-  assert.match(text, /rule\/commit-conventions#intro/)
+  assert.match(text, /section rule\/commit-conventions#intro/)
+  assert.match(text, /param acme\.team/)
   assert.match(text, /agent\/reviewer/)
   assert.match(text, /unchanged 4/)
+})
+
+test("craftar's own dry-run shape draws the plan and the Write button", () => {
+  // As `craftar drift promote --dry-run --json` printed it in the live run: `flattened` is an object, `dependents` paths.
+  const plan = { ...PLAN, outcome: 'variant', flattened: { params: [], sections: [] }, dependents: ['/home/acme/other'], nextSync: { counts: {} } }
+  const { root } = draw(view({ send: { path: EDITED, phase: 'preview', plan: plan as never, result: null, message: null } }))
+  assert.equal(byAction(root, 'send-confirm').length, 1)
+  assert.match(root.textContent, /\/home\/acme\/other/)
 })
 
 test('a stored clone folder is shown with a way to change it', () => {

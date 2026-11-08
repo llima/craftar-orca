@@ -13,7 +13,7 @@ const PLAN = {
   workspace: WS, forge: '/home/acme/forge', profile: 'acme-web', dryRun: true, path: '.claude/rules/workflow.md',
   ingredient: 'rule/workflow', outcome: 'variant', promoted: 'rule/workflow--acme-web',
   written: [{ path: 'ingredients/rules/workflow--acme-web/rule.md', action: 'created' }],
-  params: [], sections: [], flattened: [], dependents: [], nextSync: { counts: { unchanged: 3 } },
+  params: [], sections: [], flattened: { params: [], sections: [] }, dependents: [], nextSync: { counts: { unchanged: 3 } },
   impact: { registry: 'read', workspaces: [] }, warnings: ['a warning in craftar words'],
 }
 

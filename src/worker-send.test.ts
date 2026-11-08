@@ -1,7 +1,7 @@
 // S3a, Send to Forge (spec 60 §8, O5, O7): the dry run on the first click, the write on a second; the Forge
 // directory asked once for a URL Forge; one notification per newly edited file; the save hook only marks.
 import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
@@ -24,7 +24,7 @@ const EDITED = '.claude/rules/commit-conventions.md'
 const PLAN = {
   workspace: '', forge: '/home/acme/forge2', profile: 'acme-web', dryRun: true, path: EDITED, ingredient: 'rule/commit-conventions',
   outcome: 'variant', promoted: 'rule/commit-conventions--acme-web', written: [{ path: 'ingredients/rules/commit-conventions--acme-web/rule.md', action: 'created' }],
-  params: [], sections: [], flattened: [], dependents: [], nextSync: { counts: { unchanged: 4 } }, impact: { registry: 'read', workspaces: [] }, warnings: [],
+  params: [], sections: [], flattened: { params: [], sections: [] }, dependents: [], nextSync: { counts: { unchanged: 4 } }, impact: { registry: 'read', workspaces: [] }, warnings: [],
 }
 
 async function setup(opts: { extra?: Record<string, unknown>; remote?: boolean } = {}) {
@@ -142,6 +142,32 @@ test('the save hook also marks a Forge file given as an absolute path under the 
   const { worker, web } = await setup()
   await worker.hooks.fire('editor.save.before', { workspaceId: 'w1', path: join(web, EDITED), text: 'x' })
   assert.deepEqual(((await worker.request('state.get')) as View).marked, [EDITED])
+})
+
+test('a save whose workspace id the list does not hold marks the focused workspace; the log says yes/no, never the path', async () => {
+  const { worker } = await setup()
+  await worker.hooks.fire('editor.save.before', { workspaceId: 'editor-tab-id', path: EDITED, text: 'x' })
+  assert.deepEqual(((await worker.request('state.get')) as View).marked, [EDITED])
+  const lines = worker.logs.filter((l) => l.includes('save hook'))
+  assert.equal(lines.length, 1)
+  assert.match(lines[0], /not listed, focused used, inside it yes, focused yes, recorded in the lock yes/)
+  assert.equal(worker.logs.some((l) => l.includes(EDITED)), false)
+})
+
+test('a save of a Forge file reads the workspace a second later and notifies once', async () => {
+  const empty = { ...JSON.parse(fixture('drift-show.json')), files: [] }
+  const { s, h, worker } = await setup({ extra: { 'drift show --json': { stdout: JSON.stringify(empty), code: 0 } } })
+  const notes = () => (h.callsOf('notifications.show') as { body?: string }[]).filter((n) => String(n.body).includes('send the change'))
+  assert.equal(notes().length, 0)
+  // The person edits and saves: from now on drift show lists the file.
+  const table = JSON.parse(readFileSync(String(s.env.CRAFTAR_STUB_TABLE), 'utf8'))
+  table['drift show --json'] = { stdout: fixture('drift-show.json'), code: 1 }
+  writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table))
+  await worker.hooks.fire('editor.save.before', { workspaceId: 'w1', path: EDITED, text: 'x' })
+  await new Promise((r) => setTimeout(r, 1_300))
+  await main.settled()
+  assert.equal(notes().length, 1)
+  assert.match(String(notes()[0].body), /commit-conventions\.md belongs to Forge/)
 })
 
 test('a local Forge never gets --forge, and naming a clone is refused for it', async () => {

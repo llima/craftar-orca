@@ -71,7 +71,7 @@ export interface PromotePlan {
   sections: { key: string; name: string }[]
   impact: { registry: string; workspaces: unknown[] }
   warnings: string[]
-  flattened?: unknown[]
+  flattened?: { params?: unknown; sections?: unknown }
   dependents?: unknown[]
   nextSync?: { counts: Record<string, number> }
 }
@@ -622,7 +622,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       lines(sd.phase === 'done' ? 'Written in the Forge' : 'craftar would write in the Forge', plan.written.map((w) => `${w.path} · ${w.action}`), 'send-written')
       const shown = (x: unknown): string => (typeof x === 'string' ? x : JSON.stringify(x))
       lines('Values', plan.params.map((p) => `${p.key}: ${shown(p.old)} → ${shown(p.value)}`), 'send-param')
-      lines('Written as plain text in the variant', (plan.flattened ?? []).map(shown), 'send-flattened')
+      // craftar's `flattened` is `{ params, sections }` (drift promote --json); a list that is not one reads as empty.
+      const list = (x: unknown): unknown[] => (Array.isArray(x) ? x : [])
+      const flat = [...list(plan.flattened?.params).map((k) => `param ${shown(k)}`), ...list(plan.flattened?.sections).map((k) => `section ${shown(k)}`)]
+      lines('Written as plain text in the variant', flat, 'send-flattened')
       lines('Depends on it', (plan.dependents ?? []).map((d) => (d && typeof d === 'object' && 'ref' in d ? String((d as { ref: unknown }).ref) : shown(d))), 'send-dependent')
       const counts = Object.entries(plan.nextSync?.counts ?? {}).map(([k, n]) => `${k} ${n}`)
       if (counts.length > 0) box.appendChild(t('p', `This workspace's next sync: ${counts.join(', ')}`, { class: 'muted', 'data-role': 'send-next-sync' }))

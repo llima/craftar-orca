@@ -22,7 +22,8 @@ export interface PromoteResult {
   written: { path: string; action: string }[]
   params: { key: string; old: unknown; value: unknown }[]
   sections: { key: string; name: string }[]
-  flattened: string[]
+  /** What the variant holds as plain text: the base's params and sections it no longer cites. */
+  flattened: { params: string[]; sections: string[] }
   dependents: unknown[]
   nextSync: { counts: Record<string, number> }
   impact: { registry: string; workspaces: unknown[] }
