@@ -160,6 +160,7 @@ input[type='text'] { width: 100%; font: 12px var(--mono); padding: 6px 8px; bord
 .sec[data-role='diff'] h3 > span:first-child { text-transform: none; letter-spacing: .02em; }
 .sec h3 .n { color: var(--orca-foreground); }
 .sec h3 .x-btn { margin-left: auto; }
+[data-role='forgepr-box'] input[type='text'] { margin-bottom: 4px; }
 .sec h4 { margin: 8px 0 4px; font: 500 10.5px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--orca-muted-foreground); }
 
 /* Item 6: the files, both directions. */
@@ -258,6 +259,8 @@ document.body.appendChild(root)
 let view: PanelView | null = null
 // The Forge clone box opened with Change, with its draft: kept across redraws until Cancel, a save or another workspace.
 let forgeEdit: string | null = null
+// S3b: what was typed in the PR's branch and title fields, kept across redraws until a step runs or another workspace.
+let prDraft: { branch?: string; title?: string } | null = null
 let diff: DiffShown = null
 // The worker's refusal of the panel's last request, shown until the next request (nothing is dropped).
 let notice: string | null = null
@@ -267,7 +270,7 @@ function draw(): void {
     root.textContent = 'Reading…'
     return
   }
-  render(document, root, view, actions, diff, notice, forgeEdit)
+  render(document, root, view, actions, diff, notice, forgeEdit, prDraft)
 }
 
 const actions = {
@@ -332,6 +335,38 @@ const actions = {
   sendCancel(): void {
     notice = null
     call('send.cancel', {}, 30_000)
+  },
+  forgePrPrepare(): void {
+    notice = null
+    call('forgepr.prepare', {}, 60_000)
+  },
+  forgePrStep(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void {
+    notice = null
+    // The draft is dropped only once the worker took the step: a refusal keeps what was typed.
+    void orca.plugin
+      .request('forgepr.step', { step, branch, title }, { timeoutMs: 60_000 })
+      .then((v) => {
+        prDraft = null
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
+  },
+  forgePrCheck(): void {
+    notice = null
+    call('forgepr.check', {}, 30_000)
+  },
+  forgePrShow(open: boolean): void {
+    notice = null
+    call('forgepr.show', { open }, 30_000)
+  },
+  forgePrDrop(): void {
+    notice = null
+    prDraft = null
+    call('forgepr.drop', {}, 30_000)
+  },
+  forgePrDraft(field: 'branch' | 'title', value: string): void {
+    prDraft = { ...(prDraft ?? {}), [field]: value }
   },
   forgeDirEdit(draft: string | null): void {
     forgeEdit = draft
@@ -442,6 +477,7 @@ orca.plugin.on('state.changed', (payload) => {
   if (view?.model?.ws !== next.model?.ws) {
     diff = null
     forgeEdit = null
+    prDraft = null
   }
   view = next
   draw()
