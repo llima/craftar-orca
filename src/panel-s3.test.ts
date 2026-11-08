@@ -168,3 +168,19 @@ test('the error screen of a send always has a way back, on the card and in the t
   click(backs[0])
   assert.deepEqual(calls, ['cancel'])
 })
+
+test('the clone box Change opened survives a redraw, with what was typed, until Cancel', () => {
+  const v = view({ forgeDir: { needed: true, dir: '/home/acme/forge-clone' } })
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  const calls: string[] = []
+  const a = { choose: () => undefined, refresh: () => undefined, showDiff: () => undefined, forgeDirSet: (d: string) => calls.push(`dir ${d}`), forgeDirEdit: (d: string | null) => calls.push(`edit ${d}`) }
+  render(doc as never, root as never, v, a, null, null, null)
+  click(byAction(root, 'forge-dir-change')[0])
+  assert.deepEqual(calls, ['edit /home/acme/forge-clone'])
+  // panel.ts keeps the draft and redraws: a periodic read redraws again, the box and the typed text stay.
+  for (let i = 0; i < 2; i++) render(doc as never, root as never, v, a, null, null, '/home/acme/half-typed')
+  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'forge-dir-input')?.value, '/home/acme/half-typed')
+  click(byAction(root, 'forge-dir-cancel')[0])
+  assert.deepEqual(calls, ['edit /home/acme/forge-clone', 'edit null'])
+})

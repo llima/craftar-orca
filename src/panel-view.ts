@@ -48,6 +48,10 @@ export interface Actions {
   showDiff(path: string): void
   /** `file.open`: the file in an editor tab of Orca (`editor.open`). */
   openFile?(path: string): void
+  /** Change opened the Forge clone box with this draft, or Cancel closed it (null); the panel keeps it across redraws. */
+  forgeDirEdit?(draft: string | null): void
+  /** What the person typed in that box, kept without a redraw. */
+  forgeDirDraft?(value: string): void
   /** The diff shown in the panel closed (its ×, its row's button again, or Esc). */
   closeDiff?(): void
   /** S2: `update.run` with the paths the confirm listed. */
@@ -143,7 +147,8 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 const short = (c: string | null): string | null => (c ? c.slice(0, 7) : null)
 
 /** `notice`: the worker's refusal of the panel's last request, drawn as text whatever the focus (nothing is dropped). */
-export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null): void {
+/** `forgeEdit`: the Forge clone box the person opened with Change, and what they typed in it, kept by panel.ts across redraws; null when closed. */
+export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, diff: DiffShown = null, notice: string | null = null, forgeEdit: string | null = null): void {
   const h = <K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, ...kids: Kid[]): HTMLElementTagNameMap[K] => {
     const e = doc.createElement(tag)
     for (const [k, val] of Object.entries(attrs)) e.setAttribute(k, val)
@@ -665,7 +670,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
     toolbar.replaceChildren()
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
-    row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'update-cancel' }, null, () => render(doc, root, v, a, diff, notice)))
+    row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'update-cancel' }, null, () => render(doc, root, v, a, diff, notice, forgeEdit)))
     row.appendChild(button('Update and stage', { class: 'btn down', 'data-action': 'update-confirm' }, 'down', () => a.updateRun?.(files)))
     toolbar.appendChild(t('p', 'never --overwrite-drift · never a commit', { class: 'fnote' }))
   }
@@ -752,22 +757,24 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
           'div',
           { class: 'row clone', 'data-role': 'forge-dir-stored' },
           t('span', `Forge clone: ${dir}`, { class: 'muted' }),
-          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => edit()),
+          button('Change', { class: 'btn ghost', 'data-action': 'forge-dir-change' }, null, () => (a.forgeDirEdit ? a.forgeDirEdit(dir) : edit(dir))),
         ),
       )
     }
-    const edit = (): void => {
+    const edit = (draft: string | null): void => {
       const box = h('div', { class: 'tb-clone', 'data-role': 'forge-dir' })
       box.appendChild(t('p', 'This Forge is a git URL. Type the folder of a local clone of it: craftar writes the change there, never a commit; the plugin keeps only this path.', { class: 'fnote left' }))
       const input = h('input', { type: 'text', 'data-role': 'forge-dir-input', placeholder: '/path/to/a/clone/of/the/forge', 'aria-label': 'Folder of a local clone of the Forge' }) as HTMLInputElement
-      if (dir) input.value = dir
+      if (draft) input.value = draft
+      input.addEventListener('input', () => a.forgeDirDraft?.(input.value))
       const row = box.appendChild(h('div', { class: 'tb' }, input))
-      if (dir) row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'forge-dir-cancel' }, null, () => stored()))
+      if (dir) row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'forge-dir-cancel' }, null, () => (a.forgeDirEdit ? a.forgeDirEdit(null) : stored())))
       row.appendChild(button('Use this folder', { class: 'btn ghost', 'data-action': 'forge-dir-save' }, null, () => a.forgeDirSet?.(input.value.trim())))
       slot.replaceChildren(box)
     }
-    if (dir) stored()
-    else edit()
+    // The box Change opened survives every redraw (a periodic read, a save): panel.ts keeps it in `forgeEdit`.
+    if (dir && forgeEdit === null) stored()
+    else edit(forgeEdit ?? dir)
   }
 
   function counted(n: number, rest: string): HTMLElement {

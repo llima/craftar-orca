@@ -256,6 +256,8 @@ const root = document.createElement('main')
 document.body.appendChild(root)
 
 let view: PanelView | null = null
+// The Forge clone box opened with Change, with its draft: kept across redraws until Cancel, a save or another workspace.
+let forgeEdit: string | null = null
 let diff: DiffShown = null
 // The worker's refusal of the panel's last request, shown until the next request (nothing is dropped).
 let notice: string | null = null
@@ -265,7 +267,7 @@ function draw(): void {
     root.textContent = 'Reading…'
     return
   }
-  render(document, root, view, actions, diff, notice)
+  render(document, root, view, actions, diff, notice, forgeEdit)
 }
 
 const actions = {
@@ -331,8 +333,16 @@ const actions = {
     notice = null
     call('send.cancel', {}, 30_000)
   },
+  forgeDirEdit(draft: string | null): void {
+    forgeEdit = draft
+    draw()
+  },
+  forgeDirDraft(value: string): void {
+    if (forgeEdit !== null) forgeEdit = value
+  },
   forgeDirSet(dir: string): void {
     notice = null
+    forgeEdit = null
     call('forge.dir.set', { dir }, 30_000)
   },
   consentTerminal(): void {
@@ -412,7 +422,8 @@ function refused(e: unknown): void {
 
 // Esc closes the diff, when the panel has the keyboard.
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && diff) {
+  // An Esc typed in a field belongs to the field.
+  if (e.key === 'Escape' && diff && !(e.target instanceof HTMLInputElement)) {
     diff = null
     draw()
   }
@@ -420,7 +431,10 @@ document.addEventListener('keydown', (e) => {
 
 orca.plugin.on('state.changed', (payload) => {
   const next = payload as PanelView
-  if (view?.model?.ws !== next.model?.ws) diff = null
+  if (view?.model?.ws !== next.model?.ws) {
+    diff = null
+    forgeEdit = null
+  }
   view = next
   draw()
 })
