@@ -564,6 +564,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (source) forge.appendChild(t('div', source, { class: 's src' }))
     // Where the Forge was read from, on a line of its own under its path (the user's ask of 2026-11-08).
     forge.appendChild(h('div', { class: 'fresh', 'data-role': 'freshness' }, h('span', { class: `dot ${fresh[0]}` }), t('span', fresh[1])))
+    // A ref that does not move: a change merged in the Forge comes here only with a new ref (the user's ask of 2026-11-08).
+    const pin = pinnedLine(f?.pinned ?? null, f?.ref ?? null)
+    if (pin) forge.appendChild(t('div', pin, { class: 's pin', 'data-role': 'pinned' }))
 
     dia.appendChild(h('div', { class: linkBroken ? 'stem broken' : 'stem' }))
 
@@ -1025,4 +1028,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
     body.appendChild(sec(title, rows.length, ul, { 'data-role': `list-${dir}` }))
   }
+}
+
+/** The Forge card's line for a ref that does not move, or null. Fixed words and craftar's ref only. */
+export function pinnedLine(pinned: 'tag' | 'commit' | null, ref: string | null): string | null {
+  if (pinned === 'tag' && ref) return `tag ${ref} does not move: a change merged in the Forge comes here once a newer tag is set as ref in craftar.yaml`
+  if (pinned === 'commit') return 'a commit does not move: a change merged in the Forge comes here once a newer ref is set in craftar.yaml'
+  return null
 }

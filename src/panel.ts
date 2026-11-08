@@ -79,6 +79,7 @@ ul.msgs.cleared { opacity: .6; }
 .node .fresh { font-family: var(--mono); font-weight: 400; font-size: 10.5px; color: var(--orca-muted-foreground); display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; overflow-wrap: anywhere; }
 .node .s { font-family: var(--mono); font-size: 11px; color: var(--orca-muted-foreground); margin-top: 2px; overflow-wrap: anywhere; }
 .node .s.src { font-size: 10.5px; opacity: .85; }
+.node .s.pin { font-family: inherit; font-size: 11px; line-height: 1.4; margin-top: 4px; }
 .em { color: var(--ember); }
 .stc { color: var(--steel); }
 .stem { width: 1px; height: 12px; background: color-mix(in srgb, var(--ember) 70%, var(--line)); }

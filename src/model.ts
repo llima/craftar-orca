@@ -3,6 +3,9 @@
 // A model holds paths, states, counts and craftar's own lines — never a file's content.
 import type { DriftDoc, FileState, ReposDoc, StatusDoc, UnsetParam, WorkspacesDoc } from './craftar'
 
+/** A full commit id, as craftar's `ref` may name one: SHA-1 or SHA-256. */
+const FULL_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+
 const PENDING: readonly string[] = ['new', 'update', 'adopt', 'orphan']
 const APART: readonly string[] = ['collision', 'orphan-drift']
 
@@ -17,6 +20,12 @@ export interface PanelModel {
     profile: string | null
     freshness: 'local' | 'fetched' | 'cached'
     fetchedAt: number | null
+    /**
+     * A ref that does not move: `commit` when craftar names a full commit id, `tag` when the named local clone of the
+     * Forge holds it as a tag (the worker asks, offline), else null. A change merged in the Forge comes here only once a
+     * new ref is set in craftar.yaml, and the Forge card says so.
+     */
+    pinned: 'tag' | 'commit' | null
   } | null
   outputs: { owner: string; counts: Record<string, number> }[]
   pending: { path: string; state: FileState }[]
@@ -91,6 +100,7 @@ export function buildModel(i: ModelInput): PanelModel {
       profile: str(i.drift?.profile),
       freshness,
       fetchedAt: remote ? i.fetchedAt : null,
+      pinned: remote && FULL_ID.test(str(f.ref) ?? '') ? 'commit' : null,
     },
     outputs: owners.map((owner) => ({ owner, counts: byOwner.get(owner) as Record<string, number> })),
     pending: i.status.statuses.filter((s) => PENDING.includes(s.state)).map((s) => ({ path: s.path, state: s.state })),
