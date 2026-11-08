@@ -308,7 +308,7 @@ export function tallyLine(t: Tally): string {
   if (t.blocked > 0) parts.push(`${t.blocked} where Update cannot run`)
   if (t.notified > 0) parts.push(`${t.notified} already notified`)
   parts.push(t.sent === 0 ? 'no notification sent' : `${n(t.sent, 'notification', 'notifications')} sent, ${t.delivered} delivered`)
-  if (t.tags > 0) parts.push(n(t.tags, 'newer tag notified', 'newer tags notified'))
+  if (t.tags > 0) parts.push(n(t.tags, 'newer tag notification sent', 'newer tag notifications sent'))
   return `periodic check: ${parts.join(', ')}`
 }
 
@@ -688,6 +688,7 @@ async function notifyNewerTag(s: State, m: PanelModel, reason: Reason): Promise<
     return
   }
   if (seen[m.ws] === tag) return
+  // Recorded before it is shown, as notifyGrowth does: a notification Orca refuses is not asked again for the same tag.
   seen[m.ws] = tag
   await s.orca.storage.set(NOTIFIED_TAG, seen).catch((e) => s.orca.log(failed('storage', e)))
   const forge = m.forge?.source ? `Forge ${m.forge.source}` : 'The Forge'

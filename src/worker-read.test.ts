@@ -910,7 +910,7 @@ test('a newer tag on the Forge notifies once per tag, from the periodic check on
   assert.equal(tags().length, 0, 'a focus read does not notify')
   await main.periodic()
   assert.deepEqual(tags().map((n) => n.body), ['Forge https://example.com/acme/forge.git has a newer tag v1.3.0 for web (it follows v1.2.0): set ref in craftar.yaml to move. Open the craftar panel.'])
-  assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /, 1 newer tag notified$/)
+  assert.match(worker.logs.filter((l) => l.includes('periodic check:')).at(-1) ?? '', /, 1 newer tag notification sent$/)
   await main.periodic()
   assert.equal(tags().length, 1, 'the same tag again does not notify')
   writeFileSync(String(s.env.CRAFTAR_STUB_TABLE), JSON.stringify(table({ 'status --json': at('v1.4.0') })))
@@ -931,4 +931,10 @@ test('Open craftar.yaml opens the focused workspace\'s craftar.yaml in an Orca e
   await worker.request('config.open')
   assert.deepEqual(h.callsOf('editor.open'), [{ workspaceId: 'w1', path: 'craftar.yaml' }])
   assert.equal(s.calls().length, before, 'no craftar runs')
+})
+
+test('Open craftar.yaml with no craftar workspace in focus is refused, and opens nothing', async () => {
+  const { h, worker } = await setup({ rows: [] })
+  await assert.rejects(worker.request('config.open'), /no craftar workspace has the focus/)
+  assert.equal(h.callsOf('editor.open').length, 0)
 })
