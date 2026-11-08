@@ -176,3 +176,14 @@ test('Change forgets the stored clone folder, and the panel asks for it again', 
   const v = (await worker.request('forge.dir.set', { dir: '' })) as View
   assert.deepEqual(v.forgeDir, { needed: true, dir: null })
 })
+
+test('while the write runs, Change and Cancel are refused, and the write keeps its own result', async () => {
+  const { worker } = await setup({ remote: true, extra: { 'drift promote': { stdout: JSON.stringify(PLAN), code: 0, delayMs: 400 } } })
+  await worker.request('forge.dir.set', { dir: tempDir('craftar-orca-clone-') })
+  await sendAndWait(worker, 'send.preview', { path: EDITED })
+  await worker.request('send.run', { path: EDITED })
+  await assert.rejects(worker.request('forge.dir.set', { dir: '' }), /craftar is already/)
+  await assert.rejects(worker.request('send.cancel', {}), /craftar is already/)
+  await main.settled()
+  assert.equal(((await worker.request('state.get')) as View).send?.phase, 'done')
+})

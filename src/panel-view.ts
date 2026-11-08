@@ -582,7 +582,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     row.appendChild(button('Review edits', { class: 'btn', 'data-action': 'review-up' }, 'diff', first ? () => a.showDiff(first.path) : null))
     if (n > 0 && why) card.appendChild(t('p', why, { class: 'note' }))
     if (needsClone && n > 0) drawForgeDir(card)
-    else if (v.forgeDir?.needed && v.forgeDir.dir && n > 0) {
+    else if (v.forgeDir?.needed && v.forgeDir.dir && n > 0 && !busy) {
       card.appendChild(
         h(
           'div',

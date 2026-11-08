@@ -518,9 +518,14 @@ function sendable(s: State, path: unknown): { ws: string; path: string } {
   }
   if (forgeIsRemote(s, ws) && !s.forgeDirs[ws]) throw new Error('this Forge is a git URL: name a local clone of the Forge in the panel first')
   if (!s.craftar) throw new Error('craftar is not ready — see the self-check')
+  refuseWhileBusy(s, ws)
+  return { ws, path }
+}
+
+/** One send at a time per workspace: nothing changes it while craftar checks or writes. */
+function refuseWhileBusy(s: State, ws: string): void {
   const now = s.send.get(ws)?.phase
   if (now === 'checking' || now === 'writing') throw new Error('craftar is already working on a send for this workspace — wait for it')
-  return { ws, path }
 }
 
 /** --forge only for a URL Forge (O5): a Forge on this machine needs nothing. */
@@ -570,9 +575,9 @@ async function sendWrite(s: State, t: { ws: string; path: string }, prev: SendVi
     try {
       // The Forge the dry run used, whatever was named since (a changed folder drops the plan anyway).
       const result = await promote(craftar, t.ws, t.path, { dryRun: false, forge: prev.forge ?? null })
-      s.send.set(t.ws, { ...prev, phase: 'done', result, message: null })
+      setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'done', result, message: null })
     } catch (e) {
-      s.send.set(t.ws, { ...prev, phase: 'error', result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
+      setIfCurrent(s, t.ws, prev.token ?? -1, { ...prev, phase: 'error', result: null, message: e instanceof PromoteRefused ? e.message : 'craftar drift promote did not run' })
     }
   })
   // Read again the workspace that was written, whichever has the focus now.
@@ -966,6 +971,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
   orca.panels.handle('send.cancel', async () => {
     const ws = focusedPath(s)
+    if (ws) refuseWhileBusy(s, ws)
     if (ws) s.send.delete(ws)
     return view(s) as never
   })
@@ -974,6 +980,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const ws = focusedPath(s)
     if (!ws) throw new Error('no craftar workspace has the focus')
     if (!forgeIsRemote(s, ws)) throw new Error('this Forge is on this machine: craftar finds it by itself, no clone to name')
+    refuseWhileBusy(s, ws)
     // An empty folder forgets the stored one: the panel asks for it again ("Change").
     if (dir === '') {
       delete s.forgeDirs[ws]
@@ -982,10 +989,11 @@ export default function activate(orca: OrcaWorkerApi): void {
       return view(s) as never
     }
     if (typeof dir !== 'string' || !isAbsolute(dir) || /[\u0000-\u001f\u007f]/.test(dir)) throw new Error('give the absolute path of a folder that holds a clone of the Forge')
+    // Stored first: a folder storage refused is not used either.
+    await orca.storage.set(FORGE_DIRS, { ...s.forgeDirs, [ws]: dir })
     s.forgeDirs[ws] = dir
     // A plan made against another folder is not this one's.
     s.send.delete(ws)
-    await orca.storage.set(FORGE_DIRS, s.forgeDirs)
     return view(s) as never
   })
   // O7: an early hint on save — never refuses, never awaits, reads only the event's path; the text is not
@@ -996,7 +1004,8 @@ export default function activate(orca: OrcaWorkerApi): void {
     // Orca gives a path relative to the workspace root (absolute outside one); an absolute one under the root
     // is turned relative too, backslashes read as slashes — craftar's paths are relative POSIX.
     const rel = row && typeof e.path === 'string' ? relativeTo(row.path, e.path) : null
-    if (row && rel !== null && s.known.get(row.path)?.has(rel)) {
+    // Only the focused workspace is read on a focus refresh: a file of another one is left to its next read.
+    if (row && rel !== null && row.path === focusedPath(s) && s.known.get(row.path)?.has(rel)) {
       const set = s.marked.get(row.path) ?? new Set<string>()
       set.add(rel)
       s.marked.set(row.path, set)
