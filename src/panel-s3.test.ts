@@ -184,3 +184,13 @@ test('the clone box Change opened survives a redraw, with what was typed, until 
   click(byAction(root, 'forge-dir-cancel')[0])
   assert.deepEqual(calls, ['edit /home/acme/forge-clone', 'edit null'])
 })
+
+test('the first clone box (no folder stored yet) keeps what was typed across a redraw', () => {
+  const v = view({ forgeDir: { needed: true, dir: null } })
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  const a = { choose: () => undefined, refresh: () => undefined, showDiff: () => undefined, forgeDirSet: () => undefined, forgeDirEdit: () => undefined }
+  for (let i = 0; i < 2; i++) render(doc as never, root as never, v, a, null, null, '/home/acme/half')
+  assert.equal(all(root).find((e) => e.attrs['data-role'] === 'forge-dir-input')?.value, '/home/acme/half')
+  assert.equal(byAction(root, 'forge-dir-cancel').length, 0)
+})

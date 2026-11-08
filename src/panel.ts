@@ -338,12 +338,20 @@ const actions = {
     draw()
   },
   forgeDirDraft(value: string): void {
-    if (forgeEdit !== null) forgeEdit = value
+    // The first box too (no folder stored yet): what is typed survives a redraw.
+    forgeEdit = value
   },
   forgeDirSet(dir: string): void {
     notice = null
-    forgeEdit = null
-    call('forge.dir.set', { dir }, 30_000)
+    // The draft is dropped only once the worker took the folder: a refusal keeps what was typed.
+    void orca.plugin
+      .request('forge.dir.set', { dir }, { timeoutMs: 30_000 })
+      .then((v) => {
+        forgeEdit = null
+        view = v as PanelView
+        draw()
+      })
+      .catch((e) => refused(e))
   },
   consentTerminal(): void {
     notice = null
