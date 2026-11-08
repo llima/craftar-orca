@@ -6,8 +6,8 @@
 > a terminal). The plugin sends nothing anywhere: no telemetry; the only network traffic is craftar's own fetch and the `git push` /
 > `gh pr create` you click. For a remote Forge over ssh the worker gets no `SSH_AUTH_SOCK`: use https with a credential helper.
 
-An [Orca](https://github.com/stablyai/orca) plugin that shows, for the workspace you have open, which craftar Forge it follows, its
-linked projects and the files coming and going between them — using the `craftar` you installed. It adds nothing to craftar.
+An [Orca](https://github.com/stablyai/orca) plugin that shows, for the workspace you have open, which craftar Forge it follows, the
+surfaces craftar writes there and the files coming and going between them — using the `craftar` you installed. It adds nothing to craftar.
 
 **Status: S3a, Send to Forge.** The plugin reads, and writes only on your clicks: **Update** (S2) — one sync through `craftar mcp
 --allow-writes`, then exactly the files it wrote staged, never a commit — and **Send to Forge** (S3a) — `craftar drift promote` into the
@@ -30,13 +30,15 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
 - **The status bar** reads `craftar: in sync`, `Forge moved · N`, `edited · N` (or both), `craftar: sync refused` (a declared
   parameter with no value), `craftar: check failed` (`craftar status` exits 1 for another reason — its lines say which) or
   `craftar: error`.
-- **The panel** draws the Forge above the workspace, joined by two lanes — down (amber) lit when files are coming from the Forge,
-  up (blue) lit when an edited file can go up — with a moving comet on a lit lane (none when the system asks for reduced motion);
-  each owner craftar counts (its targets, and services), as craftar names it, with its file count; the files coming down and edited here; linked projects
-  (the profile's repositories and the other registered workspaces of the same Forge); every warning craftar gives for this
-  workspace in its words, under "craftar says" (open when the sync is refused, a check fails, the Forge could not be fetched or a read gave an error; the
-  registry's lines about other workspaces stay out of its panel); a refused sync in craftar's words; and a failed check with
-  craftar's lines. Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
+- **The panel** (the layout approved on 2026-11-08) follows Orca's theme — it paints no background of its own and takes Orca's
+  colours — and reads top to bottom: the sync diagram, as craftar.dev draws it — the Forge (where it is read from), `craftar sync`
+  saying what comes down and what can go up, one card per surface craftar writes (each owner as craftar names it — its targets, and
+  services — with its state: up to date, outdated, drift or kept apart) and the workspace below with its profile; then the files coming
+  from the Forge and the files edited here; and the actions in a fixed toolbar at the bottom, Bring (from the Forge) and Send (to the
+  Forge). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
+  read gave an error; the registry's lines about other workspaces stay out of its panel). A refused sync and a failed check are
+  shown in craftar's words. With no craftar workspace in focus the panel shows the logo, animated (still when the system asks for
+  reduced motion). Clicking a file shows its diff from a `craftar mcp` child started without `--fetch` and never with
   `--allow-writes`.
 - **Send to Forge** (spec 60 §8) is offered for a file you edited by hand that craftar can carry up (`drift show --json`'s
   `promotable`); a file it will not carry shows craftar's reason. The first click runs `craftar drift promote <file> --workspace <dir>
@@ -53,7 +55,7 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   workspace was listed, the file inside it, focused and recorded in the lock — never the path or the text.
 - **The periodic check notifies** once when the files coming from the Forge grow, for a workspace Update can run on — "Forge <name> changed N files for <workspace> —
   update N files and add them to the commit? Open the craftar panel." — names and counts only (an Orca notification takes no click).
-- **Update** is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
+- **Bring** (the toolbar's *Bring N from the Forge*, the update) is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
   and — for a remote Forge — the last periodic check fetched it (a focus read is offline and changes nothing here; with **Fetch a
   remote Forge** off, Update stays off for a remote Forge); otherwise it says why. Its confirm lists every file —
   "Update N files and add them to your commit?" — and **Update and stage** sends exactly that list. Then, in the workspace's queue:
@@ -72,8 +74,10 @@ Forge's working tree, after its dry run, never a commit. Branch, commit, push an
   one when it is gone), and when Orca's CLI cannot, the panel says the terminal is in the background. The plugin never types into a terminal; with cmd or a shell the probe does not
   recognise, it opens none and lists the steps in words.
 
-**Clicking the craftar item in the status bar** shows or hides Orca's right side bar, where the craftar panel is (Orca 1.4.250 gives
-a plugin no way to open its own panel; the palette command `craftar: show or hide the craftar panel` does the same).
+**Clicking the craftar item in the status bar** shows or hides Orca's right side bar, where the craftar panel is. It cannot also
+select the craftar tab: Orca 1.4.250 gives a plugin no way to open or select its own panel (a status bar item runs a command, and
+`commands.run` only toggles the side bars), so it stays this way until Orca offers that action. The palette command `craftar: show
+or hide the craftar panel` does the same.
 
 The probe `craftar: run the probe` (S0) stays, in the palette (Orca's default Ctrl+Shift+J on Linux, typing `craftar`), and opens its
 terminal in the workspace Orca has active (asked of `orca-ide worktree ps --json`, as the focus is): it says which `craftar` it found and which environment variables the worker has (present or absent,
