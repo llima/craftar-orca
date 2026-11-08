@@ -557,12 +557,13 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     ft.appendChild(t('span', fname || source || '(not shown)', { class: 'nm', ...(source ? { title: source } : {}) }))
     const when = f?.fetchedAt ? new Date(f.fetchedAt).toLocaleString() : null
     const fresh = f?.freshness === 'cached' ? ['warn', `cached copy${when ? ` · last fetched ${when}` : ''}`] : f?.freshness === 'fetched' ? ['ok', `fetched${when ? ` ${when}` : ''}`] : ['ok', 'on this machine']
-    ft.appendChild(h('span', { class: 'fresh', 'data-role': 'freshness' }, h('span', { class: `dot ${fresh[0]}` }), t('span', fresh[1])))
     const fs = forge.appendChild(h('div', { class: 's' }))
     fs.appendChild(t('span', f?.ref ?? 'default branch'))
     fs.appendChild(t('span', ' @ '))
     fs.appendChild(t('span', short(f?.commit ?? null) ?? 'no commit', { class: 'em' }))
     if (source) forge.appendChild(t('div', source, { class: 's src' }))
+    // Where the Forge was read from, on a line of its own under its path (the user's ask of 2026-11-08).
+    forge.appendChild(h('div', { class: 'fresh', 'data-role': 'freshness' }, h('span', { class: `dot ${fresh[0]}` }), t('span', fresh[1])))
 
     dia.appendChild(h('div', { class: linkBroken ? 'stem broken' : 'stem' }))
 
