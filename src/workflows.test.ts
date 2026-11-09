@@ -4,8 +4,9 @@
 import { assert, test } from 'orca/testing'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const ROOT = join(import.meta.dirname, '..')
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const read = (name: string) => readFileSync(join(ROOT, '.github', 'workflows', name), 'utf8').replace(/\r\n/g, '\n')
 const code = (text: string) => text.split('\n').filter((l) => !l.trimStart().startsWith('#'))
 const indent = (l: string) => l.length - l.trimStart().length
@@ -39,6 +40,8 @@ test('ci.yml: read-only, never cancelled on main, actions pinned by SHA, the Orc
   const ci = read('ci.yml')
   const lines = code(ci)
   assert.ok(lines.includes('permissions:') && lines.includes('  contents: read'))
+  assert.ok(!lines.some((l) => /write-all|^\s+[a-z-]+: write$/.test(l)), 'ci.yml grants no write')
+  assert.ok(lines.includes('  pull_request:') && !ci.includes('pull_request_target'))
   assert.ok(lines.includes("  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}"))
   assert.ok(usesPinned(ci))
   assert.equal(lines.filter((l) => /^ {2}ORCA_VERSION: \d+\.\d+\.\d+$/.test(l)).length, 1)
@@ -80,7 +83,12 @@ test('release.yml: the tested commit is checked out and tagged; github.token is 
   }
   assert.ok(lines.includes('          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}'))
   assert.ok(lines.some((l) => /gh release create "v\$VERSION" .*--target "\$HEAD_SHA"/.test(l)))
-  assert.ok(lines.some((l) => l.trim() === 'if [ "${GITHUB_SHA:-}" != "$HEAD_SHA" ]; then'))
+  // The guard refuses (exit 1 before its fi), and it comes before the release is created.
+  const guard = lines.findIndex((l) => l.trim() === 'if [ "${GITHUB_SHA:-}" != "$HEAD_SHA" ]; then')
+  const create = lines.findIndex((l) => /gh release create "v\$VERSION" /.test(l))
+  assert.ok(guard >= 0 && create > guard, 'the guard comes before gh release create')
+  const end = lines.findIndex((l, i) => i > guard && l.trim() === 'fi')
+  assert.ok(end > guard && end < create && lines.slice(guard + 1, end).some((l) => l.trim() === 'exit 1'), 'the guard exits 1')
   assert.ok(lines.includes('          GH_TOKEN: ${{ github.token }}'))
   assert.ok(!/secrets\.|id-token|NODE_AUTH_TOKEN|GITHUB_TOKEN/.test(rel))
   assert.ok(runBlocks(rel).every((b) => !b.includes('${{')))
