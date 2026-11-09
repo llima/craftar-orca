@@ -73,6 +73,8 @@ export interface Actions {
   discardOpen?(path: string): void
   discardRun?(path: string): void
   discardCancel?(): void
+  /** A discard whose read failed: Back, then Check again once Back answered (panel.ts sequences the two). */
+  discardCheckAgain?(): void
   /** S3b: prepare the PR after a Send, run a step, read a waiting terminal again, show or leave the PR screen, drop the steps left. */
   forgePrPrepare?(): void
   forgePrStep?(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void
@@ -194,8 +196,8 @@ const STATE_ICON: Record<string, [string, string]> = {
   'orphan-drift': ['apart', '!'],
 }
 
-const NOT_BUILT_UPDATE = 'Update and stage is not built yet in this version of the plugin. Until then, run craftar sync in a terminal.'
-const NOT_BUILT_SEND = 'Send to Forge is not built yet in this version of the plugin.'
+const NOT_BUILT_UPDATE = 'Bring is not built yet in this version of the plugin. Until then, run craftar sync in a terminal.'
+const NOT_BUILT_SEND = 'Send is not built yet in this version of the plugin.'
 const NEEDS_CLONE = 'name a local clone of the Forge first'
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -544,8 +546,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     }
     // P3: while craftar syncs (a fetch, the sync, then the staging), a strip says so in words.
     if (v.sync?.phase === 'running') body.appendChild(progress('craftar is bringing the files from the Forge: fetching, syncing, then staging…'))
-    if (v.consent) drawConsent(v.consent)
-    // craftar's words about the last run; a consent refusal is said once, in the consent card above.
+    // The consent is asked in the footer, above Bring (drawMainToolbar).
+    // craftar's words about the last run; a consent refusal is said once, in the consent card in the footer.
     const syncKey = cardKey('sync', v.sync?.phase ?? '', v.sync?.message ?? '')
     if (v.sync?.message && !(v.sync.phase === 'consent' && v.consent) && !dismissed.has(syncKey)) {
       const err = v.sync.phase === 'error'
@@ -599,6 +601,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         if (fromSharedBase(words)) box.appendChild(t('p', SHARED_BASE_LINE, { 'data-role': 'shared-base' }))
       }
       box.appendChild(t('p', 'Kept here as you edited it. Save the file again, or click Check again, to ask craftar once more.', { class: 'muted' }))
+      // The button the line names, at the end of the card: the header's Check again, which clears the refusal and reads anew.
+      box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'refresh' }, 'refresh', () => a.refresh())))
     }
     fileList('Kept apart', 'apart', m.apart, (row) => withDiscard(row, m, t('span', row.state, { class: 'st' })))
     if (v.lastSync) drawLastSync(v.lastSync)
@@ -808,17 +812,28 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       : cached
         ? (u?.reason ?? 'needs a fetch that works')
         : u
-          ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to update yet: check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
+          ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to bring yet: click Check again at the top' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
           : NOT_BUILT_UPDATE
+    const bringLabel = m.pending.length > 0 ? (running ? 'Bringing…' : `Bring ${n} from the Forge`) : null
+    // A message that asks for a footer action sits in the footer, above the button it names, as the Forge clone box does
+    // (the user's ask of 2026-11-09): the consent, then a file craftar kept while it was writing. It names Bring only when
+    // Bring can be clicked; otherwise it says why Bring waits.
+    const click = !running && bringLabel && allowed ? `Click ${bringLabel} below` : null
+    const waits = !running && bringLabel && !allowed && reason ? `Bring waits: ${reason.replace(/\.$/, '')}.` : null
+    if (v.consent) drawConsent(v.consent, click, waits)
+    if (v.lastSync?.rerun) {
+      const again = click ? `${click} to bring the files again.` : waits ?? 'Bring the files again once craftar lists them.'
+      toolbar.appendChild(t('p', `craftar kept a file that changed while it was writing. ${again}`, { class: 'tb-note', 'data-role': 'rerun' }))
+    }
     // A URL Forge needs a local clone before Send: asked for, or shown with Change, in the toolbar itself (the user's ask of 2026-11-08).
     if (promotable > 0 && v.forgeDir?.needed === true) drawForgeDir(v.forgeDir.dir)
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
-    if (m.pending.length > 0) {
+    if (bringLabel) {
       const attrs: Record<string, string> = { class: 'btn down', 'data-action': 'update' }
       if (!allowed) attrs.disabled = ''
       if (running) attrs['aria-busy'] = 'true'
       if (!allowed && reason) attrs.title = reason
-      row.appendChild(button(running ? 'Bringing…' : `Bring ${n} from the Forge`, attrs, 'down', allowed ? () => drawBringScreen(m, files) : null))
+      row.appendChild(button(bringLabel, attrs, 'down', allowed ? () => drawBringScreen(m, files) : null))
     }
     const target = m.edited.find((e) => e.promotable)
     const why = sendWhy(m)
@@ -882,6 +897,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     const box = body.appendChild(h('section', { class: sd.phase === 'error' ? 'card bad' : 'card up', 'data-role': 'send-box' }))
     const plan = sd.phase === 'done' ? (sd.result ?? sd.plan) : sd.plan
     toolbar.replaceChildren()
+    // The next step, in the footer above the button that starts it.
+    if (sd.phase === 'done') {
+      const start = typeof a.forgePrPrepare === 'function' ? ' Click Prepare the PR below to start.' : ''
+      toolbar.appendChild(t('p', `Next: a PR in the Forge, in three clicks (branch and commit, push, open the PR), each in a terminal you see, after a preview of the identity git will use.${start}`, { class: 'tb-note', 'data-role': 'send-next' }))
+    }
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
     const back = (): HTMLButtonElement => button('Back to the workspace', { class: 'btn', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.())
     if (sd.phase === 'error') {
@@ -935,7 +955,6 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       if (plan.warnings.length === 0) says.appendChild(t('li', 'no warnings', { class: 'quiet' }))
       body.appendChild(sec('craftar says', plan.warnings.length, says))
     }
-    if (sd.phase === 'done') body.appendChild(h('section', { class: 'card' }, t('p', 'Next: a PR in the Forge, in three clicks (branch and commit, push, open the PR), each in a terminal you see, after a preview of the identity git will use.', { class: 'muted' })))
     if (sd.phase === 'preview') {
       row.appendChild(button('Cancel', { class: 'btn ghost', 'data-action': 'send-cancel' }, null, () => a.sendCancel?.()))
       row.appendChild(button('Write to the Forge', { class: 'btn ember', 'data-action': 'send-confirm' }, 'up', () => a.sendRun?.(sd.path)))
@@ -961,7 +980,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       attrs.title = off
     } else if (pending > 0) {
       attrs.disabled = ''
-      attrs.title = 'Update first: bring the files coming from the Forge with Update and stage, then discard'
+      attrs.title = 'Update first: click Bring below, then discard'
     } else if (busyHere) {
       attrs.disabled = ''
       attrs.title = 'a discard is running'
@@ -1007,6 +1026,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (d.phase === 'error') {
       box.appendChild(t('h2', `${name} was not discarded`))
       if (d.message) box.appendChild(t('pre', d.message, { class: 'words', 'data-role': 'discard-message' }))
+      // The discard ran and the read after it failed: its message asks to go back and check again, so the card ends with that
+      // button, which runs Back (discard.cancel) and then, once it answered, the header's Check again; both only read.
+      if (d.readAgain === true) {
+        box.appendChild(h('div', { class: 'row' }, button('Back and check again', { class: 'btn', 'data-action': 'discard-check-again' }, 'refresh', () => a.discardCheckAgain?.())))
+      }
       row.appendChild(back('Back to the workspace'))
       tail()
       return
@@ -1073,22 +1097,24 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     body.appendChild(sec('PR body, written by the plugin', null, t('pre', f.body, { class: 'words', 'data-role': 'forgepr-body' })))
 
     toolbar.replaceChildren()
+    // Send all: after the commit, the files left go first (their commit joins the same branch), before the push.
+    const rest = f.rest ?? []
+    const adding = f.next ?? []
+    const offerRest = !f.waiting && f.phase === 'committed' && adding.length === 0 && rest.length > 0 && typeof a.sendAllRest === 'function'
+    // The files left, said in the footer above Send the rest.
+    if (offerRest) toolbar.appendChild(t('p', `${rest.length === 1 ? '1 file was' : `${rest.length} files were`} not written yet: ${rest.join(', ')}. Click Send the rest below before the push, or push without ${rest.length === 1 ? 'it' : 'them'}.`, { class: 'tb-note', 'data-role': 'forgepr-rest' }))
     const row = toolbar.appendChild(h('div', { class: 'tb' }))
     row.appendChild(button('Back to the workspace', { class: 'btn ghost', 'data-action': 'forgepr-back' }, null, () => a.forgePrShow?.(false)))
     const label: Record<string, [string, 'commit' | 'push' | 'pr']> = { ready: ['1 Branch and commit', 'commit'], committed: ['2 Push', 'push'], pushed: ['3 Open the PR', 'pr'] }
     const busy: Record<string, string> = { preparing: 'Reading…', committing: 'Committing…', pushing: 'Pushing…', opening: 'Opening…' }
-    // Send all: after the commit, the files left go first (their commit joins the same branch), before the push.
-    const rest = f.rest ?? []
-    const adding = f.next ?? []
     if (!f.waiting && f.phase === 'committed' && adding.length > 0) {
       // The rest was added to the PR: its commit on the branch shown above is the next click, before the push.
       row.appendChild(button(`Commit ${adding.length === 1 ? '1 path' : `${adding.length} paths`} on ${f.branch}`, { class: 'btn ember', 'data-action': 'forgepr-commit-more' }, 'up', () => a.forgePrStep?.('commit')))
       const ul = h('ul', { class: 'lst' })
       for (const p of adding) ul.appendChild(h('li', { 'data-role': 'forgepr-next' }, t('span', p, { class: 'x' })))
       body.appendChild(sec('Next commit, on the same branch', adding.length, ul))
-    } else if (!f.waiting && f.phase === 'committed' && rest.length > 0 && typeof a.sendAllRest === 'function') {
+    } else if (offerRest) {
       row.appendChild(button(`Send the rest (${rest.length})`, { class: 'btn ember', 'data-action': 'sendall-rest' }, 'up', () => a.sendAllRest?.()))
-      box.appendChild(t('p', `${rest.length === 1 ? '1 file was' : `${rest.length} files were`} not written yet: ${rest.join(', ')}. Send the rest before the push, or push without ${rest.length === 1 ? 'it' : 'them'}.`, { class: 'note', 'data-role': 'forgepr-rest' }))
     }
     if (f.waiting) row.appendChild(button('Check the terminal', { class: 'btn ember', 'data-action': 'forgepr-check' }, 'term', () => a.forgePrCheck?.()))
     else if (label[f.phase] && !(f.phase === 'committed' && adding.length > 0)) {
@@ -1167,19 +1193,20 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'install-check' }, 'refresh', () => (a.validate ? a.validate() : a.refresh()))))
   }
 
-  function drawConsent(c: NonNullable<S2View['consent']>): void {
+  /** The consent, in the footer above Bring (the user's ask of 2026-11-09); `click` names Bring when it can be clicked, `waits` says why it cannot. */
+  function drawConsent(c: NonNullable<S2View['consent']>, click: string | null, waits: string | null): void {
     // P3: craftar printed that it recorded the consent in the terminal the plugin opened: the question is answered.
     if (c.answer === 'recorded') {
-      const ok = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent-recorded' }))
+      const ok = toolbar.appendChild(h('section', { class: 'cta plain tb-prompt', 'data-role': 'consent-recorded' }))
       ok.appendChild(t('h2', 'Writes are allowed here'))
-      ok.appendChild(t('p', 'craftar recorded your yes. Click Bring from the Forge again: craftar will not ask for consent again.'))
+      ok.appendChild(t('p', click ? `craftar recorded your yes. ${click}: craftar will not ask for consent again.` : `craftar recorded your yes: craftar will not ask for consent again.${waits ? ` ${waits}` : ''}`))
       return
     }
-    const box = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent' }))
+    const box = toolbar.appendChild(h('section', { class: 'cta plain tb-prompt', 'data-role': 'consent' }))
     box.appendChild(t('h2', 'craftar asks before it writes here'))
     box.appendChild(t('pre', c.text, { class: 'words' }))
     if (c.answer === 'cancelled') {
-      box.appendChild(t('p', 'You answered no in the terminal: nothing was recorded, and nothing was written. Open the terminal again to answer yes.', { class: 'note', 'data-role': 'consent-cancelled' }))
+      box.appendChild(t('p', 'You answered no in the terminal: nothing was recorded, and nothing was written. Click Open a terminal to allow writes to answer yes.', { class: 'note', 'data-role': 'consent-cancelled' }))
     }
     // P2: what the terminal will show and ask, read before it opens. The question is craftar's own words, verbatim.
     const explain = box.appendChild(h('div', { class: 'note bad consent-explain', 'data-role': 'consent-explain' }))
@@ -1189,8 +1216,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     yes.appendChild(t('strong', 'To allow writes, type yes and press Enter.'))
     yes.appendChild(t('span', ' Enter alone, or no, answers no and writes nothing. The plugin never answers for you.'))
     if (c.terminal === 'offered') {
-      box.appendChild(h('div', { class: 'row' }, button('Open a terminal to allow writes', { class: 'btn', 'data-action': 'consent-terminal' }, 'term', () => a.consentTerminal?.())))
+      // The button the card asks for, last, as the Forge clone box ends with its own.
       if (c.note) box.appendChild(t('p', c.note, { class: 'note', 'data-role': 'consent-note' }))
+      box.appendChild(h('div', { class: 'row' }, button('Open a terminal to allow writes', { class: 'btn', 'data-action': 'consent-terminal' }, 'term', () => a.consentTerminal?.())))
     } else {
       const ol = box.appendChild(h('ol', { class: 'lines plain' }))
       for (const step of c.steps) ol.appendChild(t('li', step))
@@ -1213,7 +1241,6 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     list('Kept', l.kept.map((x) => ({ text: `${x.path} · ${x.state}${x.reason ? ` · ${x.reason}` : ''}`, role: 'kept' })))
     list('Changed since the question', l.differences.map((x) => ({ text: x, role: 'difference', cls: 'warn' })))
     list('craftar says', l.warnings.map((x) => ({ text: x, role: 'warning', cls: 'warn' })))
-    if (l.rerun) box.appendChild(t('p', 'craftar kept a file that changed while it was writing. Bring the files again.', { class: 'note', 'data-role': 'rerun' }))
     body.appendChild(sec('Last update', null, box, { 'data-role': 'last-sync' }))
   }
 

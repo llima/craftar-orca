@@ -326,6 +326,8 @@ export interface DiscardState {
   /** craftar's refusal or the plugin's reason, verbatim; a note above the confirmation when it was drawn again. */
   message: string | null
   after: { file: string; others: string[]; warnings: string[]; report: string } | null
+  /** The discard ran but the read after it failed: the panel offers Back and check again at the end of the card. */
+  readAgain?: boolean
   /** Internal: the read the confirmation came from, and that row's Forge side. */
   before?: StatusDoc
   rowForge?: string
@@ -826,7 +828,7 @@ async function sendPreviewRun(s: State, t: { ws: string; path: string }, craftar
 async function sendRun(s: State, path: unknown): Promise<() => Promise<void>> {
   const t = sendable(s, path)
   const prev = s.send.get(t.ws)
-  if (!prev || prev.phase !== 'preview' || prev.path !== t.path) throw new Error('look at the plan first: click Send to Forge for this file')
+  if (!prev || prev.phase !== 'preview' || prev.path !== t.path) throw new Error('look at the plan first: click Send on this file')
   const craftar = s.craftar as Craftar
   s.send.set(t.ws, { ...prev, phase: 'writing' })
   return () => sendWrite(s, t, prev, craftar)
@@ -1467,7 +1469,7 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
   const craftar = s.craftar
   // The consent is the focused workspace's own: one asked for another workspace opens nothing here.
   const consent = row ? s.consent.get(row.path) : undefined
-  if (!consent || !row || !craftar) throw new Error('nothing to allow: run Update first')
+  if (!consent || !row || !craftar) throw new Error('nothing to allow: click Bring first')
   const shell = await shellOf(s, row.id)
   const settings = await readSettings(s.orca)
   const command = allowWritesCommand(shell, { bin: craftar.bin, home: settings.craftarHome }, row.path)
@@ -1563,7 +1565,7 @@ function consentSteps(ws: string, craftar: Craftar, home: string, why: string | 
     `Run your craftar (${craftar.bin}) with its mcp allow-writes command, giving this workspace's folder as --workspace: ${ws}`,
     ...(home.trim() !== '' ? [`Set CRAFTAR_HOME to ${home.trim()} for it first, as the plugin's craftarHome setting does.`] : []),
     'Read what it will allow and answer its question yourself.',
-    'Then click Update again.',
+    'Then click Bring again in the craftar panel.',
   ]
 }
 
@@ -1839,7 +1841,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const fault = rowFault(row)
     if (fault || !row) throw new Error(fault ?? 'not a file craftar lists as edited here')
     const pending = pendingOf(st)
-    if (pending.length > 0) throw new Error(`Update first: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} coming from the Forge. Bring them with Update and stage, then discard.`)
+    if (pending.length > 0) throw new Error(`Update first: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} coming from the Forge. Click Bring in the footer, then discard.`)
     if (st.forge?.kind && st.forge.kind !== 'path' && !settings.fetch) throw new Error('Discard needs a fetched Forge: turn "Fetch a remote Forge" on in the plugin settings')
     // The confirmation always shows craftar's diff, or craftar's own note where it withholds the content: a diff that could not be
     // read is no confirmation, so the Discard is refused with craftar's words.
@@ -1907,7 +1909,7 @@ export default function activate(orca: OrcaWorkerApi): void {
           }
           const pending = pendingOf(st)
           if (pending.length > 0) {
-            s.discard.set(ws, { ...d, phase: 'error', message: `Nothing was written: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} now coming from the Forge. Update first.` })
+            s.discard.set(ws, { ...d, phase: 'error', message: `Nothing was written: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} now coming from the Forge. Update first: go back to the workspace and click Bring, then discard.` })
             return
           }
           const dr = await driftShow(craftar, ws)
@@ -1946,8 +1948,9 @@ export default function activate(orca: OrcaWorkerApi): void {
         s.discard.set(ws, {
           ...d, phase: 'error',
           message: ranReport !== null
-            ? `The discard ran, but reading the workspace again failed: ${why}. Check again to see how the file reads now.${ranReport ? `\n${ranReport}` : ''}`
+            ? `The discard ran, but reading the workspace again failed: ${why}. Go back to the workspace and check again to see how the file reads now.${ranReport ? `\n${ranReport}` : ''}`
             : `Nothing was written: ${why}.`,
+          ...(ranReport !== null ? { readAgain: true } : {}),
         })
       } finally {
         if (src) s.discardHold.delete(src)

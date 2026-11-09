@@ -218,6 +218,9 @@ footer.toolbar { border-top: 1px solid var(--line); background: var(--orca-card)
 .tb-clone { display: grid; gap: 6px; min-width: 0; }
 .tb-clone input[type='text'] { flex: 1 1 auto; min-width: 0; height: 32px; }
 footer.toolbar .row.clone { display: flex; align-items: center; gap: 8px; }
+/* A message that asks for a footer action, above the button it names (the consent, a note); the list above keeps its room. */
+footer.toolbar .tb-prompt { max-height: 45vh; overflow: auto; }
+.tb-note { font-size: 12px; line-height: 1.45; color: var(--orca-card-foreground); overflow-wrap: anywhere; margin: 0; }
 
 /* Item 1: no craftar workspace — the logo animated, white on top, linked to orange and blue. */
 .empty { display: grid; justify-items: center; align-content: center; text-align: center; gap: 12px; padding: 28px 14px; min-height: 100%; }
@@ -378,6 +381,18 @@ const actions = {
   discardCancel(): void {
     notice = null
     call('discard.cancel', {}, 30_000)
+  },
+  // A discard whose read failed: Back, then Check again once Back answered, so the read is drawn last.
+  discardCheckAgain(): void {
+    notice = null
+    void orca.plugin
+      .request('discard.cancel', {}, { timeoutMs: 30_000 })
+      .then((v) => {
+        view = v as PanelView
+        draw()
+        actions.refresh()
+      })
+      .catch((e) => refused(e))
   },
   forgePrPrepare(): void {
     notice = null
