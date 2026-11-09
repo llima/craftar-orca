@@ -248,6 +248,15 @@ orca-ide plugin check .
 orca-ide plugin inspect .
 ```
 
+The type check needs the two development dependencies in `package.json` (TypeScript and Node's typings, exact versions,
+no scripts; Orca installs nothing from it) and Orca's typings, which `plugin types` writes into `.orca/types/`:
+
+```bash
+npm ci --ignore-scripts
+orca-ide plugin types .
+./node_modules/.bin/tsc -p .
+```
+
 CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push to any branch and every PR to `main`, on Linux with Node 22 and 24,
 against an Orca release pinned by version and sha256 (its `.deb` extracted, never installed).
 
