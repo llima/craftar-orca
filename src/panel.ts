@@ -131,6 +131,9 @@ svg.fan.broken path { stroke: var(--orca-destructive); stroke-dasharray: 2 4; }
 .cta p, .card p { color: var(--orca-muted-foreground); font-size: 12.5px; overflow-wrap: anywhere; }
 .cta .note { font-size: 11.5px; }
 p.note.bad { color: var(--orca-destructive); font-size: 12px; }
+.consent-explain { border: 1px solid color-mix(in srgb, var(--orca-destructive) 55%, var(--line)); border-radius: var(--r); padding: 8px 10px; display: grid; gap: 6px; }
+.cta .consent-explain p { color: var(--orca-card-foreground); font-size: 12.5px; margin: 0; }
+.consent-explain strong { color: var(--orca-destructive); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row.clone { justify-content: space-between; font-size: 12px; }
 .row.clone .muted { overflow-wrap: anywhere; min-width: 0; }
@@ -249,6 +252,10 @@ footer.toolbar .row.clone { display: flex; align-items: center; gap: 8px; }
 .status-line { display: flex; gap: 10px; align-items: center; padding: 7px 12px; border-top: 1px solid var(--line); font: 10.5px/1.3 var(--mono); color: var(--orca-muted-foreground); min-width: 0; }
 
 /* the panel does not move when the person asked for less motion */
+.progress { display: grid; gap: 6px; padding: 8px 2px; font-size: 12.5px; color: var(--orca-card-foreground); }
+.progress .bar { position: relative; display: block; height: 3px; border-radius: 2px; overflow: hidden; background: var(--orca-muted); }
+.progress .bar::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: 2px; background: var(--warn); animation: progress-run 1.2s ease-in-out infinite; }
+@keyframes progress-run { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

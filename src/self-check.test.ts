@@ -4,6 +4,8 @@ import { test } from 'node:test'
 import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { ReadFailure } from './craftar'
+import { CMD_REFUSED } from './run'
 import { FLOOR, selfCheck, versionAtLeast } from './self-check'
 
 afterEach(removeTempDirs)
@@ -19,6 +21,9 @@ const DOCTOR_ERROR = JSON.stringify({
     { id: 'params', scope: 'workspace', level: 'error', message: 'acme.key is declared and has no value', fix: 'set it in the profile' },
   ],
 })
+
+// The stub craftar is a copy of node, which answers --version itself: the no-workspace tests answer it through the seam.
+const answers = (stdout: string, code = 0) => async () => ({ code, stdout, stderr: '' })
 
 function opts(bin: string, env: NodeJS.ProcessEnv, extra: Partial<Parameters<typeof selfCheck>[0]> = {}) {
   return { craftarPath: bin, craftarHome: '', path: '', baseEnv: env, ...extra }
@@ -91,17 +96,82 @@ test('a craftar that is not found is an error line naming why', async () => {
   assert.match(r.lines[0].message, /absolute/)
 })
 
-test('with no craftar workspace nothing is started; asked about an unfocused one, its errors are not listed', async () => {
+test('with no craftar workspace only craftar --version runs; asked about an unfocused one, its errors are not listed', async () => {
   const s = stubCraftar({
     'doctor --json': { stdout: DOCTOR_ERROR, code: 1 },
     'workspaces --json': { stdout: fixture('workspaces.json'), code: 0 },
   })
-  const none = await selfCheck(opts(s.bin, s.env), null)
+  const asked: string[] = []
+  const none = await selfCheck(opts(s.bin, s.env, { version: async (bin) => (asked.push(bin), { code: 0, stdout: '1.9.0\n', stderr: '' }) }), null)
   assert.equal(none.craftar, null)
+  assert.equal(none.version, '1.9.0')
+  assert.deepEqual(asked, [s.bin])
   assert.equal(s.calls().length, 0)
+  assert.deepEqual(none.lines.filter((l) => l.level !== 'ok'), [])
+  assert.ok(none.lines.some((l) => l.message === 'version 1.9.0'))
   const other = await selfCheck(opts(s.bin, s.env), WS, { listErrors: false })
   assert.equal(other.lines.some((l) => l.level === 'error'), false)
   assert.deepEqual(s.calls()[0].argv, ['doctor', '--json', '--workspace', WS])
+})
+
+// P1 (the install test of 2026-11-09): a machine with Orca and no craftar learns it first, with or without a workspace.
+test('with no craftar workspace, a craftar that is not found is an install line, not "nothing to read"', async () => {
+  const r = await selfCheck({ craftarPath: '', craftarHome: '', path: '', baseEnv: process.env }, null)
+  assert.equal(r.craftar, null)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, 'missing')
+  assert.match(bad[0].message, /not found/)
+  assert.equal(r.lines.some((l) => /nothing to read/.test(l.message)), false)
+})
+
+test('with no craftar workspace, a craftar whose --version fails is an install line naming the exit', async () => {
+  const s = stubCraftar({})
+  const r = await selfCheck(opts(s.bin, s.env, { version: answers('', 127) }), null)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, 'broken')
+  assert.match(bad[0].message, /exit 127/)
+})
+
+test('with no craftar workspace, a --version cmd refused relays craftar.cmd\'s refusal and is no install line', async () => {
+  const s = stubCraftar({})
+  const r = await selfCheck(opts(s.bin, s.env, { version: async () => ({ code: null, stdout: '', stderr: CMD_REFUSED }) }), null)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, undefined)
+  assert.ok(bad[0].message.includes(CMD_REFUSED))
+  assert.doesNotMatch(bad[0].message, /does not start/)
+})
+
+test('in a workspace, a doctor read cmd refused relays the refusal and is no install line', async () => {
+  const s = stubCraftar({})
+  const r = await selfCheck(opts(s.bin, s.env, { doctor: async () => { throw new ReadFailure('doctor --json', null, CMD_REFUSED) } }), WS)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, undefined)
+  assert.ok(bad[0].message.includes(CMD_REFUSED))
+  assert.equal(r.craftar, null)
+})
+
+test('with no craftar workspace, a craftar below the floor is an upgrade line', async () => {
+  const s = stubCraftar({})
+  const r = await selfCheck(opts(s.bin, s.env, { version: answers('0.32.9\n') }), null)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, 'old')
+  assert.match(bad[0].message, /0\.32\.9 is older than 0\.33\.0/)
+})
+
+test('in a workspace, not found, no doctor document and below the floor are install lines; doctor errors are not', async () => {
+  const notFound = await selfCheck({ craftarPath: '', craftarHome: '', path: '', baseEnv: process.env }, WS)
+  assert.equal(notFound.lines[0].install, 'missing')
+  const old = stubCraftar({ 'doctor --json': { stdout: doctorAt('0.32.9'), code: 0 } })
+  assert.equal((await selfCheck(opts(old.bin, old.env), WS)).lines.find((l) => l.level === 'error')?.install, 'old')
+  const broken = stubCraftar({ 'doctor --json': { stdout: 'unknown command', code: 1 } })
+  assert.equal((await selfCheck(opts(broken.bin, broken.env), WS)).lines.find((l) => l.level === 'error')?.install, 'broken')
+  const errs = stubCraftar({ 'doctor --json': { stdout: DOCTOR_ERROR, code: 1 }, 'workspaces --json': { stdout: fixture('workspaces.json'), code: 0 } })
+  assert.equal((await selfCheck(opts(errs.bin, errs.env), WS)).lines.find((l) => l.level === 'error')?.install, undefined)
 })
 
 test('CRAFTAR_HOME from the setting reaches every child of the self-check', async () => {

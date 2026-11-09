@@ -6,8 +6,8 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..')
-// Lines that quote craftar's own wording to recognise it (src/messages.ts), never shown by the plugin.
-const CRAFTAR_WORDS = [/equivalent — skipped\//]
+// Lines that quote craftar's own wording to recognise it (src/messages.ts, src/shared-base.ts), never shown by the plugin.
+const CRAFTAR_WORDS = [/equivalent — skipped\//, /— its files would change there\//, /— the Forge was left untouched\//]
 
 test("the plugin's own texts hold no dash: the sources outside comments, the manifest and the README", () => {
   const offenders: string[] = []

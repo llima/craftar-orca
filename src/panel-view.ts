@@ -4,11 +4,16 @@
 // workspace with its profile below; the files in both directions; the actions in a fixed footer toolbar. Send
 // and Bring each take the body over with their own screen and their own toolbar. Every value is put in with
 // textContent, never as markup.
+import type { Line } from './self-check'
 import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
 import { EXAMPLE_SETTINGS } from './discard'
+import { fromSharedBase, SHARED_BASE_LINE } from './shared-base'
 import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
+
+// craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim.
+export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [no]: '
 
 const SVG = 'http://www.w3.org/2000/svg'
 
@@ -16,7 +21,7 @@ const SVG = 'http://www.w3.org/2000/svg'
 export interface S2View {
   update?: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
   sync?: { phase: 'idle' | 'running' | 'consent' | 'done' | 'error'; message: string | null }
-  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[]; note?: string | null } | null
+  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[]; note?: string | null; answer?: 'recorded' | 'cancelled' | null } | null
   lastSync?: {
     written: string[]
     removed: { path: string; reason: string }[]
@@ -266,6 +271,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     ? { ...shown, edited: shown.edited.map((e) => (e.promotable && refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here: craftar will not send it' } : e)) }
     : shown
   const failing = v.selfCheck.filter((l) => l.level !== 'ok')
+  // P1: the lines that mean craftar has to be installed or upgraded have a card of their own, first and not closable.
+  const install = failing.filter((l) => l.install !== undefined)
   const broken = !v.model && failing.some((l) => l.level === 'error')
   const promotable = m ? m.edited.filter((e) => e.promotable).length : 0
   const cached = m?.forge?.freshness === 'cached'
@@ -386,6 +393,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
   for (const b of [validate, refresh, logo]) b.addEventListener('pointerdown', closeOutside)
 
+  // ---- P1: craftar missing, not starting or too old, said first ----
+  if (install.length > 0) drawInstall(install)
+
   // ---- the worker's refusal of the panel's last request ----
   if (notice) {
     const n = body.appendChild(h('div', { class: 'notice' }))
@@ -402,18 +412,21 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   // ---- the self-check, on top when anything fails ----
-  const checkKey = cardKey('self-check', ...failing.map((l) => l.message))
-  if (failing.length > 0 && !dismissed.has(checkKey)) {
-    const bad = failing.some((l) => l.level === 'error')
+  const checked = failing.filter((l) => l.install === undefined)
+  const checkKey = cardKey('self-check', ...checked.map((l) => l.message))
+  if (checked.length > 0 && !dismissed.has(checkKey)) {
+    const bad = checked.some((l) => l.level === 'error')
     const box = body.appendChild(h('section', { class: `cta ${bad ? 'bad' : 'warn'}`, 'data-role': 'self-check' }))
     box.appendChild(cardHead('Self-check', checkKey))
     const ul = box.appendChild(h('ul', { class: 'lines' }))
-    for (const l of failing) ul.appendChild(t('li', l.message, { class: l.level === 'error' ? 'err' : 'warn', 'data-role': 'check' }))
+    for (const l of checked) ul.appendChild(t('li', l.message, { class: l.level === 'error' ? 'err' : 'warn', 'data-role': 'check' }))
   }
 
   // ---- the body, by state ----
   if (v.focus === 'ask') drawAsk()
-  else if (broken) {
+  else if (install.length > 0) {
+    // The install card above says it all; nothing else to draw until craftar runs.
+  } else if (broken) {
     body.appendChild(empty(true, 'craftar cannot be used', "The self-check above says why, in its own words. Install a craftar the self-check accepts, or set craftar binary in the plugin's settings to its absolute path."))
   } else if (v.readFailed) {
     const box = body.appendChild(h('section', { class: 'cta bad' }))
@@ -421,7 +434,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'refresh' }, 'refresh', () => a.refresh())))
   } else if (!m) {
     if (v.focus === 'none') body.appendChild(empty(false, 'No craftar workspace has the focus', 'A workspace follows a Forge once it holds craftar.yaml. Start one in a terminal with craftar init.'))
-    else body.appendChild(t('p', 'Reading…', { class: 'muted' }))
+    else body.appendChild(progress('craftar is reading this workspace…'))
   }
 
   if (m) {
@@ -529,6 +542,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       // Try again fetches: the periodic check, run now. A focus read is offline and could never clear this card.
       box.appendChild(h('div', { class: 'row' }, button('Try again', { class: 'btn', 'data-action': a.checkNow ? 'check-now' : 'refresh' }, 'refresh', () => (a.checkNow ? a.checkNow() : a.refresh()))))
     }
+    // P3: while craftar syncs (a fetch, the sync, then the staging), a strip says so in words.
+    if (v.sync?.phase === 'running') body.appendChild(progress('craftar is bringing the files from the Forge: fetching, syncing, then staging…'))
     if (v.consent) drawConsent(v.consent)
     // craftar's words about the last run; a consent refusal is said once, in the consent card above.
     const syncKey = cardKey('sync', v.sync?.phase ?? '', v.sync?.message ?? '')
@@ -578,7 +593,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       box.appendChild(cardHead('craftar will not send', refusalKey))
       for (const e of refusals) {
         box.appendChild(t('p', e.path, { class: 'muted' }))
-        box.appendChild(t('pre', refusedSend.get(e.path) ?? '', { class: 'words', 'data-role': 'send-refused-message' }))
+        const words = refusedSend.get(e.path) ?? ''
+        box.appendChild(t('pre', words, { class: 'words', 'data-role': 'send-refused-message' }))
+        // P4: one plain line under craftar's words when the file comes from the Forge's shared base.
+        if (fromSharedBase(words)) box.appendChild(t('p', SHARED_BASE_LINE, { 'data-role': 'shared-base' }))
       }
       box.appendChild(t('p', 'Kept here as you edited it. Save the file again, or click Check again, to ask craftar once more.', { class: 'muted' }))
     }
@@ -1123,10 +1141,53 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     return span
   }
 
+  /** P3: craftar at work, said in words, with an indeterminate bar (still under reduced motion). */
+  function progress(text: string): HTMLElement {
+    const box = h('div', { class: 'progress', role: 'status', 'aria-live': 'polite', 'data-role': 'progress' })
+    box.appendChild(t('span', text))
+    box.appendChild(h('span', { class: 'bar', 'aria-hidden': 'true' }))
+    return box
+  }
+
+  function drawInstall(lines: Line[]): void {
+    const kind = lines[0].install
+    const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'install' }))
+    box.appendChild(t('h2', kind === 'old' ? 'craftar is too old for this plugin' : kind === 'broken' ? 'craftar is installed but does not start' : 'craftar is not installed, or the plugin cannot find it'))
+    // The self-check's own words first, as it wrote them.
+    for (const l of lines) box.appendChild(t('p', l.message, { class: 'note bad', 'data-role': 'install-why' }))
+    const how = box.appendChild(h('p'))
+    how.appendChild(t('span', kind === 'old' ? 'Upgrade it in a terminal: ' : 'Install it in a terminal: '))
+    how.appendChild(t('code', 'npm install -g craftar', { 'data-role': 'install-line' }))
+    how.appendChild(t('span', ' (it needs Node 22 or later).'))
+    if (kind === 'missing') {
+      box.appendChild(t('p', "The plugin looks at the craftar binary setting, else at the absolute entries of Orca's PATH. If craftar runs in your terminal but not here (installed with nvm, for one, which puts it on an interactive shell's PATH only), set craftar binary in the plugin's settings to its absolute path: command -v craftar prints it."))
+    } else if (kind === 'broken') {
+      box.appendChild(t('p', "craftar starts with node: Node 22 or later must be on Orca's PATH too, not only on your terminal's."))
+    }
+    box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'install-check' }, 'refresh', () => (a.validate ? a.validate() : a.refresh()))))
+  }
+
   function drawConsent(c: NonNullable<S2View['consent']>): void {
+    // P3: craftar printed that it recorded the consent in the terminal the plugin opened: the question is answered.
+    if (c.answer === 'recorded') {
+      const ok = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent-recorded' }))
+      ok.appendChild(t('h2', 'Writes are allowed here'))
+      ok.appendChild(t('p', 'craftar recorded your yes. Click Bring from the Forge again: craftar will not ask for consent again.'))
+      return
+    }
     const box = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent' }))
     box.appendChild(t('h2', 'craftar asks before it writes here'))
     box.appendChild(t('pre', c.text, { class: 'words' }))
+    if (c.answer === 'cancelled') {
+      box.appendChild(t('p', 'You answered no in the terminal: nothing was recorded, and nothing was written. Open the terminal again to answer yes.', { class: 'note', 'data-role': 'consent-cancelled' }))
+    }
+    // P2: what the terminal will show and ask, read before it opens. The question is craftar's own words, verbatim.
+    const explain = box.appendChild(h('div', { class: 'note bad consent-explain', 'data-role': 'consent-explain' }))
+    explain.appendChild(t('p', "The terminal shows this workspace's Forge, the ref and the profile, then craftar asks:"))
+    explain.appendChild(t('pre', CONSENT_QUESTION, { class: 'words' }))
+    const yes = explain.appendChild(h('p'))
+    yes.appendChild(t('strong', 'To allow writes, type yes and press Enter.'))
+    yes.appendChild(t('span', ' Enter alone, or no, answers no and writes nothing. The plugin never answers for you.'))
     if (c.terminal === 'offered') {
       box.appendChild(h('div', { class: 'row' }, button('Open a terminal to allow writes', { class: 'btn', 'data-action': 'consent-terminal' }, 'term', () => a.consentTerminal?.())))
       if (c.note) box.appendChild(t('p', c.note, { class: 'note', 'data-role': 'consent-note' }))
