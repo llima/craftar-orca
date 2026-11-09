@@ -1009,10 +1009,10 @@ test('P3: "allow-writes cancelled" marks the answer no, and the next click opens
   assert.equal(again.consent?.answer ?? null, null)
 })
 
-test("P3: a terminal that shows neither of craftar's words leaves the consent card as it is", async () => {
+test("P3: a terminal that shows neither of craftar's words at the start of a line leaves the consent card as it is", async () => {
   main.consentWatch.pollMs = 5
   const { h, worker } = await consentOpened()
-  h.respond('terminal.read', { lines: ['craftar mcp allow-writes — /home/acme/web', "Let craftar mcp --allow-writes write here [no]: "], truncated: false })
+  h.respond('terminal.read', { lines: ['craftar mcp allow-writes — /home/acme/web', 'acme-user@acme-host:~$ echo "write consent recorded for x; allow-writes cancelled"', "Let craftar mcp --allow-writes write here [no]: "], truncated: false })
   await new Promise((r) => setTimeout(r, 100))
   const v = (await worker.request('state.get')) as View
   assert.equal(v.consent?.answer ?? null, null)

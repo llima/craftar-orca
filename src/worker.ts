@@ -1500,6 +1500,15 @@ const CONSENT_RECORDED = 'write consent recorded for '
 const CONSENT_CANCELLED = 'allow-writes cancelled'
 
 /** How often, and how long, the allow-writes terminal is read for craftar's answer (P3); tests shorten the poll. */
+// craftar's own last words open their line (the cancel through fail(), after `error: `): a line that only quotes them,
+// such as a command echoed at a prompt, is not an answer.
+function saysConsent(line: string): 'recorded' | 'cancelled' | null {
+  const l = line.trimStart()
+  if (l.startsWith(CONSENT_RECORDED)) return 'recorded'
+  if (l.startsWith(CONSENT_CANCELLED) || l.startsWith(`error: ${CONSENT_CANCELLED}`)) return 'cancelled'
+  return null
+}
+
 export const consentWatch = { pollMs: 1000, maxMs: 10 * 60_000 }
 
 const watchingConsent = new Set<string>()
@@ -1525,12 +1534,12 @@ async function watchConsent(s: State, ws: string, terminalId: string): Promise<v
       } catch {
         return
       }
-      const last = [...lines].reverse().find((l) => l.includes(CONSENT_RECORDED) || l.includes(CONSENT_CANCELLED))
+      const last = [...lines].reverse().find((l) => saysConsent(l) !== null)
       if (last !== undefined) {
         const now = s.consent.get(ws)
         if (!now || now.terminalId !== terminalId) return
         // An answer no leaves craftar's command ended: the next click opens a fresh terminal.
-        s.consent.set(ws, last.includes(CONSENT_RECORDED) ? { ...now, answer: 'recorded', note: null } : { ...now, answer: 'cancelled', terminalId: undefined, note: null })
+        s.consent.set(ws, saysConsent(last) === 'recorded' ? { ...now, answer: 'recorded', note: null } : { ...now, answer: 'cancelled', terminalId: undefined, note: null })
         await publish(s)
         return
       }
