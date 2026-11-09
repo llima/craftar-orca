@@ -1,0 +1,154 @@
+name: release
+
+# A `v<version>` tag of this repository is a release of the plugin: Orca installs it from such tags. This workflow makes the
+# tag and its GitHub Release for the version `orca-plugin.json` names, on the exact commit `ci` tested, and only after the
+# person who owns the repository approves the run in the `orca-release` environment. It adds no catalog entry.
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: check version
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.tag.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Version of the plugin
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -e '
+            const v = JSON.parse(require("fs").readFileSync("orca-plugin.json", "utf8")).version;
+            if (typeof v !== "string" || !/^\d+\.\d+\.\d+$/.test(v)) {
+              console.error("orca-plugin.json: version is not x.y.z");
+              process.exit(1);
+            }
+            console.log(v);
+          ')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Is this version already tagged?
+        id: tag
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          code=0
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null || code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "v$VERSION is already tagged: nothing to release" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$code" -ne 2 ]; then
+            echo "git ls-remote failed with exit code $code"
+            exit 1
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "v$VERSION is not tagged: it is released after approval" >> "$GITHUB_STEP_SUMMARY"
+      # The Orca the gate runs on is the one ci.yml pins, read from that file at the tested commit, so the two never differ.
+      - name: Orca pinned by ci.yml
+        if: steps.tag.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^  ORCA_VERSION: \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' .github/workflows/ci.yml)
+          digest=$(sed -n 's/^  ORCA_DEB_SHA256: \([0-9a-f]\{64\}\)$/\1/p' .github/workflows/ci.yml)
+          if [ "$(printf '%s\n' "$version" | wc -l)" -ne 1 ] || [ -z "$version" ] || [ "$(printf '%s\n' "$digest" | wc -l)" -ne 1 ] || [ -z "$digest" ]; then
+            echo "ci.yml does not pin exactly one ORCA_VERSION and one ORCA_DEB_SHA256"
+            exit 1
+          fi
+          {
+            echo "ORCA_VERSION=$version"
+            echo "ORCA_DEB_SHA256=$digest"
+          } >> "$GITHUB_ENV"
+      - name: Install Orca's CLI
+        if: steps.tag.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o orca.deb \
+            "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-ide_${ORCA_VERSION}_amd64.deb"
+          echo "${ORCA_DEB_SHA256}  orca.deb" | sha256sum -c -
+          dpkg-deb -x orca.deb orca
+          echo "$RUNNER_TEMP/orca/opt/Orca/resources/bin" >> "$GITHUB_PATH"
+      # Validates the plugin as Orca loads it and hashes the files of this commit the way install does: what the tag will hold.
+      - name: Release entry of this commit
+        if: steps.tag.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          entry=$(orca-ide plugin release-entry . --json)
+          {
+            echo "Release entry of this commit (\`orca-ide plugin release-entry . --json\`, Orca $ORCA_VERSION):"
+            echo '```json'
+            printf '%s\n' "$entry"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: tag and release
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: orca-release
+    permissions:
+      contents: write
+    steps:
+      - name: Tag and release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "release v$VERSION already exists: skipping"
+            exit 0
+          fi
+          code=0
+          git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/v$VERSION" > /dev/null || code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "tag v$VERSION exists with no release: resolve by hand"
+            exit 1
+          fi
+          if [ "$code" -ne 2 ]; then
+            echo "git ls-remote failed with exit code $code"
+            exit 1
+          fi
+          # The CLI's guard, kept as the user asked. --target already ties the tag to the tested commit; this refuses a run whose
+          # commit was no longer the tip of main when ci finished (GITHUB_SHA, fixed when the event fired, kept on a re-run), so a
+          # version is released from the newest tip's run, never from an older commit that a newer push has passed.
+          if [ "${GITHUB_SHA:-}" != "$HEAD_SHA" ]; then
+            echo "main moved to $GITHUB_SHA before ci finished on $HEAD_SHA: the run for the newer tip releases this version"
+            exit 1
+          fi
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --title "v$VERSION" --generate-notes
+          echo "- release: https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION" >> "$GITHUB_STEP_SUMMARY"
