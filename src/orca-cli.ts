@@ -3,8 +3,9 @@
 // worktree is named `main`); `<cli> worktree ps --json` marks the one in focus `isActive` (measured: it
 // follows every switch within two seconds), and `<cli> terminal list --json` maps a terminal to its
 // workspace (`<cli>` is `orca-ide` on Linux, `orca` elsewhere: orcaCliName). The CLI is started as a
-// child, by the absolute path found on PATH, with an argument array; of its answer only paths are kept, in memory — it lists linked PRs, agents and other workspaces, so nothing
-// of it is logged or stored, and its stderr is not read.
+// child, by the absolute path found on PATH, with an argument array; of its answer only paths are kept,
+// in memory: it lists linked PRs, agents and other workspaces, so nothing of it is logged or stored, and
+// its stderr is not read.
 import { findOnPath } from './resolve'
 import { run } from './run'
 
