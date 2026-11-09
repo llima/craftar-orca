@@ -34,7 +34,7 @@ function draw(v: PanelView) {
     consentTerminal: () => calls.push('consent terminal'),
     sendCancel: () => calls.push('send cancel'), forgePrPrepare: () => calls.push('prepare'),
     sendAllRest: () => calls.push('rest'), forgePrStep: (st) => calls.push(`step ${st}`), forgePrShow: () => undefined, forgePrDrop: () => undefined,
-    discardCancel: () => calls.push('discard cancel'),
+    discardCancel: () => calls.push('discard cancel'), discardCheckAgain: () => calls.push('discard check again'),
   })
   return { root, calls }
 }
@@ -137,9 +137,70 @@ test('a discard that ran but could not read the workspace again: Back and check 
   const last = own[own.length - 1]
   assert.equal(last.attrs['data-action'], 'discard-check-again')
   click(last)
-  assert.deepEqual(calls, ['discard cancel', 'refresh'])
+  assert.deepEqual(calls, ['discard check again'])
   // A refusal that does not ask for it gets only the way back.
   const plain = view({ discard: { path: EDITED, deleted: false, diff: null, note: null, message: 'error: not drifted: x (unchanged)', after: null, phase: 'error' } } as never)
   plain.model!.pending = []
   assert.equal(byAction(draw(plain).root, 'discard-check-again').length, 0)
+})
+
+test('a Bring that cannot be clicked is never named as the next click: the note says why it waits', () => {
+  const recorded = { sync: { phase: 'consent', message: TEXT }, consent: { text: TEXT, terminal: 'offered', steps: [], answer: 'recorded' } } as Partial<PanelView>
+  const v = view({ ...recorded })
+  v.model!.forge = { ...v.model!.forge!, freshness: 'cached', fetchedAt: null }
+  const { root } = draw(v)
+  assert.equal(byAction(root, 'update')[0].attrs.disabled, '', 'Bring is off on a cached copy')
+  const ok = role(root, 'consent-recorded')[0]
+  assert.doesNotMatch(ok.textContent, /Click Bring/)
+  assert.match(ok.textContent, /Bring waits: /)
+  const rerun = view({ lastSync: { written: [], removed: [], kept: [], staged: [], differences: [], warnings: [], rerun: true } })
+  rerun.model!.forge = { ...rerun.model!.forge!, freshness: 'cached', fetchedAt: null }
+  const note = role(draw(rerun).root, 'rerun')[0]
+  assert.doesNotMatch(note.textContent, /Click Bring/)
+  assert.match(note.textContent, /Bring waits: /)
+})
+
+test('while a sync runs, writes allowed names no button', () => {
+  const { root } = draw(view({ sync: { phase: 'running', message: null }, consent: { text: TEXT, terminal: 'offered', steps: [], answer: 'recorded' } }))
+  const ok = role(root, 'consent-recorded')[0]
+  assert.equal(ok.textContent, 'Writes are allowed herecraftar recorded your yes: craftar will not ask for consent again.')
+})
+
+test('a kept file with nothing pending: the rerun note asks to bring the files once craftar lists them', () => {
+  const v = view({ lastSync: { written: [], removed: [], kept: [], staged: [], differences: [], warnings: [], rerun: true } })
+  v.model!.pending = []
+  const { root } = draw(v)
+  assert.equal(byAction(root, 'update').length, 0)
+  assert.match(role(root, 'rerun')[0].textContent, /Bring the files again once craftar lists them\.$/)
+})
+
+test('a send written with no Prepare the PR: the next step note names no button', () => {
+  const PLAN = {
+    workspace: '/home/acme/web', forge: '/home/acme/forge2', profile: 'acme-web', dryRun: false, path: EDITED, ingredient: 'rule/commit-conventions',
+    outcome: 'variant', promoted: 'rule/commit-conventions--acme-web', written: [], params: [], sections: [], flattened: { params: [], sections: [] }, dependents: [], nextSync: { counts: {} },
+    impact: { registry: 'read', workspaces: [] }, warnings: [],
+  }
+  const doc = fakeDocument()
+  const root = doc.createElement('main') as FakeEl
+  render(doc as never, root as never, view({ send: { path: EDITED, phase: 'done', plan: PLAN as never, result: PLAN as never, message: null } } as never), {
+    choose: () => undefined, refresh: () => undefined, showDiff: () => undefined, sendCancel: () => undefined,
+  })
+  const next = role(root, 'send-next')[0]
+  assert.ok(next)
+  assert.doesNotMatch(next.textContent, /Prepare the PR/)
+  assert.equal(byAction(root, 'forgepr-prepare').length, 0)
+})
+
+test("a consent terminal Orca could not bring forward: its note comes before the button, which stays last", () => {
+  const note = 'A terminal titled "craftar allow writes" was opened in this workspace, in the background.'
+  const { root } = draw(view({ sync: { phase: 'consent', message: TEXT }, consent: { text: TEXT, terminal: 'offered', steps: [], note } }))
+  const card = role(root, 'consent')[0]
+  const own = buttons(card)
+  assert.equal(own[own.length - 1].attrs['data-action'], 'consent-terminal')
+  assert.ok(before(root, role(card, 'consent-note')[0], own[own.length - 1]))
+})
+
+test('the footer note for no file to bring says Check again is at the top', () => {
+  const { root } = draw(view({ update: { allowed: true, reason: null, files: [] } }))
+  assert.match(byAction(root, 'update')[0].attrs.title ?? '', /click Check again at the top/)
 })

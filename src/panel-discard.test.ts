@@ -47,7 +47,7 @@ test('with anything pending, the action reads Update first and is off', () => {
   const b = byAction(root, 'discard-file')[0]
   assert.equal(b.attrs.disabled, '')
   assert.equal(b.textContent, 'Update first')
-  assert.match(b.attrs.title, /click Bring from the Forge below/)
+  assert.match(b.attrs.title, /click Bring below/)
 })
 
 test('the confirmation names the file, shows the diff, says the edit is lost, and the second click runs it', () => {

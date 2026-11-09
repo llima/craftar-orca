@@ -73,6 +73,8 @@ export interface Actions {
   discardOpen?(path: string): void
   discardRun?(path: string): void
   discardCancel?(): void
+  /** A discard whose read failed: Back, then Check again once Back answered (panel.ts sequences the two). */
+  discardCheckAgain?(): void
   /** S3b: prepare the PR after a Send, run a step, read a waiting terminal again, show or leave the PR screen, drop the steps left. */
   forgePrPrepare?(): void
   forgePrStep?(step: 'prepare' | 'commit' | 'push' | 'pr', branch?: string, title?: string): void
@@ -194,8 +196,8 @@ const STATE_ICON: Record<string, [string, string]> = {
   'orphan-drift': ['apart', '!'],
 }
 
-const NOT_BUILT_UPDATE = 'Bring from the Forge is not built yet in this version of the plugin. Until then, run craftar sync in a terminal.'
-const NOT_BUILT_SEND = 'Send to Forge is not built yet in this version of the plugin.'
+const NOT_BUILT_UPDATE = 'Bring is not built yet in this version of the plugin. Until then, run craftar sync in a terminal.'
+const NOT_BUILT_SEND = 'Send is not built yet in this version of the plugin.'
 const NEEDS_CLONE = 'name a local clone of the Forge first'
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -545,7 +547,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // P3: while craftar syncs (a fetch, the sync, then the staging), a strip says so in words.
     if (v.sync?.phase === 'running') body.appendChild(progress('craftar is bringing the files from the Forge: fetching, syncing, then staging…'))
     // The consent is asked in the footer, above Bring (drawMainToolbar).
-    // craftar's words about the last run; a consent refusal is said once, in the consent card above.
+    // craftar's words about the last run; a consent refusal is said once, in the consent card in the footer.
     const syncKey = cardKey('sync', v.sync?.phase ?? '', v.sync?.message ?? '')
     if (v.sync?.message && !(v.sync.phase === 'consent' && v.consent) && !dismissed.has(syncKey)) {
       const err = v.sync.phase === 'error'
@@ -810,14 +812,16 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       : cached
         ? (u?.reason ?? 'needs a fetch that works')
         : u
-          ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to bring yet: click Check again' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
+          ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to bring yet: click Check again at the top' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
           : NOT_BUILT_UPDATE
     const bringLabel = m.pending.length > 0 ? (running ? 'Bringing…' : `Bring ${n} from the Forge`) : null
     // A message that asks for a footer action sits in the footer, above the button it names, as the Forge clone box does
-    // (the user's ask of 2026-11-09): the consent, then a file craftar kept while it was writing.
-    if (v.consent) drawConsent(v.consent, running ? null : bringLabel)
+    // (the user's ask of 2026-11-09): the consent, then a file craftar kept while it was writing. It names Bring only when
+    // Bring can be clicked; otherwise it says why Bring waits.
+    const bringNext = running || !bringLabel ? null : allowed ? `Click ${bringLabel} below` : reason ? `Bring waits: ${reason}` : null
+    if (v.consent) drawConsent(v.consent, bringNext)
     if (v.lastSync?.rerun) {
-      const again = bringLabel && !running ? `Click ${bringLabel} below to bring the files again.` : 'Bring the files again once craftar lists them.'
+      const again = bringNext ? `${bringNext}${allowed ? ' to bring the files again' : ''}.` : 'Bring the files again once craftar lists them.'
       toolbar.appendChild(t('p', `craftar kept a file that changed while it was writing. ${again}`, { class: 'tb-note', 'data-role': 'rerun' }))
     }
     // A URL Forge needs a local clone before Send: asked for, or shown with Change, in the toolbar itself (the user's ask of 2026-11-08).
@@ -975,7 +979,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       attrs.title = off
     } else if (pending > 0) {
       attrs.disabled = ''
-      attrs.title = 'Update first: click Bring from the Forge below, then discard'
+      attrs.title = 'Update first: click Bring below, then discard'
     } else if (busyHere) {
       attrs.disabled = ''
       attrs.title = 'a discard is running'
@@ -1022,12 +1026,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       box.appendChild(t('h2', `${name} was not discarded`))
       if (d.message) box.appendChild(t('pre', d.message, { class: 'words', 'data-role': 'discard-message' }))
       // The discard ran and the read after it failed: its message asks to go back and check again, so the card ends with that
-      // button, which runs Back (discard.cancel) then the header's Check again; both only read.
+      // button, which runs Back (discard.cancel) and then, once it answered, the header's Check again; both only read.
       if (d.readAgain === true) {
-        box.appendChild(h('div', { class: 'row' }, button('Back and check again', { class: 'btn', 'data-action': 'discard-check-again' }, 'refresh', () => {
-          a.discardCancel?.()
-          a.refresh()
-        })))
+        box.appendChild(h('div', { class: 'row' }, button('Back and check again', { class: 'btn', 'data-action': 'discard-check-again' }, 'refresh', () => a.discardCheckAgain?.())))
       }
       row.appendChild(back('Back to the workspace'))
       tail()
@@ -1191,13 +1192,13 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'install-check' }, 'refresh', () => (a.validate ? a.validate() : a.refresh()))))
   }
 
-  /** The consent, in the footer above Bring (the user's ask of 2026-11-09); `bring` is that button's label when it is drawn. */
-  function drawConsent(c: NonNullable<S2View['consent']>, bring: string | null): void {
+  /** The consent, in the footer above Bring (the user's ask of 2026-11-09); `next` says what to click next, or why Bring waits. */
+  function drawConsent(c: NonNullable<S2View['consent']>, next: string | null): void {
     // P3: craftar printed that it recorded the consent in the terminal the plugin opened: the question is answered.
     if (c.answer === 'recorded') {
       const ok = toolbar.appendChild(h('section', { class: 'cta plain tb-prompt', 'data-role': 'consent-recorded' }))
       ok.appendChild(t('h2', 'Writes are allowed here'))
-      ok.appendChild(t('p', bring ? `craftar recorded your yes. Click ${bring} below: craftar will not ask for consent again.` : 'craftar recorded your yes: craftar will not ask for consent again.'))
+      ok.appendChild(t('p', next ? `craftar recorded your yes. ${next}: craftar will not ask for consent again.` : 'craftar recorded your yes: craftar will not ask for consent again.'))
       return
     }
     const box = toolbar.appendChild(h('section', { class: 'cta plain tb-prompt', 'data-role': 'consent' }))

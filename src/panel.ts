@@ -382,6 +382,18 @@ const actions = {
     notice = null
     call('discard.cancel', {}, 30_000)
   },
+  // A discard whose read failed: Back, then Check again once Back answered, so the read is drawn last.
+  discardCheckAgain(): void {
+    notice = null
+    void orca.plugin
+      .request('discard.cancel', {}, { timeoutMs: 30_000 })
+      .then((v) => {
+        view = v as PanelView
+        draw()
+        actions.refresh()
+      })
+      .catch((e) => refused(e))
+  },
   forgePrPrepare(): void {
     notice = null
     call('forgepr.prepare', {}, 60_000)

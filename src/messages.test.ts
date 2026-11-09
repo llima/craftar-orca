@@ -40,5 +40,7 @@ test('a fetch that failed asks for the person; --offline is only information', (
   assert.equal(f.level, 'action')
   // Only Try again fetches (Check again reads offline): the fix names it, and the button Update waits on.
   assert.match(f.fix ?? '', /Try again/)
+  // The card can be closed, or not drawn: the fix holds without it.
+  assert.match(f.fix ?? '', /or wait for the next periodic check/)
   assert.doesNotMatch(f.fix ?? '', /Check again|Update waits/)
 })

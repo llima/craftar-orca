@@ -45,7 +45,9 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   Forge). A message that asks for one of those actions sits in the footer too, just above the button it names, as the Forge clone
   folder does: the consent and its terminal button, "writes are allowed here" above *Bring*, a file kept while craftar was writing,
   the next step after a send above *Prepare the PR*, the files left above *Send the rest*. A card that asks you to check again ends
-  with its own *Check again* (or *Back and check again*, after a discard whose read failed). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
+  with its own *Check again* (or *Back and check again*, after a discard whose read failed). A note names *Bring* only when it can be
+  clicked, and otherwise says why it waits. Every warning craftar gives for this workspace sits behind the bell beside Check again, in its
+  words (opened at once when a
   read gave an error, the sync is refused or a check fails; the registry's lines about other workspaces stay out of its panel). A cached
   copy does not open it: its card says so, and its *Try again* runs the periodic check now, the one read that fetches. Once you open or
   close the bell, a redraw keeps it so for the same messages, and a press anywhere outside it, or Esc, closes it. Each message is marked

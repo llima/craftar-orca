@@ -49,7 +49,7 @@ export function classify(text: string, err: boolean, owners: string[]): Message 
   if (/ is generated, but git ignores it /.test(text)) return { text, level: 'action', from: 'craftar' }
   // `Forge <url> not fetched (--offline) — using the cached copy …` and `… not fetched (<git>) — using …`.
   if (/^Forge \S+ not fetched \(--offline\)/.test(text)) return { text, level: 'info', from: 'craftar' }
-  if (/^Forge \S+ not fetched \(/.test(text)) return { text, level: 'action', from: 'craftar', fix: 'check the network or the Forge URL, then Try again on the card (Bring from the Forge waits for a fetch that works)' }
+  if (/^Forge \S+ not fetched \(/.test(text)) return { text, level: 'action', from: 'craftar', fix: 'check the network or the Forge URL, then Try again on the fetch card, or wait for the next periodic check (Bring waits for a fetch that works)' }
   if (/\(last wins\)$/.test(text)) return { text, level: 'action', from: 'craftar', fix: 'keep one of the two ingredients in the profile, or give one of them targets that leave this file out' }
   return { text, level: 'action', from: 'craftar' }
 }
