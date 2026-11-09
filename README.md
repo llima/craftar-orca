@@ -255,9 +255,11 @@ The catalog images (`assets/cover.png`, `assets/screenshots/`) show the plugin's
 and stylesheet (`src/panel.ts`) on synthetic `acme` data, with Orca's dark theme values, in a browser outside Orca (the Orca this is
 built in lists client workspaces, so no `plugin shot` is taken): a throwaway test calls `render` with `buildModel` over the fixtures in
 `test-support/fixtures/` (an `acme-portal` workspace on `git.acme.example`) and writes each panel state's HTML with the panel's `STYLE`.
-Around those panels, a hand-written card adds the rest, in the same headless pass (`google-chrome --headless --screenshot`, 1600x1000 or
-1280x800): on the cover, the icon, "craftar", one line, five pills and the two panels tilted and overlapping; on each screenshot, a title
-and a sentence beside one panel. That card's HTML is not kept in the repository. Redraw them when the panel changes.
+Around those panels, a hand-written card adds the rest, in the same headless pass (`google-chrome --headless --screenshot`): on the
+cover, the icon, "craftar", one line, five pills, the two panels (the front one straight, the back one tilted 3 degrees, partly behind it
+and cut by the card's bottom edge, no shadow) and a warm glow, taken at device scale 2 (`--force-device-scale-factor=2`, so 3200x2000) so
+the tilted edges and the text stay sharp; on each screenshot (1280x800), a title and a sentence beside one panel.
+That card's HTML is not kept in the repository. Redraw them when the panel changes.
 
 ## License
 
