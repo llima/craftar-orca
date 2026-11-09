@@ -93,3 +93,26 @@ test('release.yml: the tested commit is checked out and tagged; github.token is 
   assert.ok(!/secrets\.|id-token|NODE_AUTH_TOKEN|GITHUB_TOKEN/.test(rel))
   assert.ok(runBlocks(rel).every((b) => !b.includes('${{')))
 })
+
+test('release.yml: check refuses a release unless orca-release exists and requires a reviewer', () => {
+  // A job naming an environment the repository lacks gets one created with no protection: on 2026-11-09 v0.2.1 was tagged that
+  // way, with no approval. The check job, which publish needs, reads the environment first and refuses without a reviewer.
+  const rel = read('release.yml')
+  const check = job(rel, 'check')
+  const start = check.indexOf('      - name: orca-release requires a reviewer')
+  assert.ok(start >= 0, 'the check job has the reviewer step')
+  const end = check.findIndex((l, i) => i > start && /^ {6}- /.test(l))
+  const step = check.slice(start, end < 0 ? undefined : end)
+  assert.ok(step.includes("        if: steps.tag.outputs.publish == 'true'"))
+  assert.ok(step.includes('          GH_TOKEN: ${{ github.token }}'))
+  // Exact lines, so the count (reviewers, not rules), the threshold (one or more) and the refusal of a failed read are pinned.
+  for (const line of [
+    'set -euo pipefail',
+    "query='[.protection_rules[]? | select(.type == \"required_reviewers\") | .reviewers[]?] | length'",
+    'if ! reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/orca-release" --jq "$query"); then',
+    'if ! [ "$reviewers" -ge 1 ] 2>/dev/null; then',
+  ]) assert.ok(step.some((l) => l.trim() === line), line)
+  assert.equal(step.filter((l) => l.trim() === 'exit 1').length, 2, 'a failed read and no reviewer both refuse')
+  const perms = check.slice(check.indexOf('    permissions:') + 1).filter((l) => indent(l) === 6 && /^\s+[a-z-]+: (read|write)$/.test(l))
+  assert.deepEqual(perms, ['      contents: read', '      actions: read'])
+})

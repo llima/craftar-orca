@@ -192,7 +192,8 @@ it, disabled by hand for the test (`orca-ide plugin disable local.craftar`), bes
 was not measured. The releases are at `https://github.com/llima/craftar-orca/releases`. A release is the maintainer's: after `ci` passes on a push to
 `main`, `.github/workflows/release.yml` runs; when the `version` in `orca-plugin.json` is not yet tagged, it tags `v<version>` and makes
 its Release on the commit `ci` tested, only once the maintainer approves the run in the `orca-release` environment, which must exist,
-with the maintainer as required reviewer and `main` only, before a version bump reaches `main`. A version already tagged releases nothing,
+with the maintainer as required reviewer and `main` only, before a version bump reaches `main`; the run refuses to release while
+it is missing or requires no reviewer (GitHub would otherwise create it with no protection, which is how v0.2.1 was tagged with no approval). A version already tagged releases nothing,
 and a run whose commit was passed by a newer push before `ci` finished refuses, leaving the release to the newer tip's run (once `ci` passes there).
 
 **From a clone** (to try a commit that is not released): load a copy of a commit, not the clone itself.
