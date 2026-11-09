@@ -1,7 +1,9 @@
 // The one write of S2 (spec 60 §7 step 3, O2): a fresh `craftar mcp --workspace <abs> --allow-writes --fetch`
 // child, one tools/call `sync` with no argument, then stopped. Never --overwrite-drift (the tool has none),
 // never --offline. craftar's tool errors are classified by their fixed starts and relayed in their words.
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { syncOnce } from './sync-child'

@@ -1,5 +1,7 @@
 // One craftar run at a time per workspace, and which reads may fetch (spec 60 §7.1).
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { removeTempDirs } from '../test-support/tmp'

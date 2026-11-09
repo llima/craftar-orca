@@ -1,5 +1,6 @@
 // run(): an argument array, never a shell; childEnv(): CRAFTAR_HOME from the setting (spec 60 §10, O1).
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { childEnv, run } from './run'
 
 test('an argument holding shell syntax reaches the child as one literal argument', async () => {

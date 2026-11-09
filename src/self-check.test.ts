@@ -1,5 +1,7 @@
 // The self-check shown at the top of the panel (spec 60 §5).
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { FLOOR, selfCheck, versionAtLeast } from './self-check'

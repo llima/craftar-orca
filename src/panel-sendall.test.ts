@@ -1,6 +1,7 @@
 // Send all in the panel (the user's design A of 2026-11-08): the footer sends every file; one plan; Write all over exactly the
 // planned files; a stop shows craftar's words and the files not written; the PR's Send the rest after its commit.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
 import { fixture } from '../test-support/stub-craftar'
 import { buildModel } from './model'

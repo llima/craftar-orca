@@ -1,6 +1,7 @@
 // S3b in the panel: Prepare the PR after a Send; the preview (identity, branch, title, paths, body); one button per step, in
 // order; Check the terminal after a wait; Back keeps the steps waiting on the workspace, with Continue and Drop.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
 import { fixture } from '../test-support/stub-craftar'
 import { buildModel } from './model'

@@ -1,9 +1,11 @@
 // The S1 worker: the self-check on enable, the reads of the focused craftar workspace, the periodic
 // read, the panel's requests and the status bar (spec 60 §4–§7.1, O9, O10). Every craftar is a stub.
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
@@ -26,7 +28,7 @@ afterEach(() => {
 
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const [INIT, DIFF] = fixture('mcp-diff.jsonl')
@@ -440,6 +442,9 @@ function savedOriginalPath(): string {
 function gitDirOnPath(): string {
   const git = findOnPath('git', ORIGINAL_PATH)
   if (!git) return ''
+  // On Windows the plugin looks for git.exe, which a link named git is not; Git's own folder there holds Git's programs,
+  // never orca-ide, so it goes on PATH as it is.
+  if (process.platform === 'win32') return dirname(git)
   const dir = tempDir('craftar-orca-gitbin-')
   symlinkSync(git, join(dir, 'git'))
   return dir
@@ -796,9 +801,9 @@ test('a notification Orca did not deliver is logged as sent and not delivered; a
 })
 
 test('the periodic line counts in words: one and many, a held workspace, failed reads', () => {
-  assert.equal(main.tallyLine({ read: 2, failed: 0, held: 1, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0 }), 'periodic check: 2 workspaces read, 1 workspace held by a discard, 0 with files to bring, no notification sent')
-  assert.equal(main.tallyLine({ read: 1, failed: 2, held: 2, toBring: 3, blocked: 1, notified: 1, sent: 1, delivered: 1 }), 'periodic check: 1 workspace read, 2 reads failed, 2 workspaces held by a discard, 3 with files to bring, 1 where Update cannot run, 1 already notified, 1 notification sent, 1 delivered')
-  assert.equal(main.tallyLine({ read: 1, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 2, delivered: 0 }), 'periodic check: 1 workspace read, 0 with files to bring, 2 notifications sent, 0 delivered')
+  assert.equal(main.tallyLine({ read: 2, failed: 0, held: 1, toBring: 0, blocked: 0, notified: 0, sent: 0, delivered: 0, tags: 0 }), 'periodic check: 2 workspaces read, 1 workspace held by a discard, 0 with files to bring, no notification sent')
+  assert.equal(main.tallyLine({ read: 1, failed: 2, held: 2, toBring: 3, blocked: 1, notified: 1, sent: 1, delivered: 1, tags: 0 }), 'periodic check: 1 workspace read, 2 reads failed, 2 workspaces held by a discard, 3 with files to bring, 1 where Update cannot run, 1 already notified, 1 notification sent, 1 delivered')
+  assert.equal(main.tallyLine({ read: 1, failed: 0, held: 0, toBring: 0, blocked: 0, notified: 0, sent: 2, delivered: 0, tags: 0 }), 'periodic check: 1 workspace read, 0 with files to bring, 2 notifications sent, 0 delivered')
 })
 
 // The Forge card's pinned line (2026-11-08): a tag is known from the person's named local clone, offline.

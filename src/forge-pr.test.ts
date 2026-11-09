@@ -1,6 +1,7 @@
 // S3b's pure part: the branch and title offered and checked, the commands per shell (quoted, markers with a nonce, exactly the
 // paths), and what the plugin keeps of a terminal: the marker's verdict, the identity, the branch, the PR URL.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { branchFault, defaultBranch, defaultBranchAll, defaultTitle, defaultTitleAll, marker, prBody, prBodyAll, readStep, remoteHost, stepCommand, titleFault } from './forge-pr'
 
 const I = { forge: '/home/acme/forge', nonce: 'n1', branch: 'craftar-acme-portal-commit-conventions', title: "chore(forge): it's done", body: 'a body', paths: ['ingredients/rules/x/rule.md', 'recipes/a b.yaml'] }

@@ -1,6 +1,7 @@
 // S4 (spec 60 §11): a craftar.cmd named by craftarPath on Windows runs through cmd, every value in double quotes, and a value cmd
 // would read inside quotes refuses the run in words. Every other program, and every other platform, gets the argument array as is.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { CMD_REFUSED, invocation } from './run'
 import { allowWritesCommand } from './shell'
 

@@ -1,5 +1,7 @@
 // The S0 worker: its status bar item, its heartbeat and the probe command (spec 60 §12).
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { chmodSync, copyFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'

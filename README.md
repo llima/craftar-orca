@@ -159,7 +159,7 @@ Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 
 - the worker starts `craftar` from inside Orca, found on an absolute `PATH` entry (every read depends on it);
 - the status bar item keeps the worker alive: 938 heartbeats in 938 minutes, none missed (the periodic check depends on it);
-- Orca's CLI is `orca-ide`; an `orca` on `PATH` can be another program (on GNOME, the screen reader), so the probe looks for
+- Orca's CLI is `orca-ide` on Linux (on Windows the release ships it as `orca`, not yet looked for by this plugin); an `orca` on `PATH` can be another program (on GNOME, the screen reader), so the probe looks for
   `orca-ide` (a later slice depends on it).
 
 Measured on 2026-11-07 too: the probe's terminal opens, backed by a pty, in the workspace in focus, and `terminal.read` gives its
@@ -248,8 +248,21 @@ orca-ide plugin check .
 orca-ide plugin inspect .
 ```
 
-CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push to any branch and every PR to `main`, on Linux with Node 22 and 24,
-against an Orca release pinned by version and sha256 (its `.deb` extracted, never installed).
+The type check needs the two development dependencies in `package.json` (TypeScript and Node's typings, exact versions,
+no scripts; Orca installs nothing from it) and Orca's typings, which `plugin types` writes into `.orca/types/`:
+
+```bash
+npm ci --ignore-scripts
+orca-ide plugin types .
+./node_modules/.bin/tsc -p .
+```
+
+`plugin inspect` refuses the symbolic links `npm ci` puts in `node_modules/`, so run it before the install or on a copy without it
+(`git archive HEAD`).
+
+CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push to any branch and every PR to `main`, on Linux and on
+Windows with Node 22 and 24, against an Orca release pinned by version and sha256 (its `.deb`, and on Windows its installer, extracted, never
+installed; the CLI is `orca` there), and the type check on Linux. Tests marked to skip on Windows are skipped there.
 
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
 The catalog images (`assets/cover.png`, `assets/screenshots/`) show the plugin's own panel, drawn by its renderer (`src/panel-view.ts`)

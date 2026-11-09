@@ -19,6 +19,8 @@ env:
   # Moving to a newer Orca changes these two lines together; release.yml reads them from here, in this exact form.
   ORCA_VERSION: 1.4.253
   ORCA_DEB_SHA256: 982fc25b1805dc8be66096b9a1ebcaf0b55eec3966b5c6ee606919797263d572
+  # The Windows build of the same release, its NSIS installer, checked the same way; it moves with the two lines above.
+  ORCA_WIN_SHA256: 9eaec96978a4420210623334da27bd77c88afb61f7f59fcf7bc2a92c36258378
 
 jobs:
   plugin:
@@ -53,3 +55,45 @@ jobs:
       - run: orca-ide plugin validate .
       - run: orca-ide plugin check .
       - run: orca-ide plugin test .
+      # The type check: typescript and Node's typings from package-lock.json, no install script run, then Orca's own
+      # typings written into .orca/types (gitignored), then tsc over src.
+      - name: Type check
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          orca-ide plugin types .
+          ./node_modules/.bin/tsc -p .
+
+  windows:
+    name: windows · node ${{ matrix.node }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      # Orca publishes Windows as an NSIS installer only. It is never run: 7-Zip opens it, then the app archive inside
+      # it, into the job's temporary space. On Windows the CLI is `orca` (resources/bin/orca.cmd and orca.exe), and it
+      # runs in Electron's Node mode as on Linux.
+      - name: Install Orca's CLI
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o orca-setup.exe \
+            "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-windows-setup.exe"
+          echo "${ORCA_WIN_SHA256}  orca-setup.exe" | sha256sum -c -
+          7z x -y -oouter orca-setup.exe '$PLUGINSDIR/app-64.7z' > /dev/null
+          7z x -y -oorca 'outer/$PLUGINSDIR/app-64.7z' > /dev/null
+          cygpath -w "$RUNNER_TEMP/orca/resources/bin" >> "$GITHUB_PATH"
+      - run: orca --version
+      - run: orca plugin validate .
+      - run: orca plugin check .
+      - run: orca plugin test .

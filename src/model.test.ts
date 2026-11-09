@@ -1,5 +1,6 @@
 // What the panel and the status bar show, built from craftar's documents (spec 60 §4, §6).
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { fixture } from '../test-support/stub-craftar'
 import type { DriftDoc, ReposDoc, StatusDoc, WorkspacesDoc } from './craftar'
 import { barFor, buildModel } from './model'

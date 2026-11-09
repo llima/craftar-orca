@@ -1,7 +1,9 @@
 // Discard in the worker (spec 60 §8a): the confirmation with the diff; Update first with anything pending; the second read fetches,
 // a failed fetch or a pending row cancels, a moved Forge draws the confirmation again; the child's arguments; a refusal relayed
 // as craftar words it; the re-read after; nothing staged; the periodic check holds that Forge's fetches during the run.
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
@@ -19,7 +21,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
   process.env.PATH = savedPath
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const EDITED = '.claude/rules/commit-conventions.md'
@@ -80,9 +82,9 @@ async function setup(extra: Record<string, unknown> = {}) {
   })
   await main.settled()
   const answer = (key: string, value: unknown) => {
-    const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+    const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE!, 'utf8'))
     t[key] = value
-    writeTable(s.env.CRAFTAR_STUB_TABLE, t)
+    writeTable(s.env.CRAFTAR_STUB_TABLE!, t)
   }
   return { s, h, worker, web, answer }
 }
@@ -271,9 +273,9 @@ test('an orphan-drift row: the file is deleted, and it reads gone', async () => 
   // The read after the run sees the file gone. The table is set before the run starts: discard.run answers at once and the run
   // goes on, so a table changed after that answer could be read by the run half-written (or too late). Between the click and
   // the read after the run, nothing reads `status --json --offline`: the second read is `status --json`, which fetches.
-  const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+  const t = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE!, 'utf8'))
   t['status --json --offline'] = { stdout: JSON.stringify(after), code: 0 }
-  writeTable(s.env.CRAFTAR_STUB_TABLE, t)
+  writeTable(s.env.CRAFTAR_STUB_TABLE!, t)
   await worker.request('discard.run', { path: EDITED })
   await main.settled()
   const d = await state(worker)

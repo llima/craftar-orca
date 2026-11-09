@@ -1,7 +1,8 @@
 // The CI and release workflows' contract (the CLI's test/ci.test.ts › release contract, in a smaller form): a release is made only
 // by release.yml's approved run, on the commit ci tested, with no token but github.token. Read as text, line by line: the repository
 // has no YAML parser, and each check names the line it needs, so a comment alone cannot satisfy one.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,6 +48,26 @@ test('ci.yml: read-only, never cancelled on main, actions pinned by SHA, the Orc
   assert.equal(lines.filter((l) => /^ {2}ORCA_VERSION: \d+\.\d+\.\d+$/.test(l)).length, 1)
   assert.equal(lines.filter((l) => /^ {2}ORCA_DEB_SHA256: [0-9a-f]{64}$/.test(l)).length, 1)
   assert.ok(runBlocks(ci).every((b) => !b.includes('${{')))
+})
+
+test('ci.yml: each Orca download is checked before it is opened; the type check installs no script', () => {
+  const ci = read('ci.yml')
+  assert.equal(code(ci).filter((l) => /^ {2}ORCA_WIN_SHA256: [0-9a-f]{64}$/.test(l)).length, 1)
+  const before = (lines: string[], first: RegExp, then: RegExp) => {
+    const a = lines.findIndex((l) => first.test(l))
+    const b = lines.findIndex((l) => then.test(l))
+    return a >= 0 && b > a
+  }
+  const linux = job(ci, 'plugin')
+  assert.ok(before(linux, /echo "\$\{ORCA_DEB_SHA256\}  orca\.deb" \| sha256sum -c -$/, /dpkg-deb -x orca\.deb/))
+  const windows = job(ci, 'windows')
+  assert.ok(windows.includes('    runs-on: windows-latest'))
+  assert.ok(before(windows, /echo "\$\{ORCA_WIN_SHA256\}  orca-setup\.exe" \| sha256sum -c -$/, /^\s+7z x /))
+  const installs = code(ci).filter((l) => /\bnpm (ci|install|i)\b/.test(l))
+  assert.ok(installs.length >= 1 && installs.every((l) => /^\s+npm ci --ignore-scripts\b/.test(l)), 'every install is npm ci --ignore-scripts')
+  for (const gate of ['--version', 'plugin validate .', 'plugin check .', 'plugin test .']) {
+    assert.ok(windows.includes(`      - run: orca ${gate}`), gate)
+  }
 })
 
 test('release.yml: after ci on a push to main, no permission at the top, never cancelled', () => {

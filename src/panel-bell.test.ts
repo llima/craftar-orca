@@ -1,6 +1,7 @@
 // The bell's levels, suggested fixes and Clear; × on every error card; Validate beside the bell (the user's requests of
 // 2026-11-08). craftar's words stay as craftar wrote them; closing a card changes nothing craftar refused.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
 import { fixture } from '../test-support/stub-craftar'
 import { buildModel, type PanelModel } from './model'

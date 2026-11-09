@@ -1,6 +1,7 @@
 // The user's ruling of 2026-11-08: no dash (— or a – used as one) in any text the plugin shows. craftar's own words are
 // relayed as craftar wrote them, so only the patterns that match craftar's wording may hold one.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 

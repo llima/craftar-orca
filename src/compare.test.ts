@@ -1,6 +1,7 @@
 // The sync's result against the question it answered (spec 60 §7 step 3): the `sync` tool has no digest, so
 // what it did is compared with the pending set the person agreed to, and every difference is shown.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { compareWithQuestion } from './compare'
 
 const asked = [

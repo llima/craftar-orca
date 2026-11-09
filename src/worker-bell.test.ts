@@ -1,6 +1,8 @@
 // The worker's side of the bell (the user's requests of 2026-11-08): × kept in memory only, Clear stored as a digest
 // only, Validate running the self-check and the probe on demand with no notification; and a reused registry's lines.
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
@@ -18,7 +20,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
   process.env.PATH = savedPath
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const WARNING = 'agents-md: 1 skill ingredient(s) have no AGENTS.md equivalent — skipped: skill/x'
@@ -90,7 +92,7 @@ test('Clear stores a digest of the messages per workspace, never their text; a d
   assert.ok(!JSON.stringify(h.data().storage).includes('AGENTS.md'))
   // craftar says something different: the digest no longer matches.
   const status = { ...JSON.parse(fixture('status.json')), warnings: [WARNING, 'plan: a new line'] }
-  writeTable(s.env.CRAFTAR_STUB_TABLE, table({ 'status --json': { stdout: JSON.stringify(status), code: 0 } }))
+  writeTable(s.env.CRAFTAR_STUB_TABLE!, table({ 'status --json': { stdout: JSON.stringify(status), code: 0 } }))
   await worker.request('state.refresh')
   await main.settled()
   assert.equal(((await worker.request('state.get')) as View).messagesCleared, false)
@@ -118,7 +120,7 @@ test("a reused registry leaves out this workspace's own lines, which status just
     { id: 'w2', kind: 'folder', name: 'api', path: api, branch: 'dev', hostId: null },
   ])
   const registry = { ...JSON.parse(fixture('workspaces.json')), warnings: [`${web}: an old line about web`, 'a line about the machine'] }
-  writeTable(s.env.CRAFTAR_STUB_TABLE, table({ 'workspaces --json': { stdout: JSON.stringify(registry), code: 0 } }))
+  writeTable(s.env.CRAFTAR_STUB_TABLE!, table({ 'workspaces --json': { stdout: JSON.stringify(registry), code: 0 } }))
   h.respond('workspace.readContext', { branch: 'dev', displayName: 'api', terminals: [] })
   await worker.emit('workspace.changed', { context: { branch: 'dev', displayName: 'api', terminals: [] } })
   await main.settled()

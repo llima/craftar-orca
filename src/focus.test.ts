@@ -1,5 +1,7 @@
 // Which workspaces are craftar's and which one has the focus (spec 60 O9).
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'

@@ -1,5 +1,6 @@
 // The bell's levels and suggested fixes: craftar's words kept, a fix a line of its own, offered only when it holds.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { cachedAgeLine, classify, counted } from './messages'
 
 const SKIP = 'agents-md: 2 skill ingredient(s) have no AGENTS.md equivalent — skipped: skill/a, skill/b'

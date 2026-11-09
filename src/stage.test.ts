@@ -1,6 +1,8 @@
 // Exact staging after a sync (spec 60 §7 step 4, §12a case 4): the written paths, the removed paths git
 // tracks, and craftar.lock — less what git ignores — through `git add -- <paths>`; never -A, never a commit.
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -39,7 +41,7 @@ test('written, tracked removed and craftar.lock are staged; nothing else is, and
   rmSync(join(dir, '.claude/rules/old.md'))
   writeFileSync(join(dir, 'craftar.lock'), '{"v":2}\n')
   writeFileSync(join(dir, 'unrelated.txt'), 'two\n')
-  const r = await stagePaths(git!, dir, { written: ['.claude/rules/new.md'], removed: [{ path: '.claude/rules/old.md', reason: 'orphan' }] })
+  const r = await stagePaths(git!, dir, { written: ['.claude/rules/new.md'], removed: [{ path: '.claude/rules/old.md' }] })
   assert.deepEqual(r.staged, ['.claude/rules/new.md', '.claude/rules/old.md', 'craftar.lock'])
   assert.deepEqual(staged(dir), ['.claude/rules/new.md', '.claude/rules/old.md', 'craftar.lock'])
   assert.equal(head(dir), before)
@@ -49,7 +51,7 @@ test('an untracked removed path and an ignored written path are left out', { ski
   const dir = repo()
   mkdirSync(join(dir, 'ignored'), { recursive: true })
   writeFileSync(join(dir, 'ignored/x.md'), 'x\n')
-  const r = await stagePaths(git!, dir, { written: ['ignored/x.md'], removed: [{ path: '.claude/rules/never-tracked.md', reason: 'orphan' }] })
+  const r = await stagePaths(git!, dir, { written: ['ignored/x.md'], removed: [{ path: '.claude/rules/never-tracked.md' }] })
   assert.deepEqual(r.staged, [])
   assert.deepEqual(r.leftOut.sort(), ['.claude/rules/never-tracked.md', 'ignored/x.md'])
   assert.deepEqual(staged(dir), [])

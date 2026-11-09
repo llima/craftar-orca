@@ -1,6 +1,8 @@
 // A file's diff from the diff tool of a long-lived `craftar mcp` child (spec 60 §4, §6): started on the
 // first diff, never with --fetch or --allow-writes, restarted once on PIN_CHANGED.
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { DiffChild, DiffRefused } from './diff-child'
@@ -11,7 +13,7 @@ const children: DiffChild[] = []
 
 afterEach(async () => {
   for (const c of children.splice(0)) await c.stop()
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const [INIT, DIFF] = fixture('mcp-diff.jsonl')
