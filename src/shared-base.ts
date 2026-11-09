@@ -9,7 +9,8 @@ const STABLE = "only the Forge's maintainers change"
 // craftar 1.9.0 (craftar-cli src/importers/drift-promote.ts at bd9e53e). D19_UNRESOLVED keeps its 1.9.0 phrase after C4.
 const V190: readonly RegExp[] = [
   / is also used by profile \S+ — its files would change there/, // D10
-  /promote would change .+ \(profile [^)]*\): .+ — the Forge was left untouched/, // D16, another profile
+  // D16, another profile; the same profile's D16 says "beyond <ingredient>:" instead, so a path holding "(profile" is not read as one.
+  /promote would change (?:(?! beyond ).)+ \(profile [^)]*\): .+ — the Forge was left untouched/,
   /promote does not fork a recipe chain/, // D17
   /no command writes a parent/, // D17 under a parent, D24
   /which profile \S+ selects through integrations\./, // D18, D19, D19_UNRESOLVED

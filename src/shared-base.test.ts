@@ -44,6 +44,7 @@ test("the stable phrase alone is enough, whatever the rest of craftar's words", 
 test('other refusals are not: the same profile, a file already in the Forge, the Forge moved, a remote Forge', () => {
   for (const text of [
     `error: promote would change /home/acme/web beyond rule/workflow: ${P} — the Forge was left untouched`,
+    `error: promote would change /home/acme (profile x): y beyond rule/workflow: ${P} — the Forge was left untouched`,
     `error: profiles/acme-web/ingredients/rules/workflow/rule.md already exists in the Forge — promote does not overwrite it`,
     `error: the Forge changed rule/workflow since the last sync (${P}: update) — a variant taken from the disk would undo that change for profile acme-web; sync the rest, redo the edit on top, and promote again`,
     'error: the Forge of this workspace is remote, read from a cache craftar never writes — pass `--forge <your clone>`',
