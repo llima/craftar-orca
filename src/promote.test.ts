@@ -1,7 +1,9 @@
 // Send to Forge (spec 60 §8 step 3, O5): `craftar drift promote <path> --workspace <abs> [--forge <dir>]
 // [--dry-run] --json` as an argument array — the dry run first, the write on a second click. craftar proves
 // the change, writes the Forge's working tree and never commits; its refusal is shown in its words.
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { stubCraftar } from '../test-support/stub-craftar'
 import { promote, PromoteRefused } from './promote'

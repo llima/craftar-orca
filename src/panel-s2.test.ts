@@ -1,6 +1,7 @@
 // S2 in the approved panel (spec 60 §7, O2): the worker's update, sync, consent and last update drawn by the
 // design's cards, with the real actions — the confirm sends exactly its list; nothing the worker says is dropped.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
 import { fixture } from '../test-support/stub-craftar'
 import { buildModel } from './model'
@@ -18,11 +19,12 @@ function view(over: Partial<View> = {}): View {
     fetchedAt: null,
     readAt: 0,
   })
+  // The fields this file never draws are left out, as they always were; the cast lets the type check accept that.
   return {
     focus: 'one', selfCheck: [], model, readFailed: false, ask: [], remote: [], probe: null,
     update: { allowed: true, reason: null, files: [{ path: '.claude/rules/workflow.md', state: 'update' }] },
     sync: { phase: 'idle', message: null }, consent: null, lastSync: null, ...over,
-  }
+  } as View
 }
 
 function draw(v: View, notice: string | null = null) {

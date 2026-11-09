@@ -1,7 +1,8 @@
 // The shell a terminal runs (spec 60 O12): a fixed, harmless probe command whose answer differs per shell,
 // read back from the probe terminal; every value put into a terminal command is quoted for that shell, and a
 // shell the probe does not recognise gets no terminal.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { allowWritesCommand, detectShell, PROBE_SHELL_COMMAND, quote } from './shell'
 
 test('the probe answer names the shell; anything else is unknown', () => {

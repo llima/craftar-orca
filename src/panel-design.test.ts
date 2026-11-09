@@ -1,7 +1,8 @@
 // The layout the user approved on 2026-11-08: the bell, the sync diagram (Forge, craftar sync, one card per
 // surface, the workspace and its profile), the files both ways and the actions in a footer toolbar; S2's parts
 // drawn from its contract when the worker gives it (absent: drawn disabled). Every value stays text.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'

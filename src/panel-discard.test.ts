@@ -1,6 +1,7 @@
 // Discard in the panel (spec 60 §8a): the button on a drift and an orphan-drift row, never on the example file or a collision;
 // "Update first" with anything pending; the confirmation with the diff (or craftar's note) and its second click; the outcome.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
 import { fixture } from '../test-support/stub-craftar'
 import { buildModel, type PanelModel } from './model'

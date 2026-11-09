@@ -1,7 +1,9 @@
 // Orca's CLI as the source of the focus (the user's ruling, 2026-11-07): `orca-ide worktree ps --json`
 // marks the workspace in focus `isActive` (measured in Orca 1.4.250: it follows every switch), and
 // `orca-ide terminal list --json` maps a terminal to its workspace. Only paths are kept.
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { join } from 'node:path'
 import { psDoc, stubOrcaCli, terminalsDoc } from '../test-support/stub-orca-cli'
 import { removeTempDirs } from '../test-support/tmp'

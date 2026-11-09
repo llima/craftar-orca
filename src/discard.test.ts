@@ -1,5 +1,6 @@
 // Discard's pure part (spec 60 §8a): which rows, what is pending, a failed fetch, the argument array, the comparison after.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { afterDiscard, discardArgs, EXAMPLE_SETTINGS, fetchFailed, pendingOf, rowFault } from './discard'
 
 const row = (path: string, state: string) => ({ path, state, target: 'claude-code', ingredient: 'rule/x', forge: 'same', promotable: true, reason: null })

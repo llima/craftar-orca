@@ -1,6 +1,8 @@
 // S3a, Send to Forge (spec 60 §8, O5, O7): the dry run on the first click, the write on a second; the Forge
 // directory asked once for a URL Forge; one notification per newly edited file; the save hook only marks.
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
@@ -242,9 +244,9 @@ test('a file the Forge brings that is not here yet is refused by the worker, wha
   const { s, h, worker } = await setup()
   const status = JSON.parse(fixture('status.json'))
   status.statuses.push({ path: '.claude/rules/brand-new.md', state: 'new', target: 'claude-code', ingredient: 'rule/brand-new' })
-  const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+  const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE!, 'utf8'))
   table['status --json'] = { stdout: JSON.stringify(status), code: 0 }
-  writeTable(s.env.CRAFTAR_STUB_TABLE, table)
+  writeTable(s.env.CRAFTAR_STUB_TABLE!, table)
   await worker.request('state.refresh')
   await main.settled()
   await assert.rejects(worker.request('file.open', { path: '.claude/rules/brand-new.md' }), /not a file this workspace lists/)
@@ -276,9 +278,9 @@ test("Check again clears only the focused workspace's refusals; another craftar 
   assert.equal(((await worker.request('state.get')) as View).sendRefused.length, 1)
   // Another craftar version: every refusal is cleared.
   await focus('api', 'dev')
-  const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE, 'utf8'))
+  const table = JSON.parse(readFileSync(s.env.CRAFTAR_STUB_TABLE!, 'utf8'))
   table['doctor --json'] = { stdout: JSON.stringify({ ...JSON.parse(fixture('doctor.json')), version: '1.8.0' }), code: 0 }
-  writeTable(s.env.CRAFTAR_STUB_TABLE, table)
+  writeTable(s.env.CRAFTAR_STUB_TABLE!, table)
   await worker.request('state.refresh')
   await main.settled()
   await focus('web', 'main')

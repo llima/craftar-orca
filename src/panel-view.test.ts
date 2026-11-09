@@ -1,5 +1,6 @@
 // The panel's drawing (spec 60 §6): every value as text, craftar's words verbatim, no action in S1.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
@@ -23,7 +24,8 @@ function modelView(over: Partial<View> = {}, warnings: string[] = []): View {
     fetchedAt: null,
     readAt: 0,
   })
-  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], probe: null, update: { allowed: false, reason: 'nothing to update', files: [] }, sync: { phase: 'idle', message: null }, consent: null, lastSync: null, ...over }
+  // The fields this file never draws are left out, as they always were; the cast lets the type check accept that.
+  return { focus: 'one', selfCheck: [{ level: 'ok', message: 'craftar: /home/acme/bin/craftar' }], model, readFailed: false, ask: [], remote: [], probe: null, update: { allowed: false, reason: 'nothing to update', files: [] }, sync: { phase: 'idle', message: null }, consent: null, lastSync: null, ...over } as View
 }
 
 function draw(v: View, diff: Parameters<typeof render>[4] = null) {

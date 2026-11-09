@@ -1,7 +1,8 @@
 // The CI and release workflows' contract (the CLI's test/ci.test.ts › release contract, in a smaller form): a release is made only
 // by release.yml's approved run, on the commit ci tested, with no token but github.token. Read as text, line by line: the repository
 // has no YAML parser, and each check names the line it needs, so a comment alone cannot satisfy one.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'

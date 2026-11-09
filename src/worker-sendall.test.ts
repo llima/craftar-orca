@@ -1,7 +1,9 @@
 // Send all (the user's design A of 2026-11-08): the dry runs of every file and one plan; Write all writes them in order and
 // stops at the first refusal, in craftar's words; one PR for what was written, and Send the rest after its commit, on the
 // same branch. Every craftar is a stub; every git command goes through a terminal the plugin opens, never typed.
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'

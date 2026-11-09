@@ -1,6 +1,8 @@
 // S3b in the worker: after a Send wrote the Forge, the PR in three clicks, each in a new visible terminal with a fixed command;
 // the plugin follows each step by its marker, keeps only the identity, the branch and the PR URL, and never commits itself.
-import { afterEach, assert, beforeEach, mockHost, mountWorker, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { chmodSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'

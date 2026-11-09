@@ -1,6 +1,8 @@
 // The read surface over craftar's --json contracts (spec 60 §3, §7.1): which argv each read passes, and
 // what counts as a document. Every call goes to a stub craftar.
-import { afterEach, assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
 import { doctor, driftShow, ReadFailure, repos, status, workspaces } from './craftar'

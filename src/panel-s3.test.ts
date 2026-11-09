@@ -1,6 +1,7 @@
 // S3a in the approved panel (spec 60 §8, O5, O7): Send to Forge asks for the dry run, shows craftar's plan as
 // text, and writes only on a second click; a URL Forge asks for a local clone first; a saved file is marked.
-import { assert, test } from 'orca/testing'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { all, byAction, click, fakeDocument, type FakeEl } from '../test-support/fake-dom'
 import { fixture } from '../test-support/stub-craftar'
 import { buildModel } from './model'
@@ -16,11 +17,12 @@ function view(over: Partial<View> = {}): View {
     repos: JSON.parse(fixture('repos.json')), registry: JSON.parse(fixture('workspaces.json')),
     fetchedAt: null, readAt: 0,
   })
+  // The fields this file never draws are left out, as they always were; the cast lets the type check accept that.
   return {
     focus: 'one', selfCheck: [], model, readFailed: false, ask: [], remote: [], probe: null,
     update: { allowed: false, reason: 'nothing to update', files: [] }, sync: { phase: 'idle', message: null }, consent: null, lastSync: null,
     send: null, forgeDir: { needed: false, dir: null }, marked: [], ...over,
-  }
+  } as View
 }
 
 function draw(v: View) {
