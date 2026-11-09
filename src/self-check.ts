@@ -4,7 +4,7 @@
 // O2). Lines go to the panel only, never to the log: a doctor line can carry a path.
 import { type Craftar, doctor, type DoctorDoc, ReadFailure, workspaces } from './craftar'
 import { findCraftar } from './resolve'
-import { childEnv, run, type RunResult } from './run'
+import { childEnv, CMD_REFUSED, run, type RunResult } from './run'
 
 // The newest "since" among the surfaces S1 reads (craftar-cli README, Upgrading): status --json with
 // --offline 0.11.0, workspaces --json 0.12.0, doctor --json 0.15.0, unsetParams 0.20.0, drift show --json
@@ -27,7 +27,12 @@ export interface SelfCheckOptions {
   platform?: NodeJS.Platform
   /** A seam for tests: `craftar --version`. The stub craftar is a copy of node, which answers --version itself. */
   version?: (bin: string, env: NodeJS.ProcessEnv) => Promise<RunResult>
+  /** A seam for tests: `craftar doctor --json`, so a run cmd refused (S4) can be answered off Windows. */
+  doctor?: (c: Craftar, ws: string) => Promise<DoctorDoc>
 }
+
+// A run cmd refused (S4) is no install problem: its fixed words are relayed, and the line carries no install mark.
+const cmdRefusedLine = (what: string): Line => ({ level: 'error', message: `${what} was not started: ${CMD_REFUSED}` })
 
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/
 
@@ -73,8 +78,12 @@ export async function selfCheck(
   // workspace's checks.
   let d: DoctorDoc
   try {
-    d = await doctor(craftar, ws)
+    d = await (o.doctor ?? doctor)(craftar, ws)
   } catch (e) {
+    if (e instanceof ReadFailure && e.message.endsWith(`: ${CMD_REFUSED}`)) {
+      lines.push(cmdRefusedLine('craftar doctor --json'))
+      return { lines, craftar: null }
+    }
     const code = e instanceof ReadFailure ? `exit ${e.code ?? 'none'}` : 'did not run'
     lines.push({ level: 'error', message: `craftar doctor --json gave no document (${code}): craftar older than 0.15.0, or broken`, install: 'broken' })
     return { lines, craftar: null }
@@ -116,6 +125,10 @@ async function withoutWorkspace(o: SelfCheckOptions, bin: string, lines: Line[])
   const env = childEnv(o.baseEnv, o.craftarHome)
   const r = await (o.version ?? ((b, e) => run(b, ['--version'], e)))(bin, env)
   const first = r.stdout.trim().split(/\r?\n/)[0] ?? ''
+  if (r.code === null && r.stderr === CMD_REFUSED) {
+    lines.push(cmdRefusedLine('craftar --version'))
+    return { lines, craftar: null }
+  }
   if (r.code !== 0) {
     lines.push({ level: 'error', message: `craftar --version did not run (exit ${r.code ?? 'none'}): craftar is installed but does not start`, install: 'broken' })
     return { lines, craftar: null }

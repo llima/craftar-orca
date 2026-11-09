@@ -4,6 +4,8 @@ import { test } from 'node:test'
 import { afterEach } from 'orca/testing'
 import { removeTempDirs } from '../test-support/tmp'
 import { fixture, stubCraftar } from '../test-support/stub-craftar'
+import { ReadFailure } from './craftar'
+import { CMD_REFUSED } from './run'
 import { FLOOR, selfCheck, versionAtLeast } from './self-check'
 
 afterEach(removeTempDirs)
@@ -130,6 +132,26 @@ test('with no craftar workspace, a craftar whose --version fails is an install l
   assert.equal(bad.length, 1)
   assert.equal(bad[0].install, 'broken')
   assert.match(bad[0].message, /exit 127/)
+})
+
+test('with no craftar workspace, a --version cmd refused relays craftar.cmd\'s refusal and is no install line', async () => {
+  const s = stubCraftar({})
+  const r = await selfCheck(opts(s.bin, s.env, { version: async () => ({ code: null, stdout: '', stderr: CMD_REFUSED }) }), null)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, undefined)
+  assert.ok(bad[0].message.includes(CMD_REFUSED))
+  assert.doesNotMatch(bad[0].message, /does not start/)
+})
+
+test('in a workspace, a doctor read cmd refused relays the refusal and is no install line', async () => {
+  const s = stubCraftar({})
+  const r = await selfCheck(opts(s.bin, s.env, { doctor: async () => { throw new ReadFailure('doctor --json', null, CMD_REFUSED) } }), WS)
+  const bad = r.lines.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, undefined)
+  assert.ok(bad[0].message.includes(CMD_REFUSED))
+  assert.equal(r.craftar, null)
 })
 
 test('with no craftar workspace, a craftar below the floor is an upgrade line', async () => {
