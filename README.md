@@ -15,10 +15,12 @@ Forge's working tree, after its dry run, never a commit; **a PR in the Forge** (
 you see, never a commit by the plugin itself; and **Discard** of a hand edit (spec 60 §8a), after a confirmation with its diff, nothing staged.
 
 - **On enable** a self-check runs: the binary found and absolute, its version at least **0.33.0** (taken from `craftar doctor
-  --json`, asked about the focused craftar workspace or, with none focused, another one on this machine; with none at all nothing
-  is started), doctor's `error` lines for the focused workspace (listed, never fixed), and whether the registry is on. It runs again
-  when `craftarPath` or `craftarHome` changes. When anything fails it is shown at the top of the panel and the status bar reads
-  `craftar: error`.
+  --json`, asked about the focused craftar workspace or, with none focused, another one on this machine; with none at all only
+  `craftar --version` runs, so a machine with no craftar still learns it), doctor's `error` lines for the focused workspace (listed,
+  never fixed), and whether the registry is on. It runs again when `craftarPath` or `craftarHome` changes. When anything fails it is
+  shown at the top of the panel and the status bar reads `craftar: error`. A craftar that is not found, does not start or is older
+  than 0.33.0 is said first, in a card that cannot be closed, with the install line (`npm install -g craftar`), what to do when
+  craftar is on your terminal's `PATH` only (installed with nvm, for one: set *craftar binary*), and *Check again*.
 - **The focused workspace** is the one Orca has active, asked of Orca's CLI (`orca-ide worktree ps --json`, run as a child from the
   `orca-ide` found on an absolute `PATH` entry; only paths are kept, in memory, never logged or stored), when its folder on this machine holds `craftar.yaml`; an active
   workspace without one is no focus. When Orca's CLI cannot say, the workspace holding the open workspace's terminals
@@ -60,7 +62,7 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   `promotable`); a file it will not carry shows craftar's reason. The first click runs `craftar drift promote <file> --workspace <dir>
   --dry-run --json` and shows its plan as text: the outcome, the Forge files it would write, the values it would set, the other
   workspaces that will see it, craftar's warnings; **Write to the Forge**, a second click, runs it for real. craftar proves the change,
-  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words: after a refused dry run the panel returns to the workspace and the file stays "kept here", with craftar's words and no Send, until you save it again or click Check again (a different craftar version clears it too). A Forge given as a git URL
+  writes the Forge's working tree behind git's gate and never commits; a refusal is shown in its words: after a refused dry run the panel returns to the workspace and the file stays "kept here", with craftar's words and no Send (and, when they say the file comes from the Forge's shared base, one plain line: only the Forge's maintainers change it there; a pull request to the Forge, or Discard), until you save it again or click Check again (a different craftar version clears it too). A Forge given as a git URL
   needs a local clone of it: the panel asks for its folder once per workspace, in its footer toolbar above the Send button, and keeps only that path (`--forge <dir>`); a Forge on
   this machine needs nothing. One notification per file you newly edit by hand that craftar can carry: "<file> belongs to Forge <x>:
   send the change to the Forge? Open the craftar panel."
@@ -136,7 +138,12 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
 - **The consent stays craftar's.** With none recorded (or one for an older Forge, ref or profile), Update writes nothing and the panel
   shows craftar's words and offers **Open a terminal to allow writes**: a terminal in the workspace running your craftar's
   `mcp allow-writes --workspace <dir>`, quoted for the shell a one-line probe found (`echo craftar-shell:$0`: bash, zsh, sh or
-  PowerShell), where you answer its question yourself. Orca opens a plugin's terminal in the background, so the plugin brings it
+  PowerShell), where you answer its question yourself. Before it opens, the card says, in the alert colour, that the terminal shows
+  the workspace's Forge, ref and profile, then asks craftar's question (`Let craftar mcp --allow-writes write here [no]: `), and that
+  you type `yes` to allow writes. The plugin then reads that terminal for craftar's last words, `write consent recorded for` or
+  `allow-writes cancelled` (nothing else of it is kept, for ten minutes at most), and the card follows: writes allowed, or your no,
+  with the terminal offered again. It never runs the sync by itself: the next *Bring* is your click. While the sync runs, a progress
+  strip says so. Orca opens a plugin's terminal in the background, so the plugin brings it
   forward with Orca's CLI (`orca-ide terminal switch`, run as a child); a second click brings the same terminal forward again (a new
   one when it is gone), and when Orca's CLI cannot, the panel says the terminal is in the background. The plugin never types into a terminal; with cmd or a shell the probe does not
   recognise, it opens none and lists the steps in words.
