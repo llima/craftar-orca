@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { afterEach, beforeEach, mockHost, mountWorker } from 'orca/testing'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
@@ -28,7 +28,7 @@ afterEach(() => {
 
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const [INIT, DIFF] = fixture('mcp-diff.jsonl')
@@ -442,6 +442,9 @@ function savedOriginalPath(): string {
 function gitDirOnPath(): string {
   const git = findOnPath('git', ORIGINAL_PATH)
   if (!git) return ''
+  // On Windows the plugin looks for git.exe, which a link named git is not; Git's own folder there holds Git's programs,
+  // never orca-ide, so it goes on PATH as it is.
+  if (process.platform === 'win32') return dirname(git)
   const dir = tempDir('craftar-orca-gitbin-')
   symlinkSync(git, join(dir, 'git'))
   return dir
