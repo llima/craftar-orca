@@ -1172,7 +1172,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (c.answer === 'recorded') {
       const ok = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent-recorded' }))
       ok.appendChild(t('h2', 'Writes are allowed here'))
-      ok.appendChild(t('p', 'craftar recorded your yes. Click Bring from the Forge again: it asks nothing more.'))
+      ok.appendChild(t('p', 'craftar recorded your yes. Click Bring from the Forge again: craftar will not ask for consent again.'))
       return
     }
     const box = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent' }))
