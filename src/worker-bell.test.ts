@@ -20,7 +20,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
   process.env.PATH = savedPath
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const WARNING = 'agents-md: 1 skill ingredient(s) have no AGENTS.md equivalent — skipped: skill/x'

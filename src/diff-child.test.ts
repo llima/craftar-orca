@@ -13,7 +13,7 @@ const children: DiffChild[] = []
 
 afterEach(async () => {
   for (const c of children.splice(0)) await c.stop()
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const [INIT, DIFF] = fixture('mcp-diff.jsonl')

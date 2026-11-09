@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.deactivate()
   process.env.PATH = savedPath
-  removeTempDirs()
+  await removeTempDirs()
 })
 
 const EDITED = '.claude/rules/commit-conventions.md'
