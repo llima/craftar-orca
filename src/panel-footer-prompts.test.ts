@@ -152,7 +152,8 @@ test('a Bring that cannot be clicked is never named as the next click: the note 
   assert.equal(byAction(root, 'update')[0].attrs.disabled, '', 'Bring is off on a cached copy')
   const ok = role(root, 'consent-recorded')[0]
   assert.doesNotMatch(ok.textContent, /Click Bring/)
-  assert.match(ok.textContent, /Bring waits: /)
+  assert.match(ok.textContent, /craftar recorded your yes: craftar will not ask for consent again\. Bring waits: [^.]+.*\.$/, 'the reason in a sentence of its own, last')
+  assert.doesNotMatch(ok.textContent, /\.\.$/)
   const rerun = view({ lastSync: { written: [], removed: [], kept: [], staged: [], differences: [], warnings: [], rerun: true } })
   rerun.model!.forge = { ...rerun.model!.forge!, freshness: 'cached', fetchedAt: null }
   const note = role(draw(rerun).root, 'rerun')[0]

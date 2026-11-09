@@ -1909,7 +1909,7 @@ export default function activate(orca: OrcaWorkerApi): void {
           }
           const pending = pendingOf(st)
           if (pending.length > 0) {
-            s.discard.set(ws, { ...d, phase: 'error', message: `Nothing was written: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} now coming from the Forge. Update first: click Bring in the footer, then discard.` })
+            s.discard.set(ws, { ...d, phase: 'error', message: `Nothing was written: ${pending.length === 1 ? '1 file is' : `${pending.length} files are`} now coming from the Forge. Update first: go back to the workspace and click Bring, then discard.` })
             return
           }
           const dr = await driftShow(craftar, ws)

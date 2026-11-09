@@ -137,6 +137,8 @@ test('a pending row found by the second read cancels the run, writing nothing', 
   const d = await state(late.worker)
   assert.equal(d?.phase, 'error')
   assert.match(d?.message ?? '', /Nothing was written.*Update first/)
+  // Drawn on the discard screen, whose footer holds only the way back: it says to go back first.
+  assert.match(d?.message ?? '', /go back to the workspace and click Bring/)
   assert.notEqual(d?.readAgain, true, 'nothing ran: no read to ask for')
   assert.equal(discards(late.s).length, 0)
 })

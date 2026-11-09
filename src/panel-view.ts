@@ -818,10 +818,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // A message that asks for a footer action sits in the footer, above the button it names, as the Forge clone box does
     // (the user's ask of 2026-11-09): the consent, then a file craftar kept while it was writing. It names Bring only when
     // Bring can be clicked; otherwise it says why Bring waits.
-    const bringNext = running || !bringLabel ? null : allowed ? `Click ${bringLabel} below` : reason ? `Bring waits: ${reason}` : null
-    if (v.consent) drawConsent(v.consent, bringNext)
+    const click = !running && bringLabel && allowed ? `Click ${bringLabel} below` : null
+    const waits = !running && bringLabel && !allowed && reason ? `Bring waits: ${reason.replace(/\.$/, '')}.` : null
+    if (v.consent) drawConsent(v.consent, click, waits)
     if (v.lastSync?.rerun) {
-      const again = bringNext ? `${bringNext}${allowed ? ' to bring the files again' : ''}.` : 'Bring the files again once craftar lists them.'
+      const again = click ? `${click} to bring the files again.` : waits ?? 'Bring the files again once craftar lists them.'
       toolbar.appendChild(t('p', `craftar kept a file that changed while it was writing. ${again}`, { class: 'tb-note', 'data-role': 'rerun' }))
     }
     // A URL Forge needs a local clone before Send: asked for, or shown with Change, in the toolbar itself (the user's ask of 2026-11-08).
@@ -1192,13 +1193,13 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'install-check' }, 'refresh', () => (a.validate ? a.validate() : a.refresh()))))
   }
 
-  /** The consent, in the footer above Bring (the user's ask of 2026-11-09); `next` says what to click next, or why Bring waits. */
-  function drawConsent(c: NonNullable<S2View['consent']>, next: string | null): void {
+  /** The consent, in the footer above Bring (the user's ask of 2026-11-09); `click` names Bring when it can be clicked, `waits` says why it cannot. */
+  function drawConsent(c: NonNullable<S2View['consent']>, click: string | null, waits: string | null): void {
     // P3: craftar printed that it recorded the consent in the terminal the plugin opened: the question is answered.
     if (c.answer === 'recorded') {
       const ok = toolbar.appendChild(h('section', { class: 'cta plain tb-prompt', 'data-role': 'consent-recorded' }))
       ok.appendChild(t('h2', 'Writes are allowed here'))
-      ok.appendChild(t('p', next ? `craftar recorded your yes. ${next}: craftar will not ask for consent again.` : 'craftar recorded your yes: craftar will not ask for consent again.'))
+      ok.appendChild(t('p', click ? `craftar recorded your yes. ${click}: craftar will not ask for consent again.` : `craftar recorded your yes: craftar will not ask for consent again.${waits ? ` ${waits}` : ''}`))
       return
     }
     const box = toolbar.appendChild(h('section', { class: 'cta plain tb-prompt', 'data-role': 'consent' }))
