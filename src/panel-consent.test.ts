@@ -81,3 +81,24 @@ test('P3: an answer of no is said, and the terminal is offered again', () => {
   assert.deepEqual(calls, ['consent terminal'])
 })
 
+test('P3: while craftar syncs, a progress strip says so in words, as a live region', () => {
+  const { root } = draw(view({ sync: { phase: 'running', message: null } }))
+  const p = role(root, 'progress')
+  assert.equal(p.length, 1)
+  assert.equal(p[0].attrs.role, 'status')
+  assert.equal(p[0].attrs['aria-live'], 'polite')
+  assert.match(p[0].textContent, /craftar is bringing the files from the Forge/)
+  assert.ok(all(p[0]).some((e) => (e.attrs.class ?? '').split(' ').includes('bar')), 'an indeterminate bar')
+})
+
+test('P3: no progress strip when nothing runs', () => {
+  const { root } = draw(view())
+  assert.equal(role(root, 'progress').length, 0)
+})
+
+test('P3: a first read shows the strip too, in place of the bare Reading line', () => {
+  const { root } = draw(view({ model: null, focus: 'one' }))
+  const p = role(root, 'progress')
+  assert.equal(p.length, 1)
+  assert.match(p[0].textContent, /craftar is reading this workspace/)
+})

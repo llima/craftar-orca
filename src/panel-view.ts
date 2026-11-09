@@ -433,7 +433,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'refresh' }, 'refresh', () => a.refresh())))
   } else if (!m) {
     if (v.focus === 'none') body.appendChild(empty(false, 'No craftar workspace has the focus', 'A workspace follows a Forge once it holds craftar.yaml. Start one in a terminal with craftar init.'))
-    else body.appendChild(t('p', 'Reading…', { class: 'muted' }))
+    else body.appendChild(progress('craftar is reading this workspace…'))
   }
 
   if (m) {
@@ -541,6 +541,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       // Try again fetches: the periodic check, run now. A focus read is offline and could never clear this card.
       box.appendChild(h('div', { class: 'row' }, button('Try again', { class: 'btn', 'data-action': a.checkNow ? 'check-now' : 'refresh' }, 'refresh', () => (a.checkNow ? a.checkNow() : a.refresh()))))
     }
+    // P3: while craftar syncs (a fetch, the sync, then the staging), a strip says so in words.
+    if (v.sync?.phase === 'running') body.appendChild(progress('craftar is bringing the files from the Forge: fetching, syncing, then staging…'))
     if (v.consent) drawConsent(v.consent)
     // craftar's words about the last run; a consent refusal is said once, in the consent card above.
     const syncKey = cardKey('sync', v.sync?.phase ?? '', v.sync?.message ?? '')
@@ -1133,6 +1135,14 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     span.appendChild(t('strong', String(n)))
     span.appendChild(t('span', rest))
     return span
+  }
+
+  /** P3: craftar at work, said in words, with an indeterminate bar (still under reduced motion). */
+  function progress(text: string): HTMLElement {
+    const box = h('div', { class: 'progress', role: 'status', 'aria-live': 'polite', 'data-role': 'progress' })
+    box.appendChild(t('span', text))
+    box.appendChild(h('span', { class: 'bar', 'aria-hidden': 'true' }))
+    return box
   }
 
   function drawInstall(lines: Line[]): void {
