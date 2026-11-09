@@ -162,13 +162,13 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
   // Orca's CLI is `orca-ide` on Linux, where an `orca` on PATH can be another program (on GNOME, the screen
   // reader); on Windows and macOS it is `orca` (orcaCliName).
   const cliName = orcaCliName()
-  const orcaIde = findOrcaCli(process.env.PATH ?? '')
+  const orcaCli = findOrcaCli(process.env.PATH ?? '')
   const otherOrca = cliName === 'orca-ide' ? findOnPath('orca', process.env.PATH ?? '') : null
   // Whether Orca's CLI answers from inside the worker, where the focus is read from (never which workspace).
-  const active = orcaIde ? await activeWorkspacePath(orcaIde) : null
+  const active = orcaCli ? await activeWorkspacePath(orcaCli) : null
   const activeLine = active === null ? '' : `, active workspace: ${active.kind === 'one' ? 'found' : active.kind === 'none' ? 'none' : `failed (${active.reason})`}`
   out.push(
-    `Orca CLI (${cliName}): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}${activeLine}` +
+    `Orca CLI (${cliName}): ${orcaCli ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}${activeLine}` +
       (otherOrca ? '; an `orca` on PATH is another program, not taken for it' : ''),
   )
   summary.push(`Orca CLI: ${active === null ? 'not found' : active.kind === 'one' ? 'active workspace found' : active.kind === 'none' ? 'no active workspace' : `failed (${active.reason})`}`)

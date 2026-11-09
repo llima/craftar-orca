@@ -1061,7 +1061,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       pair('title', f.title, 'forgepr-title-text')
     }
     if (f.authorDiffers) box.appendChild(t('p', `The commit was made as ${f.authorDiffers}, not as the identity shown above.`, { class: 'note bad', 'data-role': 'forgepr-author' }))
-    if (f.url) box.appendChild(t('p', `${f.url}${f.attached === true ? ' (attached to this workspace)' : f.attached === false ? ' (not attached: Orca CLI reference add did not work)' : ''}`, { class: 'muted', 'data-role': 'forgepr-url' }))
+    if (f.url) box.appendChild(t('p', `${f.url}${f.attached === true ? ' (attached to this workspace)' : f.attached === false ? ' (not attached: Orca's CLI did not add the reference)' : ''}`, { class: 'muted', 'data-role': 'forgepr-url' }))
     if (f.note) box.appendChild(t('p', f.note, { class: f.phase === 'failed' ? 'note bad' : 'note', 'data-role': 'forgepr-note' }))
     if (f.phase === 'words') {
       const ol = box.appendChild(h('ol', { class: 'lines plain' }))

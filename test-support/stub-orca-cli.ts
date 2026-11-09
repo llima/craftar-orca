@@ -1,5 +1,5 @@
 // A stub of Orca's CLI for tests, named as the platform names it (orcaCliName: `orca-ide` on Linux, `orca`
-// on macOS): a POSIX shell script that records its arguments and answers
+// on macOS; never win32): a POSIX shell script that records its arguments and answers
 // `worktree ps --json` and `terminal list --json` from canned documents. No test reaches the person's own
 // Orca. POSIX only: the tests that use it are skipped on win32, and every other worker test puts an empty
 // directory on PATH, so no Orca CLI is found there and the focus falls back as it did before. It calls

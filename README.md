@@ -172,8 +172,9 @@ Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 ### Orca's CLI
 
 The plugin looks for Orca's CLI on the absolute entries of `PATH` only, by the name each platform gives it: `orca-ide` on Linux, `orca`
-on macOS, and `orca.exe` on Windows (the release ships `resources\bin\orca.exe`, a native launcher, beside `orca.cmd`; as for
-craftar, a `.cmd` is never started by the lookup). The commands this README shows as `orca-ide …` are `orca …` on Windows and macOS.
+on macOS, and `orca.exe` on Windows (the Windows release ships `resources\bin\orca.exe`, a native launcher, beside `orca.cmd`; as for
+craftar, a `.cmd` is never started by the lookup). The macOS name follows Orca's own CLI registration, which names the command
+`orca-ide` on Linux and `orca` on every other platform; it was not checked on a Mac. The commands this README shows as `orca-ide …` are `orca …` on Windows and macOS.
 The Windows and macOS names are coded from Orca's own naming, not run there: whether Orca's installer puts that folder on `PATH` was
 not measured.
 
