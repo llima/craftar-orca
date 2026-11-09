@@ -4,6 +4,7 @@
 // workspace with its profile below; the files in both directions; the actions in a fixed footer toolbar. Send
 // and Bring each take the body over with their own screen and their own toolbar. Every value is put in with
 // textContent, never as markup.
+import type { Line } from './self-check'
 import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
@@ -266,6 +267,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     ? { ...shown, edited: shown.edited.map((e) => (e.promotable && refusedSend.has(e.path) ? { ...e, promotable: false, reason: 'kept here: craftar will not send it' } : e)) }
     : shown
   const failing = v.selfCheck.filter((l) => l.level !== 'ok')
+  // P1: the lines that mean craftar has to be installed or upgraded have a card of their own, first and not closable.
+  const install = failing.filter((l) => l.install !== undefined)
   const broken = !v.model && failing.some((l) => l.level === 'error')
   const promotable = m ? m.edited.filter((e) => e.promotable).length : 0
   const cached = m?.forge?.freshness === 'cached'
@@ -386,6 +389,9 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
   for (const b of [validate, refresh, logo]) b.addEventListener('pointerdown', closeOutside)
 
+  // ---- P1: craftar missing, not starting or too old, said first ----
+  if (install.length > 0) drawInstall(install)
+
   // ---- the worker's refusal of the panel's last request ----
   if (notice) {
     const n = body.appendChild(h('div', { class: 'notice' }))
@@ -402,18 +408,21 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   // ---- the self-check, on top when anything fails ----
-  const checkKey = cardKey('self-check', ...failing.map((l) => l.message))
-  if (failing.length > 0 && !dismissed.has(checkKey)) {
-    const bad = failing.some((l) => l.level === 'error')
+  const checked = failing.filter((l) => l.install === undefined)
+  const checkKey = cardKey('self-check', ...checked.map((l) => l.message))
+  if (checked.length > 0 && !dismissed.has(checkKey)) {
+    const bad = checked.some((l) => l.level === 'error')
     const box = body.appendChild(h('section', { class: `cta ${bad ? 'bad' : 'warn'}`, 'data-role': 'self-check' }))
     box.appendChild(cardHead('Self-check', checkKey))
     const ul = box.appendChild(h('ul', { class: 'lines' }))
-    for (const l of failing) ul.appendChild(t('li', l.message, { class: l.level === 'error' ? 'err' : 'warn', 'data-role': 'check' }))
+    for (const l of checked) ul.appendChild(t('li', l.message, { class: l.level === 'error' ? 'err' : 'warn', 'data-role': 'check' }))
   }
 
   // ---- the body, by state ----
   if (v.focus === 'ask') drawAsk()
-  else if (broken) {
+  else if (install.length > 0) {
+    // The install card above says it all; nothing else to draw until craftar runs.
+  } else if (broken) {
     body.appendChild(empty(true, 'craftar cannot be used', "The self-check above says why, in its own words. Install a craftar the self-check accepts, or set craftar binary in the plugin's settings to its absolute path."))
   } else if (v.readFailed) {
     const box = body.appendChild(h('section', { class: 'cta bad' }))
@@ -1121,6 +1130,24 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     span.appendChild(t('strong', String(n)))
     span.appendChild(t('span', rest))
     return span
+  }
+
+  function drawInstall(lines: Line[]): void {
+    const kind = lines[0].install
+    const box = body.appendChild(h('section', { class: 'cta bad', 'data-role': 'install' }))
+    box.appendChild(t('h2', kind === 'old' ? 'craftar is too old for this plugin' : kind === 'broken' ? 'craftar is installed but does not start' : 'craftar is not installed, or the plugin cannot find it'))
+    // The self-check's own words first, as it wrote them.
+    for (const l of lines) box.appendChild(t('p', l.message, { class: 'note bad', 'data-role': 'install-why' }))
+    const how = box.appendChild(h('p'))
+    how.appendChild(t('span', kind === 'old' ? 'Upgrade it in a terminal: ' : 'Install it in a terminal: '))
+    how.appendChild(t('code', 'npm install -g craftar', { 'data-role': 'install-line' }))
+    how.appendChild(t('span', ' (it needs Node 22 or later).'))
+    if (kind === 'missing') {
+      box.appendChild(t('p', "The plugin looks at the craftar binary setting, else at the absolute entries of Orca's PATH. If craftar runs in your terminal but not here (installed with nvm, for one, which puts it on an interactive shell's PATH only), set craftar binary in the plugin's settings to its absolute path: command -v craftar prints it."))
+    } else if (kind === 'broken') {
+      box.appendChild(t('p', "craftar starts with node: Node 22 or later must be on Orca's PATH too, not only on your terminal's."))
+    }
+    box.appendChild(h('div', { class: 'row' }, button('Check again', { class: 'btn', 'data-action': 'install-check' }, 'refresh', () => (a.validate ? a.validate() : a.refresh()))))
   }
 
   function drawConsent(c: NonNullable<S2View['consent']>): void {
