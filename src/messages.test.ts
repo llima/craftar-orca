@@ -38,5 +38,7 @@ test('a fetch that failed asks for the person; --offline is only information', (
   assert.equal(classify('Forge https://example.test/acme/forge.git not fetched (--offline) — using the cached copy at 7c41e0a, fetched never', false, []).level, 'info')
   const f = classify('Forge https://example.test/acme/forge.git not fetched (could not resolve host) — using the cached copy at 7c41e0a, fetched never', false, [])
   assert.equal(f.level, 'action')
-  assert.match(f.fix ?? '', /Check again/)
+  // Only Try again fetches (Check again reads offline): the fix names it, and the button Update waits on.
+  assert.match(f.fix ?? '', /Try again/)
+  assert.doesNotMatch(f.fix ?? '', /Check again|Update waits/)
 })

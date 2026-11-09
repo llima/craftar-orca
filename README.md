@@ -42,7 +42,10 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   saying what comes down and what can go up, one card per surface craftar writes (each owner as craftar names it, its targets and
   services, with its state: up to date, outdated, drift or kept apart) and the workspace below with its profile; then the files coming
   from the Forge and the files edited here; and the actions in a fixed toolbar at the bottom, Bring (from the Forge) and Send (to the
-  Forge). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
+  Forge). A message that asks for one of those actions sits in the footer too, just above the button it names, as the Forge clone
+  folder does: the consent and its terminal button, "writes are allowed here" above *Bring*, a file kept while craftar was writing,
+  the next step after a send above *Prepare the PR*, the files left above *Send the rest*. A card that asks you to check again ends
+  with its own *Check again* (or *Back and check again*, after a discard whose read failed). Every warning craftar gives for this workspace sits behind the bell beside Check again, in its words (opened at once when a
   read gave an error, the sync is refused or a check fails; the registry's lines about other workspaces stay out of its panel). A cached
   copy does not open it: its card says so, and its *Try again* runs the periodic check now, the one read that fetches. Once you open or
   close the bell, a redraw keeps it so for the same messages, and a press anywhere outside it, or Esc, closes it. Each message is marked
@@ -93,7 +96,7 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
 - **Discard** (spec 60 §8a) puts back what craftar writes for one file you edited by hand by mistake. It is on a `drift` row of "Edited
   here" and an `orphan-drift` row of "Kept apart", never on `.claude/settings.craftar.example.json` (a value may have been typed there) or a
   collision. `craftar drift discard` is a whole sync, so it is offered only when nothing else is pending (otherwise it reads *Update first*,
-  pointing at Update and stage). The first click opens a confirmation that names the file and shows craftar's diff of what will be written
+  pointing at *Bring N from the Forge*). The first click opens a confirmation that names the file and shows craftar's diff of what will be written
   (craftar's note where it withholds the content; a withheld file the Forge also changed is not offered, since no diff can show its new text),
   and says the edit is lost for good (for an `orphan-drift`, that the file is deleted). The second click reads `status` again with a fetch: a
   failed fetch or a pending file cancels, writing nothing, and a Forge that moved (its commit, the row, or the diff) draws the confirmation
@@ -126,7 +129,7 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   (storage keeps the last tag notified per workspace path). With an older craftar the key is absent and nothing of this shows.
 - **Bring** (the toolbar's *Bring N from the Forge*, the update) is offered when files are pending, craftar neither refuses the sync nor fails its check, craftar is **0.35.0** or later,
   and, for a remote Forge, the last periodic check fetched it (a focus read is offline and changes nothing here; with **Fetch a
-  remote Forge** off, Update stays off for a remote Forge); otherwise it says why. Its confirm lists every file
+  remote Forge** off, Bring stays off for a remote Forge); otherwise it says why. Its confirm lists every file
   ("Update N files and add them to your commit?"), and **Update and stage** sends exactly that list. Then, in the workspace's queue:
   - one `sync` through a fresh `craftar mcp --workspace <dir> --allow-writes --fetch`, stopped after it; never `craftar sync`, never
     `--overwrite-drift`: every file you edited by hand (drift, orphan-drift, collision) is kept and listed;
@@ -135,8 +138,8 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
     shows it, so an open view closes);
   - what it did is compared with the list you agreed to, and every difference is listed; a file that changed while craftar was writing
     asks you to update again. craftar's warnings are listed in its words.
-- **The consent stays craftar's.** With none recorded (or one for an older Forge, ref or profile), Update writes nothing and the panel
-  shows craftar's words and offers **Open a terminal to allow writes**: a terminal in the workspace running your craftar's
+- **The consent stays craftar's.** With none recorded (or one for an older Forge, ref or profile), Update and stage writes nothing and the
+  panel shows, in its footer above *Bring*, craftar's words and offers **Open a terminal to allow writes**: a terminal in the workspace running your craftar's
   `mcp allow-writes --workspace <dir>`, quoted for the shell a one-line probe found (`echo craftar-shell:$0`: bash, zsh, sh or
   PowerShell), where you answer its question yourself. Before it opens, the card says, in the alert colour, that the terminal shows
   the workspace's Forge, ref and profile, then asks craftar's question (`Let craftar mcp --allow-writes write here [no]: `), and that
