@@ -1,0 +1,9 @@
+{
+  "name": "craftar-orca-dev",
+  "private": true,
+  "description": "Development tools only: the type check. Orca loads the plugin from orca-plugin.json and installs nothing from here.",
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}
