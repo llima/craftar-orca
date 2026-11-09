@@ -94,7 +94,7 @@ function growth(h: { callsOf: (m: string) => unknown[] }) {
 
 type View = {
   focus: string
-  selfCheck: { level: string; message: string }[]
+  selfCheck: { level: string; message: string; install?: string }[]
   model: { ws: string; forge: { commit: string } | null; pending: { path: string }[] } | null
   ask: { id: string; name: string; path: string }[]
   remote: { name: string; path: string }[]
@@ -319,11 +319,29 @@ test('with no focused craftar workspace the self-check asks doctor about a local
   assert.ok(doctors.every((c) => c.argv.join(' ') === `doctor --json --workspace ${web}`))
 })
 
-test('with no craftar workspace in Orca nothing is started and the self-check says why', async () => {
-  const { s, worker } = await setup({ rows: [] })
+test('with no craftar workspace in Orca nothing is read, and the self-check still runs craftar --version (P1)', { skip: process.platform === 'win32' }, async () => {
+  // A craftar that answers --version only: the stub (a copy of node) answers --version itself, so a shell script stands in.
+  const dir = tempDir('craftar-orca-version-')
+  const bin = join(dir, 'craftar')
+  writeFileSync(bin, '#!/bin/sh\necho 1.9.0\n', { mode: 0o755 })
+  const { s, worker } = await setup({ rows: [], settings: { craftarPath: bin } })
   assert.equal(s.calls().length, 0)
   const view = (await worker.request('state.get')) as View
-  assert.match(view.selfCheck.map((l) => l.message).join('\n'), /no craftar workspace/)
+  const said = view.selfCheck.map((l) => l.message).join('\n')
+  assert.match(said, /version 1\.9\.0/)
+  assert.match(said, /no craftar workspace/)
+  assert.equal(view.selfCheck.some((l) => l.level !== 'ok'), false)
+})
+
+test('with no craftar workspace in Orca and no craftar, the self-check says craftar is missing, not "nothing to read" (P1)', async () => {
+  const missing = join(tempDir('craftar-orca-missing-'), 'craftar')
+  const { s, worker } = await setup({ rows: [], settings: { craftarPath: missing } })
+  assert.equal(s.calls().length, 0)
+  const view = (await worker.request('state.get')) as View
+  const bad = view.selfCheck.filter((l) => l.level === 'error')
+  assert.equal(bad.length, 1)
+  assert.equal(bad[0].install, 'missing')
+  assert.equal(view.selfCheck.some((l) => /nothing to read/.test(l.message)), false)
 })
 
 test('a craftar workspace that appears after a check with none is read by the next periodic check', async () => {
