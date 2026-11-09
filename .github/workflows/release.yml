@@ -101,8 +101,6 @@ jobs:
       - name: Release entry of this commit
         if: steps.tag.outputs.publish == 'true'
         shell: bash
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           entry=$(orca-ide plugin release-entry . --json)
@@ -145,10 +143,11 @@ jobs:
             echo "git ls-remote failed with exit code $code"
             exit 1
           fi
-          # In a workflow_run, GITHUB_SHA is the tip of main, which differs from the tested commit once a newer push lands.
-          # The tag must name the commit this run checked: release it from that commit's own run instead.
+          # The CLI's guard, kept as the user asked. --target already ties the tag to the tested commit; this refuses a run whose
+          # commit was no longer the tip of main when ci finished (GITHUB_SHA, fixed when the event fired, kept on a re-run), so a
+          # version is released from the newest tip's run, never from an older commit that a newer push has passed.
           if [ "${GITHUB_SHA:-}" != "$HEAD_SHA" ]; then
-            echo "main moved to $GITHUB_SHA after the tested commit $HEAD_SHA: release it from that commit's own run"
+            echo "main moved to $GITHUB_SHA before ci finished on $HEAD_SHA: the run for the newer tip releases this version"
             exit 1
           fi
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --title "v$VERSION" --generate-notes
