@@ -189,9 +189,11 @@ the `editor.save.before` hook, the status bar item), `Source: github.com/llima/c
 then run it again with `--approve <fingerprint>`: Orca prints `Installed llima.craftar 0.1.0` and the plugin runs under the key
 `llima.craftar` (`orca-ide plugin list`). A development load keeps its own key, `local.craftar`: in the measured run `plugin list` showed
 it, disabled by hand for the test (`orca-ide plugin disable local.craftar`), beside the running `llima.craftar`; whether both run at once
-was not measured. The releases are at `https://github.com/llima/craftar-orca/releases`. A release is the maintainer's: merging a new `version` in
-`orca-plugin.json` to `main` starts `.github/workflows/release.yml`, which tags `v<version>` and makes its Release on the commit `ci`
-tested only once the maintainer approves the run (the `orca-release` environment); a version already tagged is skipped.
+was not measured. The releases are at `https://github.com/llima/craftar-orca/releases`. A release is the maintainer's: after `ci` passes on a push to
+`main`, `.github/workflows/release.yml` runs; when the `version` in `orca-plugin.json` is not yet tagged, it tags `v<version>` and makes
+its Release on the commit `ci` tested, only once the maintainer approves the run in the `orca-release` environment, which must exist,
+with the maintainer as required reviewer and `main` only, before a version bump reaches `main`. A version already tagged releases nothing,
+and a run whose commit was passed by a newer push before `ci` finished refuses, leaving the release to the newer tip's run.
 
 **From a clone** (to try a commit that is not released): load a copy of a commit, not the clone itself.
 
@@ -245,7 +247,7 @@ orca-ide plugin check .
 orca-ide plugin inspect .
 ```
 
-CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push and every PR to `main`, on Linux with Node 22 and 24,
+CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push to any branch and every PR to `main`, on Linux with Node 22 and 24,
 against an Orca release pinned by version and sha256 (its `.deb` extracted, never installed).
 
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
