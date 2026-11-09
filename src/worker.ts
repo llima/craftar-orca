@@ -419,6 +419,8 @@ export interface ConsentView {
   /** 'offered': the panel offers a terminal running craftar mcp allow-writes; 'words': the steps are shown as text only. */
   terminal: 'offered' | 'words'
   steps: string[]
+  /** P3: what craftar printed last in the terminal the plugin opened: the consent recorded, or the answer no. */
+  answer?: 'recorded' | 'cancelled' | null
 }
 
 export interface LastSync {
@@ -1486,9 +1488,57 @@ async function openConsentTerminalOnce(s: State): Promise<void> {
       shown = await switchToTerminal(cli, terminalId)
     }
     const note = shown ? null : `A terminal titled "craftar allow writes" was opened in this workspace, in the background. Switch to it in Orca's terminal tabs and answer its question.`
-    s.consent.set(row.path, { ...consent, terminalId, note })
+    s.consent.set(row.path, { ...consent, terminalId, note, answer: null })
+    void watchConsent(s, row.path, terminalId).catch((e) => s.orca.log(failed('consent watch', e)))
   }
   await publish(s)
+}
+
+// craftar's last words in `craftar mcp allow-writes` (craftar-cli src/cli.ts): human output, outside craftar's promise,
+// so each is pinned by a test here. Nothing else of the terminal is kept.
+const CONSENT_RECORDED = 'write consent recorded for '
+const CONSENT_CANCELLED = 'allow-writes cancelled'
+
+/** How often, and how long, the allow-writes terminal is read for craftar's answer (P3); tests shorten the poll. */
+export const consentWatch = { pollMs: 1000, maxMs: 10 * 60_000 }
+
+const watchingConsent = new Set<string>()
+
+/**
+ * P3: reads the terminal the plugin opened for `craftar mcp allow-writes` until craftar prints that it recorded the
+ * consent or that the person answered no, then the card follows. Stops when the consent card is gone or belongs to
+ * another terminal, when the terminal cannot be read (closed), after `maxMs`, or when the worker stops. It writes
+ * nothing and never starts the sync: the next Bring is the person's click.
+ */
+async function watchConsent(s: State, ws: string, terminalId: string): Promise<void> {
+  const key = `${ws}\u0000${terminalId}`
+  if (watchingConsent.has(key)) return
+  watchingConsent.add(key)
+  try {
+    const started = Date.now()
+    while (st === s && Date.now() - started < consentWatch.maxMs) {
+      const c = s.consent.get(ws)
+      if (!c || c.terminalId !== terminalId || c.answer) return
+      let lines: string[]
+      try {
+        ;({ lines } = (await s.orca.host.call('terminal.read', { terminalId, maxLines: 200 })) as { lines: string[] })
+      } catch {
+        return
+      }
+      const last = [...lines].reverse().find((l) => l.includes(CONSENT_RECORDED) || l.includes(CONSENT_CANCELLED))
+      if (last !== undefined) {
+        const now = s.consent.get(ws)
+        if (!now || now.terminalId !== terminalId) return
+        // An answer no leaves craftar's command ended: the next click opens a fresh terminal.
+        s.consent.set(ws, last.includes(CONSENT_RECORDED) ? { ...now, answer: 'recorded', note: null } : { ...now, answer: 'cancelled', terminalId: undefined, note: null })
+        await publish(s)
+        return
+      }
+      await new Promise((r) => setTimeout(r, consentWatch.pollMs))
+    }
+  } finally {
+    watchingConsent.delete(key)
+  }
 }
 
 /**

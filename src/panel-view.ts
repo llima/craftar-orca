@@ -11,13 +11,16 @@ import type { View } from './worker'
 import { EXAMPLE_SETTINGS } from './discard'
 import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
 
+// craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim.
+export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [no]: '
+
 const SVG = 'http://www.w3.org/2000/svg'
 
 /** S2's additions to the view (agent 58's contract, 2026-11-07): optional here until the worker sends them. */
 export interface S2View {
   update?: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
   sync?: { phase: 'idle' | 'running' | 'consent' | 'done' | 'error'; message: string | null }
-  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[]; note?: string | null } | null
+  consent?: { text: string; terminal: 'offered' | 'words'; steps: string[]; note?: string | null; answer?: 'recorded' | 'cancelled' | null } | null
   lastSync?: {
     written: string[]
     removed: { path: string; reason: string }[]
@@ -1151,9 +1154,26 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   function drawConsent(c: NonNullable<S2View['consent']>): void {
+    // P3: craftar printed that it recorded the consent in the terminal the plugin opened: the question is answered.
+    if (c.answer === 'recorded') {
+      const ok = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent-recorded' }))
+      ok.appendChild(t('h2', 'Writes are allowed here'))
+      ok.appendChild(t('p', 'craftar recorded your yes. Click Bring from the Forge again: it asks nothing more.'))
+      return
+    }
     const box = body.appendChild(h('section', { class: 'cta plain', 'data-role': 'consent' }))
     box.appendChild(t('h2', 'craftar asks before it writes here'))
     box.appendChild(t('pre', c.text, { class: 'words' }))
+    if (c.answer === 'cancelled') {
+      box.appendChild(t('p', 'You answered no in the terminal: nothing was recorded, and nothing was written. Open the terminal again to answer yes.', { class: 'note', 'data-role': 'consent-cancelled' }))
+    }
+    // P2: what the terminal will show and ask, read before it opens. The question is craftar's own words, verbatim.
+    const explain = box.appendChild(h('div', { class: 'note bad consent-explain', 'data-role': 'consent-explain' }))
+    explain.appendChild(t('p', "The terminal shows this workspace's Forge, the ref and the profile, then craftar asks:"))
+    explain.appendChild(t('pre', CONSENT_QUESTION, { class: 'words' }))
+    const yes = explain.appendChild(h('p'))
+    yes.appendChild(t('strong', 'To allow writes, type yes and press Enter.'))
+    yes.appendChild(t('span', ' Enter alone, or no, answers no and writes nothing. The plugin never answers for you.'))
     if (c.terminal === 'offered') {
       box.appendChild(h('div', { class: 'row' }, button('Open a terminal to allow writes', { class: 'btn', 'data-action': 'consent-terminal' }, 'term', () => a.consentTerminal?.())))
       if (c.note) box.appendChild(t('p', c.note, { class: 'note', 'data-role': 'consent-note' }))

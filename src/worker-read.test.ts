@@ -100,7 +100,7 @@ type View = {
   remote: { name: string; path: string }[]
   update: { allowed: boolean; reason: string | null; files: { path: string; state: string }[] }
   sync: { phase: string; message: string | null }
-  consent: { text: string; terminal: string; steps: string[] } | null
+  consent: { text: string; terminal: string; steps: string[]; answer?: string | null; terminalId?: string } | null
   lastSync: { written: string[]; removed: { path: string; reason: string }[]; kept: { path: string; state: string; reason: string }[]; staged: string[]; leftOut: string[]; differences: string[]; warnings: string[]; rerun: boolean } | null
 }
 
@@ -960,4 +960,61 @@ test('Open craftar.yaml with no craftar workspace in focus is refused, and opens
   const { h, worker } = await setup({ rows: [] })
   await assert.rejects(worker.request('config.open'), /no craftar workspace has the focus/)
   assert.equal(h.callsOf('editor.open').length, 0)
+})
+
+// P3 (the install test of 2026-11-09): the plugin reads the allow-writes terminal it opened for craftar's own last words,
+// and the consent card follows them. It never runs the sync by itself: the next Bring is the person's click.
+async function consentAnswered(worker: { request: (name: string, data?: unknown) => Promise<unknown> }, answer: string): Promise<View> {
+  for (let i = 0; i < 300; i++) {
+    const v = (await worker.request('state.get')) as View
+    if (v.consent?.answer === answer) return v
+    await new Promise((r) => setTimeout(r, 10))
+  }
+  return (await worker.request('state.get')) as View
+}
+
+async function consentOpened() {
+  const text = 'writing is not allowed in this workspace — a person types craftar mcp allow-writes in it, in a terminal, to allow it'
+  const r = await updateSetup({ 'mcp call 0': toolError(text) })
+  await updateAndWait(r.worker)
+  r.h.respond('terminal.create', { terminalId: 't1' })
+  r.h.respond('terminal.read', { lines: ['acme-user@acme-host:~$ echo craftar-shell:$0', 'craftar-shell:bash'], truncated: false })
+  await r.worker.request('consent.terminal', {})
+  return r
+}
+
+test("P3: craftar's \"write consent recorded\" in the terminal marks the consent given, and starts no sync", async () => {
+  main.consentWatch.pollMs = 5
+  const { s, h, worker, ws } = await consentOpened()
+  const syncs = s.calls().filter((c) => c.argv.includes('--allow-writes')).length
+  h.respond('terminal.read', { lines: ["Let craftar mcp --allow-writes write here [no]: yes", `write consent recorded for ${ws} — craftar mcp --allow-writes may sync and edit recipes here; craftar mcp revoke-writes takes it back`], truncated: false })
+  const v = await consentAnswered(worker, 'recorded')
+  assert.equal(v.consent?.answer, 'recorded')
+  await new Promise((r) => setTimeout(r, 50))
+  assert.equal(s.calls().filter((c) => c.argv.includes('--allow-writes')).length, syncs, 'no sync started by the plugin')
+  assert.equal(h.callsOf('terminal.sendText').length, 0)
+})
+
+test('P3: "allow-writes cancelled" marks the answer no, and the next click opens a fresh terminal', async () => {
+  main.consentWatch.pollMs = 5
+  const { h, worker } = await consentOpened()
+  h.respond('terminal.read', { lines: ["Let craftar mcp --allow-writes write here [no]: ", 'error: allow-writes cancelled — nothing written'], truncated: false })
+  const v = await consentAnswered(worker, 'cancelled')
+  assert.equal(v.consent?.answer, 'cancelled')
+  assert.equal(v.consent?.terminalId, undefined)
+  const before = h.callsOf('terminal.create').length
+  h.respond('terminal.read', { lines: [], truncated: false })
+  const again = (await worker.request('consent.terminal', {})) as View
+  assert.equal(h.callsOf('terminal.create').length, before + 1)
+  assert.equal(again.consent?.answer ?? null, null)
+})
+
+test("P3: a terminal that shows neither of craftar's words leaves the consent card as it is", async () => {
+  main.consentWatch.pollMs = 5
+  const { h, worker } = await consentOpened()
+  h.respond('terminal.read', { lines: ['craftar mcp allow-writes — /home/acme/web', "Let craftar mcp --allow-writes write here [no]: "], truncated: false })
+  await new Promise((r) => setTimeout(r, 100))
+  const v = (await worker.request('state.get')) as View
+  assert.equal(v.consent?.answer ?? null, null)
+  assert.equal(v.sync.phase, 'consent')
 })

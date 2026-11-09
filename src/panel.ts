@@ -131,6 +131,9 @@ svg.fan.broken path { stroke: var(--orca-destructive); stroke-dasharray: 2 4; }
 .cta p, .card p { color: var(--orca-muted-foreground); font-size: 12.5px; overflow-wrap: anywhere; }
 .cta .note { font-size: 11.5px; }
 p.note.bad { color: var(--orca-destructive); font-size: 12px; }
+.consent-explain { border: 1px solid color-mix(in srgb, var(--orca-destructive) 55%, var(--line)); border-radius: var(--r); padding: 8px 10px; display: grid; gap: 6px; }
+.cta .consent-explain p { color: var(--orca-card-foreground); font-size: 12.5px; margin: 0; }
+.consent-explain strong { color: var(--orca-destructive); }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row.clone { justify-content: space-between; font-size: 12px; }
 .row.clone .muted { overflow-wrap: anywhere; min-width: 0; }
