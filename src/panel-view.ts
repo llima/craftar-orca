@@ -9,6 +9,7 @@ import type { UnsetParam } from './craftar'
 import type { PanelModel } from './model'
 import type { View } from './worker'
 import { EXAMPLE_SETTINGS } from './discard'
+import { fromSharedBase, SHARED_BASE_LINE } from './shared-base'
 import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
 
 // craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim.
@@ -592,7 +593,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       box.appendChild(cardHead('craftar will not send', refusalKey))
       for (const e of refusals) {
         box.appendChild(t('p', e.path, { class: 'muted' }))
-        box.appendChild(t('pre', refusedSend.get(e.path) ?? '', { class: 'words', 'data-role': 'send-refused-message' }))
+        const words = refusedSend.get(e.path) ?? ''
+        box.appendChild(t('pre', words, { class: 'words', 'data-role': 'send-refused-message' }))
+        // P4: one plain line under craftar's words when the file comes from the Forge's shared base.
+        if (fromSharedBase(words)) box.appendChild(t('p', SHARED_BASE_LINE, { 'data-role': 'shared-base' }))
       }
       box.appendChild(t('p', 'Kept here as you edited it. Save the file again, or click Check again, to ask craftar once more.', { class: 'muted' }))
     }

@@ -261,3 +261,19 @@ test('the open bell closes on a press anywhere in the panel body or toolbar, on 
     assert.equal(pop().attrs.class, 'pop')
   }
 })
+
+// P4 (the install test of 2026-11-09): under craftar's words, one plain line when the file comes from the Forge's shared base.
+test("a refusal for a file of the Forge's shared base adds one plain line under craftar's words; another refusal does not", () => {
+  const message = "error: rule/workflow is also used by profile acme-api — its files would change there"
+  const shared = draw(view(() => {}, { sendRefused: [{ path: EDITED, message }] }))
+  const card = role(shared.root, 'send-refused')[0]
+  assert.equal(role(card, 'send-refused-message')[0].textContent, message, "craftar's words, verbatim")
+  const line = role(card, 'shared-base')
+  assert.equal(line.length, 1)
+  assert.match(line[0].textContent, /comes from the Forge's shared base/)
+  assert.match(line[0].textContent, /only the Forge's maintainers change it/)
+  assert.match(line[0].textContent, /pull request/)
+  assert.match(line[0].textContent, /Discard/)
+  const other = draw(view(() => {}, { sendRefused: [{ path: EDITED, message: 'error: the Forge of this workspace is remote, read from a cache craftar never writes' }] }))
+  assert.equal(role(role(other.root, 'send-refused')[0], 'shared-base').length, 0)
+})
