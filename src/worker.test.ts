@@ -8,8 +8,8 @@ import { join } from 'node:path'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import * as main from './worker'
 
-// No test reaches the person's own Orca: PATH is an empty directory, so no `orca-ide` is found and the focus
-// falls back to name and branch, unless a test puts a stub orca-ide (test-support/stub-orca-cli.ts) there.
+// No test reaches the person's own Orca: PATH is an empty directory, so no Orca CLI is found and the focus
+// falls back to name and branch, unless a test puts a stub Orca CLI (test-support/stub-orca-cli.ts) there.
 let savedPath: string | undefined
 beforeEach(() => {
   savedPath = process.env.PATH
@@ -232,7 +232,9 @@ test('a terminal.create that fails is logged with its code', async () => {
   await worker.deactivate()
 })
 
-test('the Orca CLI is looked for as orca-ide; an `orca` on PATH is not taken for it', async () => {
+// Orca's CLI is `orca-ide` on Linux, where an `orca` on PATH can be GNOME's screen reader; on Windows the
+// release ships `resources/bin/orca.exe` and on macOS `orca`, which is then the CLI itself.
+test('an `orca` on PATH is the Orca CLI on Windows and macOS, and another program on Linux', async () => {
   const dir = tempDir('craftar-orca-path-')
   const orca = join(dir, process.platform === 'win32' ? 'orca.exe' : 'orca')
   copyFileSync(process.execPath, orca)
@@ -243,8 +245,14 @@ test('the Orca CLI is looked for as orca-ide; an `orca` on PATH is not taken for
     const h = host({ craftarPath: stubCraftar() })
     const worker = await mountWorker(main, { host: h, commands: ['craftar.probe', 'craftar.open'] })
     const report = String(await worker.command('craftar.probe'))
-    assert.match(report, /Orca CLI \(orca-ide\): not on an absolute PATH entry/)
-    assert.match(report, /an `orca` on PATH is another program/)
+    if (process.platform === 'linux') {
+      assert.match(report, /Orca CLI \(orca-ide\): not on an absolute PATH entry/)
+      assert.match(report, /an `orca` on PATH is another program/)
+    } else {
+      // A copy of node answers no `worktree ps`: found, and its answer unreadable.
+      assert.match(report, /Orca CLI \(orca\): on an absolute PATH entry, active workspace: failed/)
+      assert.doesNotMatch(report, /another program/)
+    }
     await worker.deactivate()
   } finally {
     process.env.PATH = before

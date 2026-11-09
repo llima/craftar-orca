@@ -4,10 +4,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { afterEach } from 'orca/testing'
+import { chmodSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { psDoc, stubOrcaCli, terminalsDoc } from '../test-support/stub-orca-cli'
-import { removeTempDirs } from '../test-support/tmp'
-import { activeWorkspacePath, findOrcaCli, terminalWorkspacePaths } from './orca-cli'
+import { removeTempDirs, tempDir } from '../test-support/tmp'
+import { activeWorkspacePath, findOrcaCli, orcaCliName, terminalWorkspacePaths } from './orca-cli'
 
 afterEach(removeTempDirs)
 const posix = { skip: process.platform === 'win32' }
@@ -32,9 +33,9 @@ test('no active row is none; a failing or unreadable answer is failed, with its 
   assert.deepEqual(await activeWorkspacePath(findOrcaCli(garbled.dir)!), { kind: 'failed', reason: 'no readable answer' })
 })
 
-test('orca-ide is looked for on the absolute PATH entries only', posix, () => {
+test('the Orca CLI is looked for on the absolute PATH entries only', posix, () => {
   const s = stubOrcaCli()
-  assert.equal(findOrcaCli(`relative${process.platform === 'win32' ? ';' : ':'}${s.dir}`)?.bin, join(s.dir, 'orca-ide'))
+  assert.equal(findOrcaCli(`relative${process.platform === 'win32' ? ';' : ':'}${s.dir}`)?.bin, join(s.dir, orcaCliName()))
   assert.equal(findOrcaCli('relative/dir'), null)
   assert.equal(findOrcaCli(''), null)
 })
@@ -47,4 +48,38 @@ test("the context's terminals map to the workspaces holding them", posix, async 
   assert.deepEqual(await terminalWorkspacePaths(cli, ['term_z']), [])
   assert.deepEqual(await terminalWorkspacePaths(cli, []), [])
   assert.deepEqual(s.calls(), ['terminal list --json', 'terminal list --json', 'terminal list --json'])
+})
+
+test('the Orca CLI is orca-ide on Linux and orca on Windows and macOS', () => {
+  assert.equal(orcaCliName('linux'), 'orca-ide')
+  assert.equal(orcaCliName('win32'), 'orca')
+  assert.equal(orcaCliName('darwin'), 'orca')
+})
+
+// A directory holding one file of each name; a file is runnable once it exists (win32) or is executable.
+function dirWith(...names: string[]): string {
+  const dir = tempDir('craftar-orca-cliname-')
+  for (const n of names) {
+    writeFileSync(join(dir, n), '')
+    chmodSync(join(dir, n), 0o755)
+  }
+  return dir
+}
+
+test("on Windows the release's orca.exe is found, and an orca-ide.exe or an orca.cmd alone is not", () => {
+  const exe = dirWith('orca.exe', 'orca.cmd')
+  assert.equal(findOrcaCli(exe, process.env, 'win32')?.bin, join(exe, 'orca.exe'))
+  assert.equal(findOrcaCli(dirWith('orca-ide.exe'), process.env, 'win32'), null)
+  assert.equal(findOrcaCli(dirWith('orca.cmd'), process.env, 'win32'), null)
+})
+
+test('on Linux an orca alone is not taken for the CLI; orca-ide is', posix, () => {
+  assert.equal(findOrcaCli(dirWith('orca'), process.env, 'linux'), null)
+  const ide = dirWith('orca', 'orca-ide')
+  assert.equal(findOrcaCli(ide, process.env, 'linux')?.bin, join(ide, 'orca-ide'))
+})
+
+test('on macOS the CLI is orca', posix, () => {
+  const dir = dirWith('orca', 'orca-ide')
+  assert.equal(findOrcaCli(dir, process.env, 'darwin')?.bin, join(dir, 'orca'))
 })

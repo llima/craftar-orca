@@ -10,13 +10,14 @@ import { findOnPath } from './resolve'
 import { removeTempDirs, tempDir } from '../test-support/tmp'
 import { fixture, stubCraftar, writeTable } from '../test-support/stub-craftar'
 import { psDoc, stubOrcaCli, terminalsDoc } from '../test-support/stub-orca-cli'
+import { orcaCliName } from './orca-cli'
 import * as main from './worker'
 
 const CAPS = ['workspace:read', 'workspace:write', 'terminal:send', 'terminal:read', 'notifications:show', 'storage:own', 'settings:own']
 const workers: { deactivate: () => Promise<void> | void }[] = []
 
-// No test reaches the person's own Orca: PATH is an empty directory, so no `orca-ide` is found and the focus
-// falls back to name and branch, unless a test puts a stub orca-ide (test-support/stub-orca-cli.ts) there.
+// No test reaches the person's own Orca: PATH is an empty directory, so no Orca CLI is found and the focus
+// falls back to name and branch, unless a test puts a stub Orca CLI (test-support/stub-orca-cli.ts) there.
 let savedPath: string | undefined
 beforeEach(() => {
   savedPath = process.env.PATH
@@ -425,7 +426,7 @@ test('the probe says whether Orca named an active workspace, never which', { ski
     results: { 'terminal.create': { terminalId: 't1' }, 'terminal.read': { lines: ['craftar-probe'], truncated: false } },
   })
   const report = String(await worker.command('craftar.probe'))
-  assert.match(report, /Orca CLI \(orca-ide\): on an absolute PATH entry, active workspace: found/)
+  assert.ok(report.includes(`Orca CLI (${orcaCliName()}): on an absolute PATH entry, active workspace: found`))
   assert.equal(worker.logs.join('\n').includes(one), false)
 })
 

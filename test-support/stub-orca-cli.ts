@@ -1,10 +1,12 @@
-// A stub `orca-ide` (Orca's CLI) for tests: a POSIX shell script that records its arguments and answers
+// A stub of Orca's CLI for tests, named as the platform names it (orcaCliName: `orca-ide` on Linux, `orca`
+// on macOS): a POSIX shell script that records its arguments and answers
 // `worktree ps --json` and `terminal list --json` from canned documents. No test reaches the person's own
 // Orca. POSIX only: the tests that use it are skipped on win32, and every other worker test puts an empty
-// directory on PATH, so no `orca-ide` is found there and the focus falls back as it did before. It calls
+// directory on PATH, so no Orca CLI is found there and the focus falls back as it did before. It calls
 // /bin/cat by its absolute path: a test puts the stub's directory alone on PATH.
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { orcaCliName } from '../src/orca-cli'
 import { tempDir } from './tmp'
 
 export interface OrcaCliStub {
@@ -33,7 +35,7 @@ export function stubOrcaCli(opts: { ps?: unknown; psCode?: number; psDelaySecond
     'esac',
     '',
   ].join('\n')
-  const bin = join(dir, 'orca-ide')
+  const bin = join(dir, orcaCliName())
   writeFileSync(bin, script)
   chmodSync(bin, 0o755)
   const log = join(dir, 'calls.log')

@@ -10,7 +10,7 @@ import { type Craftar, driftShow, ReadFailure, repos, status as readStatusDoc, w
 import { afterDiscard, discardArgs, fetchFailed, pendingOf, rowFault } from './discard'
 import { DiffChild, DiffRefused } from './diff-child'
 import { craftarWorkspaces, focusedBy, onThisMachine, type Context, type Focus, type FocusSource, type Row } from './focus'
-import { activeWorkspacePath, findOrcaCli, switchToTerminal, terminalListed, terminalWorkspacePaths } from './orca-cli'
+import { activeWorkspacePath, findOrcaCli, orcaCliName, switchToTerminal, terminalListed, terminalWorkspacePaths } from './orca-cli'
 import { barFor, buildModel, type PanelModel } from './model'
 import { findCraftar, findOnPath } from './resolve'
 import { childEnv, CMD_REFUSED, run } from './run'
@@ -159,14 +159,16 @@ export async function probe(orca: OrcaWorkerApi, startedAt: number, opts: { noti
   }
   out.push(`CRAFTAR_HOME: ${craftarHome.trim() !== '' ? 'set from the setting' : 'not set (craftar uses its default)'}`)
   out.push(`worker environment: ${WATCHED_ENV.map((k) => `${k} ${process.env[k] ? 'present' : 'absent'}`).join(', ')}`)
-  // Orca's CLI is `orca-ide`; an `orca` on PATH can be another program (on GNOME, the screen reader).
+  // Orca's CLI is `orca-ide` on Linux, where an `orca` on PATH can be another program (on GNOME, the screen
+  // reader); on Windows and macOS it is `orca` (orcaCliName).
+  const cliName = orcaCliName()
   const orcaIde = findOrcaCli(process.env.PATH ?? '')
-  const otherOrca = findOnPath('orca', process.env.PATH ?? '')
+  const otherOrca = cliName === 'orca-ide' ? findOnPath('orca', process.env.PATH ?? '') : null
   // Whether Orca's CLI answers from inside the worker, where the focus is read from (never which workspace).
   const active = orcaIde ? await activeWorkspacePath(orcaIde) : null
   const activeLine = active === null ? '' : `, active workspace: ${active.kind === 'one' ? 'found' : active.kind === 'none' ? 'none' : `failed (${active.reason})`}`
   out.push(
-    `Orca CLI (orca-ide): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}${activeLine}` +
+    `Orca CLI (${cliName}): ${orcaIde ? 'on an absolute PATH entry' : 'not on an absolute PATH entry'}${activeLine}` +
       (otherOrca ? '; an `orca` on PATH is another program, not taken for it' : ''),
   )
   summary.push(`Orca CLI: ${active === null ? 'not found' : active.kind === 'one' ? 'active workspace found' : active.kind === 'none' ? 'no active workspace' : `failed (${active.reason})`}`)
@@ -1172,7 +1174,7 @@ async function followForgePrStep(s: State, ws: string, step: Step, nonce: string
   }
 }
 
-/** The PR URL attached to the Orca workspace (orca-ide reference add, a child with an argument array): whether it worked. */
+/** The PR URL attached to the Orca workspace (Orca CLI reference add, a child with an argument array): whether it worked. */
 async function attachUrl(ws: string, url: string): Promise<boolean> {
   const cli = findOrcaCli(process.env.PATH ?? '')
   if (!cli) return false
@@ -1198,10 +1200,10 @@ async function publish(s: State): Promise<void> {
   s.orca.panels.post('state.changed', view(s) as never)
 }
 
-/** What Orca's CLI says about the focus (orca-cli.ts); with no `orca-ide` on an absolute PATH entry, nothing. */
+/** What Orca's CLI says about the focus (orca-cli.ts); with no Orca CLI on an absolute PATH entry, nothing. */
 async function focusSource(ctx: Context | null): Promise<FocusSource> {
   const cli = findOrcaCli(process.env.PATH ?? '')
-  if (!cli) return { active: { kind: 'failed', reason: 'orca-ide not found' }, terminalPaths: null }
+  if (!cli) return { active: { kind: 'failed', reason: 'Orca CLI not found' }, terminalPaths: null }
   const active = await activeWorkspacePath(cli)
   // A CLI that did not finish is not asked again in the same refresh: the focus would wait twice.
   if (active.kind === 'one' || (active.kind === 'failed' && active.reason === 'did not finish')) return { active, terminalPaths: null }
