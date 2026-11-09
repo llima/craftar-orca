@@ -257,8 +257,9 @@ orca-ide plugin types .
 ./node_modules/.bin/tsc -p .
 ```
 
-CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push to any branch and every PR to `main`, on Linux with Node 22 and 24,
-against an Orca release pinned by version and sha256 (its `.deb` extracted, never installed).
+CI (`.github/workflows/ci.yml`) runs `validate`, `check` and `test` on every push to any branch and every PR to `main`, on Linux and on
+Windows with Node 22 and 24, against an Orca release pinned by version and sha256 (its `.deb`, and on Windows its installer, extracted, never
+installed; the CLI is `orca` there), and the type check on Linux. Tests marked to skip on Windows are skipped there.
 
 Examples, screenshots and fixtures use a synthetic `acme` workspace only.
 The catalog images (`assets/cover.png`, `assets/screenshots/`) show the plugin's own panel, drawn by its renderer (`src/panel-view.ts`)
