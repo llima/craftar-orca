@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       publish: ${{ steps.tag.outputs.publish }}
@@ -70,6 +71,26 @@ jobs:
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
           echo "v$VERSION is not tagged: it is released after approval" >> "$GITHUB_STEP_SUMMARY"
+      # The approval gate lives in the repository's settings, not here: a job naming an environment the repository lacks gets one
+      # created with no protection, and on 2026-11-09 v0.2.1 was tagged that way with no approval. So nothing is released unless
+      # orca-release exists and requires at least one reviewer; a read that fails refuses too.
+      - name: orca-release requires a reviewer
+        if: steps.tag.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          query='[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length'
+          if ! reviewers=$(gh api "repos/$GITHUB_REPOSITORY/environments/orca-release" --jq "$query"); then
+            echo "the orca-release environment could not be read (it may not exist): no release without its approval gate"
+            exit 1
+          fi
+          if ! [ "$reviewers" -ge 1 ] 2>/dev/null; then
+            echo "the orca-release environment requires no reviewer: no release without its approval gate"
+            exit 1
+          fi
+          echo "orca-release requires $reviewers reviewer(s)" >> "$GITHUB_STEP_SUMMARY"
       # The Orca the gate runs on is the one ci.yml pins, read from that file at the tested commit, so the two never differ.
       - name: Orca pinned by ci.yml
         if: steps.tag.outputs.publish == 'true'
