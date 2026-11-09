@@ -1,10 +1,11 @@
 // Orca's CLI as the source of the focus (spec 60 O9; the user's ruling of 2026-11-07). Orca 1.4.250's
 // `workspace.readContext` names a workspace by display name and branch only, which tie (every `main`
-// worktree is named `main`); `orca-ide worktree ps --json` marks the one in focus `isActive` (measured: it
-// follows every switch within two seconds), and `orca-ide terminal list --json` maps a terminal to its
-// workspace. The CLI is started as a child, by the absolute path found on PATH, with an argument array; of
-// its answer only paths are kept, in memory — it lists linked PRs, agents and other workspaces, so nothing
-// of it is logged or stored, and its stderr is not read.
+// worktree is named `main`); `<cli> worktree ps --json` marks the one in focus `isActive` (measured: it
+// follows every switch within two seconds), and `<cli> terminal list --json` maps a terminal to its
+// workspace (`<cli>` is `orca-ide` on Linux, `orca` elsewhere: orcaCliName). The CLI is started as a
+// child, by the absolute path found on PATH, with an argument array; of its answer only paths are kept,
+// in memory: it lists linked PRs, agents and other workspaces, so nothing of it is logged or stored, and
+// its stderr is not read.
 import { findOnPath } from './resolve'
 import { run } from './run'
 
@@ -18,8 +19,17 @@ export interface OrcaCli {
 
 export type Active = { kind: 'one'; path: string } | { kind: 'none' } | { kind: 'failed'; reason: string }
 
-export function findOrcaCli(path: string, env: NodeJS.ProcessEnv = process.env): OrcaCli | null {
-  const bin = findOnPath('orca-ide', path)
+/**
+ * The name Orca's CLI has on each platform: `orca-ide` on Linux, where `orca` is GNOME's screen reader;
+ * `orca` elsewhere (Windows ships `resources/bin/orca.exe`, a native launcher, beside `orca.cmd`; macOS
+ * names it `orca`). On Windows the lookup takes `orca.exe` only, never the `.cmd`, as for craftar.
+ */
+export function orcaCliName(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'linux' ? 'orca-ide' : 'orca'
+}
+
+export function findOrcaCli(path: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): OrcaCli | null {
+  const bin = findOnPath(orcaCliName(platform), path, platform)
   return bin ? { bin, env } : null
 }
 

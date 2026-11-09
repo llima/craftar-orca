@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "craftar",
   "name": "craftar",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "See which Forge a workspace follows, the surfaces craftar writes and the files coming and going, with the craftar you installed.",
   "author": { "name": "Luiz Lima" },
   "repository": "https://github.com/llima/craftar-orca",

@@ -22,7 +22,7 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   than 0.33.0 is said first, in a card that cannot be closed, with the install line (`npm install -g craftar`), what to do when
   craftar is on your terminal's `PATH` only (installed with nvm, for one: set *craftar binary*), and *Check again*.
 - **The focused workspace** is the one Orca has active, asked of Orca's CLI (`orca-ide worktree ps --json`, run as a child from the
-  `orca-ide` found on an absolute `PATH` entry; only paths are kept, in memory, never logged or stored), when its folder on this machine holds `craftar.yaml`; an active
+  Orca CLI found on an absolute `PATH` entry: `orca-ide` on Linux, `orca` on Windows and macOS, see *Orca's CLI* below; only paths are kept, in memory, never logged or stored), when its folder on this machine holds `craftar.yaml`; an active
   workspace without one is no focus. When Orca's CLI cannot say, the workspace holding the open workspace's terminals
   (`orca-ide terminal list --json`) decides, and then the name and branch of the one you have open: when several match (every `main`
   worktree is named `main`), the panel asks which, and your answer is kept. A workspace on another host (SSH, WSL) is listed and
@@ -166,8 +166,17 @@ Measured in Orca 1.4.250 on Linux on 2026-11-06/07 (spec 60 §12):
 
 - the worker starts `craftar` from inside Orca, found on an absolute `PATH` entry (every read depends on it);
 - the status bar item keeps the worker alive: 938 heartbeats in 938 minutes, none missed (the periodic check depends on it);
-- Orca's CLI is `orca-ide` on Linux (on Windows the release ships it as `orca`, not yet looked for by this plugin); an `orca` on `PATH` can be another program (on GNOME, the screen reader), so the probe looks for
-  `orca-ide` (a later slice depends on it).
+- Orca's CLI is `orca-ide` on Linux; an `orca` on `PATH` can be another program there (on GNOME, the screen reader), so on Linux the
+  plugin looks for `orca-ide` and never takes an `orca` for it (a later slice depends on it).
+
+### Orca's CLI
+
+The plugin looks for Orca's CLI on the absolute entries of `PATH` only, by the name each platform gives it: `orca-ide` on Linux, `orca`
+on macOS, and `orca.exe` on Windows (the Windows release ships `resources\bin\orca.exe`, a native launcher, beside `orca.cmd`; as for
+craftar, a `.cmd` is never started by the lookup). The macOS name follows Orca's own CLI registration, which names the command
+`orca-ide` on Linux and `orca` on every other platform; it was not checked on a Mac. The commands this README shows as `orca-ide …` are `orca …` on Windows and macOS.
+The Windows and macOS names are coded from Orca's own naming, not run there: whether Orca's installer puts that folder on `PATH` was
+not measured.
 
 Measured on 2026-11-07 too: the probe's terminal opens, backed by a pty, in the workspace in focus, and `terminal.read` gives its
 lines back. Not measured yet: that Orca's CLI answers from inside the worker (the probe's `active workspace` line says so), and that
