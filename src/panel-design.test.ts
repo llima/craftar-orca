@@ -293,7 +293,7 @@ test('an allowed update with no file to list is disabled, and the card counts wh
   const b = byAction(root, 'update')[0]
   assert.equal(b.getAttribute('disabled'), '')
   assert.equal(b.textContent, 'Bring 0 from the Forge')
-  assert.match(b.getAttribute('title') ?? '', /no file to update/)
+  assert.match(b.getAttribute('title') ?? '', /no file to bring yet: click Check again/)
 })
 
 test('a cached copy keeps Update disabled even when the worker says allowed', () => {

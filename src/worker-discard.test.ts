@@ -137,6 +137,7 @@ test('a pending row found by the second read cancels the run, writing nothing', 
   const d = await state(late.worker)
   assert.equal(d?.phase, 'error')
   assert.match(d?.message ?? '', /Nothing was written.*Update first/)
+  assert.notEqual(d?.readAgain, true, 'nothing ran: no read to ask for')
   assert.equal(discards(late.s).length, 0)
 })
 
@@ -294,6 +295,9 @@ test('a read that fails after the discard ran does not say nothing was written, 
   assert.equal(d?.phase, 'error')
   assert.match(d?.message ?? '', /^The discard ran, but reading the workspace again failed/)
   assert.match(d?.message ?? '', /wrote \.claude\/rules\/commit-conventions\.md/)
+  // The panel offers Back and check again for it (the message asks for a read), and names it as such.
+  assert.equal(d?.readAgain, true)
+  assert.match(d?.message ?? '', /Go back to the workspace and check again/)
 })
 
 test('while a discard holds its Forge, an Update there is refused', async () => {
