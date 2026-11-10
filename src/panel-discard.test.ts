@@ -25,6 +25,7 @@ function draw(v: PanelView) {
   const calls: string[] = []
   render(doc as never, root as never, v, {
     choose: () => undefined, refresh: () => undefined, showDiff: () => undefined,
+    updateRun: (files) => calls.push(`update ${files.join(',')}`),
     discardOpen: (p) => calls.push(`open ${p}`), discardRun: (p) => calls.push(`run ${p}`), discardCancel: () => calls.push('cancel'),
   })
   return { root, calls }
@@ -42,12 +43,29 @@ test('Discard is on a drift and an orphan-drift row, never on the example settin
   assert.deepEqual(calls, [`open ${EDITED}`])
 })
 
+const bringOn = { update: { allowed: true, reason: null, files: [{ path: '.claude/rules/workflow.md', state: 'update' }] } } as unknown as Partial<PanelView>
+
 test('with anything pending, the action reads Update first and is off', () => {
-  const { root } = draw(view())
+  const { root } = draw(view(undefined, bringOn))
   const b = byAction(root, 'discard-file')[0]
   assert.equal(b.attrs.disabled, '')
   assert.equal(b.textContent, 'Update first')
   assert.match(b.attrs.title, /click Bring below/)
+})
+
+// The convention (orca-plugin.md, The panel): a text names Bring "below" only when it can be clicked; otherwise it says why
+// Bring waits (the 0.3.2 known gap, closed in 0.3.3).
+test('Update first names Bring below only when Bring can be clicked; otherwise it says why Bring waits', () => {
+  const off = { update: { allowed: false, reason: 'the Forge moved since the read: click Check again', files: [{ path: '.claude/rules/workflow.md', state: 'update' }] } } as unknown as Partial<PanelView>
+  const b = byAction(draw(view(undefined, off)).root, 'discard-file')[0]
+  assert.equal(b.textContent, 'Update first')
+  assert.equal(b.attrs.disabled, '')
+  assert.doesNotMatch(b.attrs.title, /below/)
+  assert.match(b.attrs.title, /Bring waits: the Forge moved since the read: click Check again\./)
+  // No update action at all (Bring not built in this view): Bring cannot be clicked either.
+  const none = byAction(draw(view()).root, 'discard-file')[0]
+  assert.doesNotMatch(none.attrs.title, /below/)
+  assert.match(none.attrs.title, /^Update first: bring the files from the Forge, then discard\./)
 })
 
 test('the confirmation names the file, shows the diff, says the edit is lost, and the second click runs it', () => {
@@ -92,4 +110,33 @@ test('with "Fetch a remote Forge" off for a remote Forge, Discard is off with th
   assert.equal(b.attrs.disabled, '')
   assert.equal(b.textContent, 'Discard')
   assert.match(b.attrs.title, /Fetch a remote Forge/)
+})
+
+// The confirmation's footer and busy label say what happens for the Forge at hand: a remote Forge is fetched first, a Forge on
+// this machine is not fetched at all (the brief of 2026-11-10).
+const remote = (m: PanelModel) => { quiet(m); if (m.forge) m.forge = { ...m.forge, freshness: 'fetched' } }
+const footer = (root: FakeEl): string => all(root).filter((e) => (e.attrs.class ?? '').split(' ').includes('fnote')).map((e) => e.textContent).join('\n')
+
+test('the confirmation footer says a remote Forge is fetched first, then discard runs on that copy', () => {
+  const d = { path: EDITED, phase: 'confirm' as const, deleted: false, diff: '- a\n+ b', note: null, message: null, after: null }
+  const text = footer(draw(view(remote, { discard: d })).root)
+  assert.match(text, /the Forge is fetched first, then craftar drift discard runs on that copy/)
+  assert.match(text, /never --overwrite-drift/)
+})
+
+test('the confirmation footer for a Forge on this machine says nothing is fetched', () => {
+  const d = { path: EDITED, phase: 'confirm' as const, deleted: false, diff: '- a\n+ b', note: null, message: null, after: null }
+  const text = footer(draw(view(quiet, { discard: d })).root)
+  assert.doesNotMatch(text, /fetched/)
+  assert.match(text, /craftar drift discard runs on the Forge on this machine/)
+  assert.match(text, /never --overwrite-drift/)
+})
+
+test('while checking, the busy label reads Fetching the Forge only for a remote Forge', () => {
+  const d = { path: EDITED, phase: 'checking' as const, deleted: false, diff: null, note: null, message: null, after: null }
+  const busy = (root: FakeEl): string => all(root).filter((e) => e.attrs['aria-busy'] === 'true').map((e) => e.textContent).join('')
+  assert.match(busy(draw(view(remote, { discard: d })).root), /Fetching the Forge/)
+  const local = busy(draw(view(quiet, { discard: d })).root)
+  assert.doesNotMatch(local, /Fetching/)
+  assert.match(local, /Checking/)
 })

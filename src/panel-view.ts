@@ -12,8 +12,26 @@ import { EXAMPLE_SETTINGS } from './discard'
 import { fromSharedBase, SHARED_BASE_LINE } from './shared-base'
 import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
 
-// craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim.
-export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [no]: '
+// craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim:
+// the newest words, asked since craftar 1.10.1. An older craftar asks other words, so the card quotes by the self-check's version
+// (`consentQuestion`); human output, outside craftar's promise, so each row is pinned by a test here.
+export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [yes/no]: '
+const CONSENT_QUESTION_1_10_0 = 'Let craftar mcp --allow-writes write here? Type yes or no [no]: '
+const CONSENT_QUESTION_1_9 = 'Let craftar mcp --allow-writes write here [no]: '
+
+/**
+ * The question the person's craftar asks: by its version, the newest words when the version is not known. Its own comparison,
+ * since the panel does not import `self-check.ts` (`versionAtLeast`), which brings the worker's child runner with it.
+ */
+export function consentQuestion(version: string | null): string {
+  const v = version === null ? null : /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
+  if (!v) return CONSENT_QUESTION
+  const [major, minor, patch] = [Number(v[1]), Number(v[2]), Number(v[3])]
+  const below = (a: number, b: number, c: number): boolean => major !== a ? major < a : minor !== b ? minor < b : patch < c
+  if (below(1, 10, 0)) return CONSENT_QUESTION_1_9
+  if (below(1, 10, 1)) return CONSENT_QUESTION_1_10_0
+  return CONSENT_QUESTION
+}
 
 const SVG = 'http://www.w3.org/2000/svg'
 
@@ -799,8 +817,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   // Item 5: the actions in a fixed footer toolbar, flat — bring from the Forge, send to the Forge.
-  function drawMainToolbar(m: PanelModel): void {
-    toolbar.replaceChildren()
+  /** Whether Bring can be clicked, and why not: one answer for the footer and every text that names Bring. */
+  function bringState(m: PanelModel): { files: string[]; running: boolean; allowed: boolean; reason: string | null } {
     const u = v.update
     const files = u ? u.files.map((x) => x.path) : m.pending.map((x) => x.path)
     const n = files.length
@@ -814,6 +832,13 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         : u
           ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to bring yet: click Check again at the top' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
           : NOT_BUILT_UPDATE
+    return { files, running, allowed, reason }
+  }
+
+  function drawMainToolbar(m: PanelModel): void {
+    toolbar.replaceChildren()
+    const { files, running, allowed, reason } = bringState(m)
+    const n = files.length
     const bringLabel = m.pending.length > 0 ? (running ? 'Bringing…' : `Bring ${n} from the Forge`) : null
     // A message that asks for a footer action sits in the footer, above the button it names, as the Forge clone box does
     // (the user's ask of 2026-11-09): the consent, then a file craftar kept while it was writing. It names Bring only when
@@ -980,7 +1005,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       attrs.title = off
     } else if (pending > 0) {
       attrs.disabled = ''
-      attrs.title = 'Update first: click Bring below, then discard'
+      // Bring is named "below" only when it can be clicked; otherwise the title says why Bring waits (the panel's convention).
+      const bring = bringState(m)
+      attrs.title = bring.allowed
+        ? 'Update first: click Bring below, then discard'
+        : `Update first: bring the files from the Forge, then discard.${bring.reason ? ` Bring waits: ${bring.reason.replace(/\.$/, '')}.` : ''}`
     } else if (busyHere) {
       attrs.disabled = ''
       attrs.title = 'a discard is running'
@@ -1035,6 +1064,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       tail()
       return
     }
+    // A remote Forge is fetched by the second read before the run; a Forge on this machine is read where it is (no fetch).
+    const fetchesForge = m?.forge?.freshness !== 'local'
     box.appendChild(t('h2', d.deleted ? `Delete ${name}?` : `Discard your edit of ${name}?`))
     if (d.message) box.appendChild(t('p', d.message, { class: 'note bad', 'data-role': 'discard-note' }))
     box.appendChild(t('p', d.deleted
@@ -1045,8 +1076,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (d.phase === 'confirm') {
       row.appendChild(back('Cancel'))
       row.appendChild(button(d.deleted ? 'Delete the file' : 'Discard the edit', { class: 'btn ember', 'data-action': 'discard-confirm' }, null, () => a.discardRun?.(d.path)))
-      toolbar.appendChild(t('p', 'the Forge is fetched first, then craftar drift discard runs on that copy · never --overwrite-drift', { class: 'fnote' }))
-    } else row.appendChild(button(d.phase === 'checking' ? 'Fetching the Forge…' : 'Discarding…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, null, null))
+      toolbar.appendChild(t('p', fetchesForge
+        ? 'the Forge is fetched first, then craftar drift discard runs on that copy · never --overwrite-drift'
+        : 'craftar drift discard runs on the Forge on this machine · never --overwrite-drift', { class: 'fnote' }))
+    } else row.appendChild(button(d.phase === 'checking' ? (fetchesForge ? 'Fetching the Forge…' : 'Checking…') : 'Discarding…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, null, null))
     tail()
   }
 
@@ -1211,7 +1244,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // P2: what the terminal will show and ask, read before it opens. The question is craftar's own words, verbatim.
     const explain = box.appendChild(h('div', { class: 'note bad consent-explain', 'data-role': 'consent-explain' }))
     explain.appendChild(t('p', "The terminal shows this workspace's Forge, the ref and the profile, then craftar asks:"))
-    explain.appendChild(t('pre', CONSENT_QUESTION, { class: 'words' }))
+    explain.appendChild(t('pre', consentQuestion(version), { class: 'words' }))
     const yes = explain.appendChild(h('p'))
     yes.appendChild(t('strong', 'To allow writes, type yes and press Enter.'))
     yes.appendChild(t('span', ' Enter alone, or no, answers no and writes nothing. The plugin never answers for you.'))
