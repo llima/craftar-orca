@@ -814,8 +814,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
   }
 
   // Item 5: the actions in a fixed footer toolbar, flat — bring from the Forge, send to the Forge.
-  function drawMainToolbar(m: PanelModel): void {
-    toolbar.replaceChildren()
+  /** Whether Bring can be clicked, and why not: one answer for the footer and every text that names Bring. */
+  function bringState(m: PanelModel): { files: string[]; running: boolean; allowed: boolean; reason: string | null } {
     const u = v.update
     const files = u ? u.files.map((x) => x.path) : m.pending.map((x) => x.path)
     const n = files.length
@@ -829,6 +829,13 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
         : u
           ? (u.reason ?? (running ? 'craftar is updating this workspace' : n === 0 ? 'the plugin has no file to bring yet: click Check again at the top' : typeof a.updateRun !== 'function' ? NOT_BUILT_UPDATE : null))
           : NOT_BUILT_UPDATE
+    return { files, running, allowed, reason }
+  }
+
+  function drawMainToolbar(m: PanelModel): void {
+    toolbar.replaceChildren()
+    const { files, running, allowed, reason } = bringState(m)
+    const n = files.length
     const bringLabel = m.pending.length > 0 ? (running ? 'Bringing…' : `Bring ${n} from the Forge`) : null
     // A message that asks for a footer action sits in the footer, above the button it names, as the Forge clone box does
     // (the user's ask of 2026-11-09): the consent, then a file craftar kept while it was writing. It names Bring only when
@@ -995,7 +1002,11 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       attrs.title = off
     } else if (pending > 0) {
       attrs.disabled = ''
-      attrs.title = 'Update first: click Bring below, then discard'
+      // Bring is named "below" only when it can be clicked; otherwise the title says why Bring waits (the panel's convention).
+      const bring = bringState(m)
+      attrs.title = bring.allowed
+        ? 'Update first: click Bring below, then discard'
+        : `Update first: bring the files from the Forge, then discard.${bring.reason ? ` Bring waits: ${bring.reason.replace(/\.$/, '')}.` : ''}`
     } else if (busyHere) {
       attrs.disabled = ''
       attrs.title = 'a discard is running'
