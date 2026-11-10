@@ -40,7 +40,7 @@ function draw(v: View, notice: string | null = null) {
 }
 
 const TEXT = 'writing is not allowed in this workspace: run craftar mcp allow-writes in a terminal'
-const QUESTION = 'Let craftar mcp --allow-writes write here [no]: '
+const QUESTION = 'Let craftar mcp --allow-writes write here [yes/no]: '
 const role = (root: FakeEl, r: string): FakeEl[] => all(root).filter((e) => e.attrs['data-role'] === r)
 
 test('P2: before the terminal opens, the card says what craftar will ask and to type yes, highlighted', () => {
@@ -101,4 +101,50 @@ test('P3: a first read shows the strip too, in place of the bare Reading line', 
   const p = role(root, 'progress')
   assert.equal(p.length, 1)
   assert.match(p[0].textContent, /craftar is reading this workspace/)
+})
+
+// craftar 1.10.1 asks `[yes/no]`: the card quotes the question the person's craftar asks, by the self-check's version
+// (the user's ruling of 2026-11-10), the newest words when the version is not known.
+const Q_1_9 = 'Let craftar mcp --allow-writes write here [no]: '
+const Q_1_10_0 = 'Let craftar mcp --allow-writes write here? Type yes or no [no]: '
+const Q_1_10_1 = 'Let craftar mcp --allow-writes write here [yes/no]: '
+const explainFor = (version: string | null): string => {
+  const selfCheck = version === null ? [] : [{ level: 'ok' as const, message: `version ${version}` }]
+  const { root } = draw(view({ selfCheck, sync: { phase: 'consent', message: TEXT }, consent: { text: TEXT, terminal: 'offered', steps: [] } } as never))
+  return role(role(root, 'consent')[0], 'consent-explain')[0].textContent
+}
+
+test('the consent card quotes the question by craftar version: 1.10.1 and above ask [yes/no]', () => {
+  for (const v of ['1.10.1', '1.11.0', '2.0.0']) {
+    const text = explainFor(v)
+    assert.ok(text.includes(Q_1_10_1), v)
+    assert.ok(!text.includes(Q_1_10_0) && !text.includes(Q_1_9), v)
+  }
+})
+
+test('the consent card quotes the question by craftar version: 1.10.0 asks its own words', () => {
+  const text = explainFor('1.10.0')
+  assert.ok(text.includes(Q_1_10_0))
+  assert.ok(!text.includes(Q_1_10_1))
+})
+
+test('the consent card quotes the question by craftar version: below 1.10.0 the [no] words', () => {
+  for (const v of ['1.9.0', '0.35.0', '1.9.9']) {
+    const text = explainFor(v)
+    assert.ok(text.includes(Q_1_9), v)
+    assert.ok(!text.includes(Q_1_10_1) && !text.includes(Q_1_10_0), v)
+  }
+})
+
+test('the consent card quotes the newest words when craftar version is not known', () => {
+  assert.ok(explainFor(null).includes(Q_1_10_1))
+  assert.ok(explainFor('not-a-version').includes(Q_1_10_1))
+})
+
+test('the instructions beside the quote stay true for every version', () => {
+  for (const v of ['1.9.0', '1.10.0', '1.10.1']) {
+    const text = explainFor(v)
+    assert.match(text, /type yes and press Enter/, v)
+    assert.match(text, /Enter alone, or no, answers no/, v)
+  }
 })

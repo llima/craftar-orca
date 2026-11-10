@@ -12,8 +12,23 @@ import { EXAMPLE_SETTINGS } from './discard'
 import { fromSharedBase, SHARED_BASE_LINE } from './shared-base'
 import { cachedAgeLine, classify, counted as needsLook, type Message } from './messages'
 
-// craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim.
-export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [no]: '
+// craftar's question in `craftar mcp allow-writes` (craftar-cli src/core/write-actions.ts, confirmWrites), quoted verbatim:
+// the newest words, asked since craftar 1.10.1. An older craftar asks other words, so the card quotes by the self-check's version
+// (`consentQuestion`); human output, outside craftar's promise, so each row is pinned by a test here.
+export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [yes/no]: '
+const CONSENT_QUESTION_1_10_0 = 'Let craftar mcp --allow-writes write here? Type yes or no [no]: '
+const CONSENT_QUESTION_1_9 = 'Let craftar mcp --allow-writes write here [no]: '
+
+/** The question the person's craftar asks: by its version, the newest words when the version is not known. */
+export function consentQuestion(version: string | null): string {
+  const v = version === null ? null : /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
+  if (!v) return CONSENT_QUESTION
+  const [major, minor, patch] = [Number(v[1]), Number(v[2]), Number(v[3])]
+  const below = (a: number, b: number, c: number): boolean => major !== a ? major < a : minor !== b ? minor < b : patch < c
+  if (below(1, 10, 0)) return CONSENT_QUESTION_1_9
+  if (below(1, 10, 1)) return CONSENT_QUESTION_1_10_0
+  return CONSENT_QUESTION
+}
 
 const SVG = 'http://www.w3.org/2000/svg'
 
@@ -1211,7 +1226,7 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     // P2: what the terminal will show and ask, read before it opens. The question is craftar's own words, verbatim.
     const explain = box.appendChild(h('div', { class: 'note bad consent-explain', 'data-role': 'consent-explain' }))
     explain.appendChild(t('p', "The terminal shows this workspace's Forge, the ref and the profile, then craftar asks:"))
-    explain.appendChild(t('pre', CONSENT_QUESTION, { class: 'words' }))
+    explain.appendChild(t('pre', consentQuestion(version), { class: 'words' }))
     const yes = explain.appendChild(h('p'))
     yes.appendChild(t('strong', 'To allow writes, type yes and press Enter.'))
     yes.appendChild(t('span', ' Enter alone, or no, answers no and writes nothing. The plugin never answers for you.'))

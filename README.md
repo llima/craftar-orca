@@ -144,8 +144,8 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   panel shows, in its footer above *Bring*, craftar's words and offers **Open a terminal to allow writes**: a terminal in the workspace running your craftar's
   `mcp allow-writes --workspace <dir>`, quoted for the shell a one-line probe found (`echo craftar-shell:$0`: bash, zsh, sh or
   PowerShell), where you answer its question yourself. Before it opens, the card says, in the alert colour, that the terminal shows
-  the workspace's Forge, ref and profile, then asks craftar's question (`Let craftar mcp --allow-writes write here [no]: `), and that
-  you type `yes` to allow writes. The plugin then reads that terminal for craftar's last words, `write consent recorded for` or
+  the workspace's Forge, ref and profile, then asks craftar's question, quoted as your craftar asks it (`Let craftar mcp --allow-writes write here [yes/no]: `
+  since craftar 1.10.1; the words of 1.10.0, or of 1.9.0 and before, for an older one), and that you type `yes` to allow writes. The plugin then reads that terminal for craftar's last words, `write consent recorded for` or
   `allow-writes cancelled` (nothing else of it is kept, for ten minutes at most), and the card follows: writes allowed, or your no,
   with the terminal offered again. It never runs the sync by itself: the next *Bring* is your click. While the sync runs, a progress
   strip says so. Orca opens a plugin's terminal in the background, so the plugin brings it
