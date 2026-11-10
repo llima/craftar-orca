@@ -103,7 +103,7 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   and says the edit is lost for good (for an `orphan-drift`, that the file is deleted). The second click reads `status` again, with a fetch for a remote Forge (a Forge on this machine is read where it is): a
   failed fetch or a pending file cancels, writing nothing, and a Forge that moved (its commit, the row, or the diff) draws the confirmation
   again on the new text. Then it runs `craftar drift discard <path> --workspace <dir> --offline` as a child with an argument array, against the
-  copy just fetched, never `--overwrite-drift`, never through `craftar mcp` or a terminal; the periodic check holds that Forge's fetches
+  copy just fetched (or the Forge on this machine), never `--overwrite-drift`, never through `craftar mcp` or a terminal; the periodic check holds that Forge's fetches
   meanwhile. A refusal is shown as craftar words it (its stderr and stdout); afterwards the panel reads the workspace again and lists what
   else moved and craftar's warnings. Nothing is staged or committed. With *Fetch a remote Forge* off, Discard stays off for a remote Forge.
 - **On save** (Orca's `editor.save.before`) the plugin marks a file craftar lists as "edited, not yet in the Forge" and asks for a read
@@ -145,7 +145,7 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
   `mcp allow-writes --workspace <dir>`, quoted for the shell a one-line probe found (`echo craftar-shell:$0`: bash, zsh, sh or
   PowerShell), where you answer its question yourself. Before it opens, the card says, in the alert colour, that the terminal shows
   the workspace's Forge, ref and profile, then asks craftar's question, quoted as your craftar asks it (`Let craftar mcp --allow-writes write here [yes/no]: `
-  since craftar 1.10.1; the words of 1.10.0, or of 1.9.0 and before, for an older one), and that you type `yes` to allow writes. The plugin then reads that terminal for craftar's last words, `write consent recorded for` or
+  since craftar 1.10.1; the words of 1.10.0, or of 1.9.0 and before, for an older one; the newest words when the version is not known), and that you type `yes` to allow writes. The plugin then reads that terminal for craftar's last words, `write consent recorded for` or
   `allow-writes cancelled` (nothing else of it is kept, for ten minutes at most), and the card follows: writes allowed, or your no,
   with the terminal offered again. It never runs the sync by itself: the next *Bring* is your click. While the sync runs, a progress
   strip says so. Orca opens a plugin's terminal in the background, so the plugin brings it

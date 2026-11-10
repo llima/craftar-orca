@@ -1448,7 +1448,7 @@ async function shellOf(s: State, workspaceId: string): Promise<Shell> {
 
 /**
  * O2: a terminal in the focused workspace running the person's craftar `mcp allow-writes --workspace <dir>`,
- * quoted for its shell; the person reads what it allows and answers its [no] question. Never sendText. A
+ * quoted for its shell; the person reads what it allows and answers its question. Never sendText. A
  * shell the probe does not recognise (or cmd, S4) gets no terminal: the steps stay in words.
  */
 let consentBusy = false

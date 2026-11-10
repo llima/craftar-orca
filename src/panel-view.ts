@@ -19,7 +19,10 @@ export const CONSENT_QUESTION = 'Let craftar mcp --allow-writes write here [yes/
 const CONSENT_QUESTION_1_10_0 = 'Let craftar mcp --allow-writes write here? Type yes or no [no]: '
 const CONSENT_QUESTION_1_9 = 'Let craftar mcp --allow-writes write here [no]: '
 
-/** The question the person's craftar asks: by its version, the newest words when the version is not known. */
+/**
+ * The question the person's craftar asks: by its version, the newest words when the version is not known. Its own comparison,
+ * since the panel does not import `self-check.ts` (`versionAtLeast`), which brings the worker's child runner with it.
+ */
 export function consentQuestion(version: string | null): string {
   const v = version === null ? null : /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
   if (!v) return CONSENT_QUESTION
