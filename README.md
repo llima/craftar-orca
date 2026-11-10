@@ -98,9 +98,9 @@ you see, never a commit by the plugin itself; and **Discard** of a hand edit (sp
 - **Discard** (spec 60 §8a) puts back what craftar writes for one file you edited by hand by mistake. It is on a `drift` row of "Edited
   here" and an `orphan-drift` row of "Kept apart", never on `.claude/settings.craftar.example.json` (a value may have been typed there) or a
   collision. `craftar drift discard` is a whole sync, so it is offered only when nothing else is pending (otherwise it reads *Update first*,
-  pointing at *Bring N from the Forge*). The first click opens a confirmation that names the file and shows craftar's diff of what will be written
+  pointing at *Bring N from the Forge* when Bring can be clicked, and saying why Bring waits when it cannot). The first click opens a confirmation that names the file and shows craftar's diff of what will be written
   (craftar's note where it withholds the content; a withheld file the Forge also changed is not offered, since no diff can show its new text),
-  and says the edit is lost for good (for an `orphan-drift`, that the file is deleted). The second click reads `status` again with a fetch: a
+  and says the edit is lost for good (for an `orphan-drift`, that the file is deleted). The second click reads `status` again, with a fetch for a remote Forge (a Forge on this machine is read where it is): a
   failed fetch or a pending file cancels, writing nothing, and a Forge that moved (its commit, the row, or the diff) draws the confirmation
   again on the new text. Then it runs `craftar drift discard <path> --workspace <dir> --offline` as a child with an argument array, against the
   copy just fetched, never `--overwrite-drift`, never through `craftar mcp` or a terminal; the periodic check holds that Forge's fetches
