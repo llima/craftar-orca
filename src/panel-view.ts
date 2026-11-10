@@ -1050,6 +1050,8 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
       tail()
       return
     }
+    // A remote Forge is fetched by the second read before the run; a Forge on this machine is read where it is (no fetch).
+    const fetchesForge = m?.forge?.freshness !== 'local'
     box.appendChild(t('h2', d.deleted ? `Delete ${name}?` : `Discard your edit of ${name}?`))
     if (d.message) box.appendChild(t('p', d.message, { class: 'note bad', 'data-role': 'discard-note' }))
     box.appendChild(t('p', d.deleted
@@ -1060,8 +1062,10 @@ export function render(doc: Doc, root: HTMLElement, v: PanelView, a: Actions, di
     if (d.phase === 'confirm') {
       row.appendChild(back('Cancel'))
       row.appendChild(button(d.deleted ? 'Delete the file' : 'Discard the edit', { class: 'btn ember', 'data-action': 'discard-confirm' }, null, () => a.discardRun?.(d.path)))
-      toolbar.appendChild(t('p', 'the Forge is fetched first, then craftar drift discard runs on that copy · never --overwrite-drift', { class: 'fnote' }))
-    } else row.appendChild(button(d.phase === 'checking' ? 'Fetching the Forge…' : 'Discarding…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, null, null))
+      toolbar.appendChild(t('p', fetchesForge
+        ? 'the Forge is fetched first, then craftar drift discard runs on that copy · never --overwrite-drift'
+        : 'craftar drift discard runs on the Forge on this machine · never --overwrite-drift', { class: 'fnote' }))
+    } else row.appendChild(button(d.phase === 'checking' ? (fetchesForge ? 'Fetching the Forge…' : 'Checking…') : 'Discarding…', { class: 'btn ember', disabled: '', 'aria-busy': 'true' }, null, null))
     tail()
   }
 

@@ -93,3 +93,32 @@ test('with "Fetch a remote Forge" off for a remote Forge, Discard is off with th
   assert.equal(b.textContent, 'Discard')
   assert.match(b.attrs.title, /Fetch a remote Forge/)
 })
+
+// The confirmation's footer and busy label say what happens for the Forge at hand: a remote Forge is fetched first, a Forge on
+// this machine is not fetched at all (the brief of 2026-11-10).
+const remote = (m: PanelModel) => { quiet(m); if (m.forge) m.forge = { ...m.forge, freshness: 'fetched' } }
+const footer = (root: FakeEl): string => all(root).filter((e) => (e.attrs.class ?? '').split(' ').includes('fnote')).map((e) => e.textContent).join('\n')
+
+test('the confirmation footer says a remote Forge is fetched first, then discard runs on that copy', () => {
+  const d = { path: EDITED, phase: 'confirm' as const, deleted: false, diff: '- a\n+ b', note: null, message: null, after: null }
+  const text = footer(draw(view(remote, { discard: d })).root)
+  assert.match(text, /the Forge is fetched first, then craftar drift discard runs on that copy/)
+  assert.match(text, /never --overwrite-drift/)
+})
+
+test('the confirmation footer for a Forge on this machine says nothing is fetched', () => {
+  const d = { path: EDITED, phase: 'confirm' as const, deleted: false, diff: '- a\n+ b', note: null, message: null, after: null }
+  const text = footer(draw(view(quiet, { discard: d })).root)
+  assert.doesNotMatch(text, /fetched/)
+  assert.match(text, /craftar drift discard runs on the Forge on this machine/)
+  assert.match(text, /never --overwrite-drift/)
+})
+
+test('while checking, the busy label reads Fetching the Forge only for a remote Forge', () => {
+  const d = { path: EDITED, phase: 'checking' as const, deleted: false, diff: null, note: null, message: null, after: null }
+  const busy = (root: FakeEl): string => all(root).filter((e) => e.attrs['aria-busy'] === 'true').map((e) => e.textContent).join('')
+  assert.match(busy(draw(view(remote, { discard: d })).root), /Fetching the Forge/)
+  const local = busy(draw(view(quiet, { discard: d })).root)
+  assert.doesNotMatch(local, /Fetching/)
+  assert.match(local, /Checking/)
+})
